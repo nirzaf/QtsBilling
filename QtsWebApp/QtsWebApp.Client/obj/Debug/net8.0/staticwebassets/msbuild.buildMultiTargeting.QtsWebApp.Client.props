@@ -1,0 +1,3 @@
+﻿<Project>
+  <Import Project="..\build\QtsWebApp.Client.props" />
+</Project>

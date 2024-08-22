@@ -1,0 +1,23 @@
+@using QtsModels
+@inject IDialogService DialogService
+
+<MudDialog>
+    <DialogContent>
+        <MudTextField @bind-Value="NewCustomer.Name" Label="Name" />
+        <MudTextField @bind-Value="NewCustomer.Email" Label="Email" />
+        <MudTextField @bind-Value="NewCustomer.Phone" Label="Phone" />
+        <MudTextField @bind-Value="NewCustomer.Address" Label="Address" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="Cancel">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="Submit">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+@code {
+    [CascadingParameter] MudDialogInstance? MudDialog { get; set; }
+    [Parameter] public Customer NewCustomer { get; set; } = new();
+
+    private void Submit() => MudDialog?.Close(DialogResult.Ok(NewCustomer));
+    private void Cancel() => MudDialog?.Cancel();
+}    

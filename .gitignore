@@ -1,0 +1,167 @@
+# Ignore .NET build folders
+QtsBilling/bin/
+QtsBilling/obj/
+
+QtsModels/bin/
+QtsModels/obj/
+
+QtsServices/bin/
+QtsServices/obj/
+
+QtsWebApp/bin/
+QtsWebApp/obj/
+
+QtsWebApp/QtsWebApp/bin/
+QtsWebApp/QtsWebApp/obj/
+
+
+QtsWebApp/QtsWebApp/QtsWebApp.Client/Properties/
+QtsWebApp/QtsWebApp/QtsWebApp.Client/wwwroot/
+
+QtsWebApp/QtsWebApp/QtsWebApp/Properties/
+QtsWebApp/QtsWebApp/QtsWebApp/bin/
+QtsWebApp/QtsWebApp/QtsWebApp/obj/
+
+QtsWebApp/QtsWebApp/QtsWebApp/QtsWebApp.Client/bin/
+QtsWebApp/QtsWebApp/QtsWebApp/QtsWebApp.Client/obj/
+
+TestQtsBilling/bin/
+TestQtsBilling/obj/
+
+*.dll
+
+# Ignore Visual Studio temporary files, build results, and
+# user-generated files
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+
+# User-specific files
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# User-specific files (MonoDevelop/Xamarin Studio)
+*.userprefs
+
+# Mono Auto Generated Files
+mono_crash.*
+
+# Windows image file caches
+Thumbs.db
+ehthumbs.db
+
+# Folder config file
+Desktop.ini
+
+# Recycle Bin used on file shares
+$RECYCLE.BIN/
+
+# VS Code directories
+.vscode/
+.vscode/*
+
+# TODO: CLI tool caches
+/.dotnet/
+
+# Windows Installer files
+*.cab
+*.msi
+*.msm
+*.msp
+
+# Windows shortcuts
+*.lnk
+
+# JetBrains Rider
+.idea/
+.idea/*
+*_hidden/
+*.dotSettings.user
+
+# Rider plugin working folders
+.idea
+.idea_modules
+.idea.config
+.idea.research
+
+# database folder
+.db/
+out/
+
+# Rider
+.idea/
+
+# Uncomment if using
+## ASP.NET Scaffolding
+ScaffoldedMigration
+PubTmp
+
+# Azure configuration
+Azure/*
+
+# DotNetCore
+project.lock.json
+project.fragment.lock.json
+
+# .NET Core
+project.lock.json
+project.fragment.lock.json
+artifacts/
+
+# Auto-generated schema
+_schema.*
+
+# Windows certificate store files
+*.pfx
+
+# Windows certificate enrollment request files
+*.csr
+
+# Rider configuration folder
+.idea/
+*/.idea/*
+*.sln.iml
+
+# Ignore node_modules folder
+node_modules/
+
+# Ignore npm debug log
+npm-debug.log
+*node_modules/*
+
+# Ignore Bower components
+bower_components/
+
+# Ignore Sass cache
+.sass-cache/
+
+# Ignore Dependency directories
+jspm_packages/
+
+# Ignore API resources cache
+.docz/
+
+# Ignore build outcome of angular-cli, ng-packagr
+/dist/
+/.ang/
+
+# logs (optional)
+npm-debug.log
+yarn-debug.log*
+yarn-error.log*
+
+# Ignore coverage report
+coverage/
+coverage*.json
+
+# Ignore the .vs and .vscode folders
+.vs/
+.vscode/
+
+# "TestQtsBilling" project file
+/TestQtsBilling/TestQtsBilling.csproj
