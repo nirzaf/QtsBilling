@@ -3,39 +3,39 @@
 ##
 ## Get latest from https://github.com/github/gitignore/blob/master/VisualStudio.gitignore
 
+# Ignore build output and debug files
+*.pdb
+*.dll
+*.wasm
+*.wasm.gz
+*.json.gz
+*.cache
+*.tmp
+
+# Ignore the bin and obj directories
+bin/
+obj/
+
+# Ignore files related to the .NET framework and WebAssembly
+wwwroot/_framework/
+wwwroot/tmp-webcil/
+wwwroot/webcil/
+tmp-webcil/
+webcil/
+
+# Ignore Assembly Info files
+*AssemblyInfo*.cs
+
+# Ignore compressed files
+*.gz
+
+
 # User-specific files
 *.rsuser
 *.suo
 *.user
 *.userosscache
 *.sln.docstates
-
-# Ignore compressed files
-*.json.gz
-
-# Ignore assembly and debugging files
-*.pdb
-*.dll
-
-# Ignore WebAssembly files
-*.wasm
-*.wasm.gz
-
-# Ignore cache and temporary files
-*.cache
-*.tmp
-
-# Ignore the .NET build directories
-bin/
-obj/
-
-# Ignore the WebAssembly framework directory
-wwwroot/_framework/
-
-# Ignore WebAssembly-specific directories
-tmp-webcil/
-webcil/
-
 
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
@@ -100,7 +100,6 @@ StyleCopReport.xml
 *.obj
 *.iobj
 *.pch
-*.pdb
 *.ipdb
 *.pgc
 *.pgd
@@ -109,7 +108,6 @@ StyleCopReport.xml
 *.tlb
 *.tli
 *.tlh
-*.tmp
 *.tmp_proj
 *_wpftmp.csproj
 *.log
