@@ -10,6 +10,33 @@
 *.userosscache
 *.sln.docstates
 
+# Ignore compressed files
+*.json.gz
+
+# Ignore assembly and debugging files
+*.pdb
+*.dll
+
+# Ignore WebAssembly files
+*.wasm
+*.wasm.gz
+
+# Ignore cache and temporary files
+*.cache
+*.tmp
+
+# Ignore the .NET build directories
+bin/
+obj/
+
+# Ignore the WebAssembly framework directory
+wwwroot/_framework/
+
+# Ignore WebAssembly-specific directories
+tmp-webcil/
+webcil/
+
+
 # User-specific files (MonoDevelop/Xamarin Studio)
 *.userprefs
 
