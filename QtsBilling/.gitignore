@@ -359,5 +359,11 @@ MigrationBackup/
 # Ionide (cross platform F# VS Code tools) working folder
 .ionide/
 
-# Fody - auto-generated XML schema
-FodyWeavers.xsd
+# WebAssembly files
+*.wasm
+*.wasm.gz
+*.json.gz
+
+# WebAssembly directories
+tmp-webcil/
+webcil/
