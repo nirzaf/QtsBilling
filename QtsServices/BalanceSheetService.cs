@@ -54,7 +54,7 @@ public class BalanceSheetService
         }
     }
 
-    public bool DeleteBalanceSheet(string balanceSheetId)
+    public bool DeleteBalanceSheet(string? balanceSheetId)
     {
         try
         {
@@ -75,7 +75,7 @@ public class BalanceSheetService
         return _balanceSheetsCollection.Find(new BsonDocument()).ToList();
     }
 
-    public BalanceSheet GetBalanceSheetById(string balanceSheetId)
+    public BalanceSheet GetBalanceSheetById(string? balanceSheetId)
     {
         return _balanceSheetsCollection.Find(b => b.Id == balanceSheetId).FirstOrDefault();
     }

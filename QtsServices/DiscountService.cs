@@ -67,7 +67,7 @@ public class DiscountService
         }
     }
 
-    public bool DeleteDiscount(string discountId)
+    public bool DeleteDiscount(string? discountId)
     {
         try
         {
@@ -88,7 +88,7 @@ public class DiscountService
         return _discountsCollection.Find(new BsonDocument()).ToList();
     }
 
-    public Discount GetDiscountById(string discountId)
+    public Discount GetDiscountById(string? discountId)
     {
         return _discountsCollection.Find(d => d.Id == discountId).FirstOrDefault();
     }

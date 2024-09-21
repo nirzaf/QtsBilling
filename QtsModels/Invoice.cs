@@ -7,13 +7,14 @@ public class Invoice
 {
     [BsonId]
     [BsonRepresentation(BsonType.ObjectId)]
-    public string Id { get; set; }
+    public required string Id { get; set; }
 
-    public string CustomerId { get; set; }
-    public DateTime Date { get; set; }
-    public List<Product> Products { get; set; }
-    public decimal TotalAmount { get; set; }
-    public InvoiceStatus Status { get; set; }
+    public required string CustomerId { get; set; }
+    public required DateTime Date { get; set; }
+    public required List<Product> Products { get; set; }
+
+    public required decimal TotalAmount { get; set; }
+    public required InvoiceStatus Status { get; set; }
 }
 
 public enum InvoiceStatus

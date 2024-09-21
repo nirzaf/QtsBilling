@@ -76,13 +76,13 @@ public class AccountingService
         return _transactionsCollection.Find(filter).ToList();
     }
 
-    public decimal GetAccountBalance(string accountId)
+    public decimal GetAccountBalance(string? accountId)
     {
         var account = _accountsCollection.Find(a => a.Id == accountId).FirstOrDefault();
         return account?.Balance ?? 0;
     }
 
-    public bool UpdateAccountBalance(string accountId, decimal newBalance)
+    public bool UpdateAccountBalance(string? accountId, decimal newBalance)
     {
         try
         {
@@ -99,7 +99,7 @@ public class AccountingService
         }
     }
 
-    public bool DeleteAccount(string accountId)
+    public bool DeleteAccount(string? accountId)
     {
         try
         {

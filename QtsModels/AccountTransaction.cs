@@ -7,13 +7,13 @@ public class AccountTransaction : BaseEntity
 {
     public int AccountId { get; set; }
 
-    public string Type { get; set; } // "debit" or "credit"
+    public string? Type { get; set; } // "debit" or "credit"
 
-    public string SubType { get; set; } // "opening_balance", "fund_transfer", or "deposit"
+    public string? SubType { get; set; } // "opening_balance", "fund_transfer", or "deposit"
 
     public decimal Amount { get; set; }
 
-    public string ReffNo { get; set; }
+    public string? ReffNo { get; set; }
 
     public DateTime OperationDate { get; set; }
 
@@ -25,5 +25,5 @@ public class AccountTransaction : BaseEntity
 
     public int? TransferTransactionId { get; set; }
 
-    public string Note { get; set; }
+    public string? Note { get; set; }
 }

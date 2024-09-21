@@ -21,8 +21,6 @@ public static class EncryptionService
         cs.Close();
         return Convert.ToBase64String(ms.ToArray());
     }
-     
-    
     
     // generate a AES decryption method to decrypt any string
     public static string DecryptThis(this string textToDecrypt)

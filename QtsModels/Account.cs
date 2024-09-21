@@ -10,9 +10,9 @@ public class Account : BaseEntity
     public decimal Balance { get; set; }
 
     public int BusinessId { get; set; }
-    public string AccountNumber { get; set; }
+    public string? AccountNumber { get; set; }
     public int? AccountTypeId { get; set; }
-    public string Note { get; set; }
+    public string? Note { get; set; }
     public int CreatedBy { get; set; }
     public bool IsClosed { get; set; }
 }

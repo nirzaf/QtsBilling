@@ -7,7 +7,7 @@ public class CustomerGroup : BaseEntity
 {
     public int BusinessId { get; set; }
 
-    public string Name { get; set; }
+    public required string Name { get; set; }
 
     public decimal Amount { get; set; }
 

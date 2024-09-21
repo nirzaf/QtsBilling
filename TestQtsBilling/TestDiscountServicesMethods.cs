@@ -173,7 +173,7 @@ public class TestDiscountServicesMethods(ITestOutputHelper output)
         Assert.True(isDeleted);
     }
     
-    private bool DeleteDiscount_ExistingDiscount_Returns_True(string id)
+    private bool DeleteDiscount_ExistingDiscount_Returns_True(string? id)
     {
         DiscountService service = new();
         var result = service.DeleteDiscount(id);

@@ -16,8 +16,9 @@
 
 @code {
     [CascadingParameter] MudDialogInstance? MudDialog { get; set; }
-    [Parameter] public Customer NewCustomer { get; set; } = new();
+    [Parameter] 
+    public Customer NewCustomer { get; set; } = new() { Id = Guid.NewGuid().ToString()};
 
     private void Submit() => MudDialog?.Close(DialogResult.Ok(NewCustomer));
     private void Cancel() => MudDialog?.Cancel();
-}    
+}

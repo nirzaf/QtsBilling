@@ -18,6 +18,7 @@ public partial class Customers : Form
         CustomerService customerService = new();
         var customer = new Customer
         {
+            Id = Guid.NewGuid().ToString(),
             Name = TextBoxForName.Text,
             Address = TextBoxForAddress.Text,
             Phone = TextBoxForMobile.Text,
@@ -27,7 +28,6 @@ public partial class Customers : Form
         MessageBox.Show(customerService.AddCustomer(customer)? "Customer added successfully" : "Failed to add customer");
         LoadCustomersDgv();
     }
-
     private void Customers_Load(object sender, EventArgs e)
     {
         LoadCustomersDgv();
@@ -35,23 +35,31 @@ public partial class Customers : Form
 
     private void LoadCustomersDgv()
     {
-        SystemUtilitiesService systemUtilitiesService = new();
-        systemUtilitiesService.SyncLocalWithCloud();
+        //SystemUtilitiesService systemUtilitiesService = new();
+        //systemUtilitiesService.SyncLocalWithCloud();
         CustomerService customerService = new();
         var customers = customerService.GetCustomers();
         DgvCustomers.DataSource = customers;
         DgvCustomers.Columns["IsDeleted"]!.Visible = false;
         DgvCustomers.Columns["Id"]!.Visible = false;
-    }
+        DgvCustomers.Columns["CreatedAt"]!.Visible = false;
+        DgvCustomers.Columns["UpdatedAt"]!.Visible = false;
+        DgvCustomers.Columns["DeletedAt"]!.Visible = false;
+        DgvCustomers.Columns["IsEditing"]!.Visible = false;
 
+        DgvCustomers.Columns["Name"]!.HeaderText = @"Customer Name";
+        DgvCustomers.Columns["Phone"]!.HeaderText = @"Mobile";
+        DgvCustomers.Columns["Email"]!.HeaderText = @"Email";
+        DgvCustomers.Columns["Address"]!.HeaderText = @"Address";
+    }
     private void DgvCustomers_CellClick(object sender, DataGridViewCellEventArgs e)
     {
         if (DgvCustomers.SelectedRows.Count <= 0) return;
 
-        TextBoxForName.Text = DgvCustomers.SelectedRows[0].Cells["Name"].Value.ToString();
-        TextBoxForEmail.Text = DgvCustomers.SelectedRows[0].Cells["Email"].Value.ToString();
-        TextBoxForMobile.Text = DgvCustomers.SelectedRows[0].Cells["Phone"].Value.ToString();
-        TextBoxForAddress.Text = DgvCustomers.SelectedRows[0].Cells["Address"].Value.ToString();
+        TextBoxForName.Text = DgvCustomers.SelectedRows[0].Cells["Name"].Value?.ToString() ?? string.Empty;
+        TextBoxForEmail.Text = DgvCustomers.SelectedRows[0].Cells["Email"].Value?.ToString() ?? string.Empty;
+        TextBoxForMobile.Text = DgvCustomers.SelectedRows[0].Cells["Phone"].Value?.ToString() ?? string.Empty;
+        TextBoxForAddress.Text = DgvCustomers.SelectedRows[0].Cells["Address"].Value?.ToString() ?? string.Empty;
         CustomerService customerService = new();
         SelectedCustomerId = customerService.GetCustomerIdByPhone(TextBoxForMobile.Text.Trim());
     }
@@ -62,6 +70,7 @@ public partial class Customers : Form
         {
             Customer updateCustomer = new()
             {
+                Id = SelectedCustomerId,
                 Name = TextBoxForName.Text.Trim(),
                 Email = TextBoxForEmail.Text.Trim(),
                 Phone = TextBoxForMobile.Text.Trim(),
@@ -80,7 +89,6 @@ public partial class Customers : Form
             es.CreateLog(ex);
         }
     }
-
     private void BtnAddCustomer_Click(object sender, EventArgs e)
     {
         TextBoxForName.Text = string.Empty;

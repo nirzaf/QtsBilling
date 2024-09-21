@@ -11,7 +11,7 @@ public class CashRegister : BaseEntity
 
     public int? UserId { get; set; }
 
-    public string Status { get; set; } // "close" or "open"
+    public string? Status { get; set; } // "close" or "open"
 
     public DateTime? ClosedAt { get; set; }
 
@@ -21,5 +21,5 @@ public class CashRegister : BaseEntity
 
     public int TotalCheques { get; set; }
 
-    public string ClosingNote { get; set; }
+    public string? ClosingNote { get; set; }
 }

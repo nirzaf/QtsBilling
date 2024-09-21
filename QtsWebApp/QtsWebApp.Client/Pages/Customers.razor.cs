@@ -93,11 +93,10 @@ public partial class Customers : IDisposable
     }
     
     private bool _addCustomerDialogVisible;
-    private readonly Customer _newCustomer = new();
-
+    private readonly Customer _newCustomer = new() { Id = Guid.NewGuid().ToString() };
     private async Task AddCustomer()
     {
-        var parameters = new DialogParameters { { "NewCustomer", new Customer() } };
+        var parameters = new DialogParameters { { "NewCustomer", new Customer { Id = Guid.NewGuid().ToString() } } };
 
         var dialog = await DialogService.ShowAsync<AddCustomerDialog>("Add New Customer", parameters);
         var result = await dialog.Result;
@@ -115,7 +114,6 @@ public partial class Customers : IDisposable
             StateHasChanged();
         }
     }
-
     private void CancelAddCustomer()
     {
         _addCustomerDialogVisible = false;

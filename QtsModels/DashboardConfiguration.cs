@@ -9,9 +9,9 @@ public class DashboardConfiguration : BaseEntity
 
     public int CreatedBy { get; set; }
 
-    public string Name { get; set; }
+    public required string Name { get; set; }
 
-    public string Color { get; set; }
+    public string? Color { get; set; }
 
-    public string Configuration { get; set; } // JSON string
+    public string? Configuration { get; set; } // JSON string
 }

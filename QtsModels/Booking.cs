@@ -23,7 +23,7 @@ public class Booking : BaseEntity
 
     public int CreatedBy { get; set; }
 
-    public string BookingStatus { get; set; }
+    public string? BookingStatus { get; set; }
 
-    public string BookingNote { get; set; }
+    public string? BookingNote { get; set; }
 }

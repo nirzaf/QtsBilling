@@ -149,7 +149,7 @@ public class TestBalanceSheetServicesMethods(ITestOutputHelper output)
         Assert.True(isDeleted);
     }
 
-    private bool DeleteBalanceSheet_ExistingBalanceSheet_ReturnsTrue(string id)
+    private bool DeleteBalanceSheet_ExistingBalanceSheet_ReturnsTrue(string? id)
     {
         BalanceSheetService service = new();
         var result = service.DeleteBalanceSheet(id);

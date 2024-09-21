@@ -80,7 +80,7 @@ public class TestCustomerServicesMethods(ITestOutputHelper output)
         Assert.True(isDeleted);
     }
 
-    private bool DeleteCustomer_ExistingCustomer_ReturnsTrue(string id)
+    private bool DeleteCustomer_ExistingCustomer_ReturnsTrue(string? id)
     {
         CustomerService service = new();
         var result = service.DeleteCustomer(id);

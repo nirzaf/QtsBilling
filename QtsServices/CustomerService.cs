@@ -10,7 +10,7 @@ public class CustomerService
 
     public CustomerService()
     {
-        var mongoClient = GetMongoClient(GlobalConstants.GetRemoteConnectionString());
+        var mongoClient = GetMongoClient(GlobalConstants.GetLocalConnectionString());
         var database = mongoClient.GetDatabase("qtsBilling");
 
         _customersCollection = database.GetCollection<Customer>("Customers");
@@ -44,7 +44,7 @@ public class CustomerService
         }
         catch
         {
-            return new Customer();
+            return new Customer { Id = String.Empty };
         }
     }
     
@@ -57,7 +57,7 @@ public class CustomerService
         }
         catch
         {
-            return new Customer();
+            return new Customer { Id = string.Empty };
         }
     }
 
