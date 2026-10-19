@@ -43,9 +43,9 @@ Paste logs here
 ## Environment
 
 - **OS:** [e.g. Windows 11 23H2]
-- **.NET SDK version:** [e.g. 8.0.400 — run `dotnet --version`]
-- **MongoDB version / hosting:** [e.g. 7.0 local, or Atlas M0]
-- **Client:** [WinForms desktop / Blazor web]
+- **.NET SDK version:** [e.g. 10.0.400 — run `dotnet --version`]
+- **PostgreSQL version / hosting:** [e.g. 18.x local, Docker, or managed]
+- **Client:** [Windows desktop (MAUI) / Blazor web]
 - **QtsBilling version or commit:** [e.g. `master @ abc1234`]
 
 ## Additional context

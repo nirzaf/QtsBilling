@@ -28,7 +28,7 @@ A clear and concise description of any alternative solutions or features you've 
 - [ ] Customers / Suppliers
 - [ ] Reporting / PDF
 - [ ] User Management / Security
-- [ ] WinForms desktop client
+- [ ] Windows desktop client (MAUI)
 - [ ] Blazor web client
 - [ ] Other (please describe)
 
