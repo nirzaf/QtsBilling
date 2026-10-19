@@ -89,12 +89,16 @@ public sealed class DeviceCatalogSync
 
     private async Task<Guid> ResolveLocationAsync(CancellationToken cancellationToken)
     {
-        if (_settings.LocationId is { } configured && configured != Guid.Empty)
+        var locations = await _inventory.GetLocationsAsync(cancellationToken).ConfigureAwait(false);
+
+        // The configured location is only kept when the server still knows it: a device that was
+        // re-enrolled to another business must not keep the old location.
+        if (_settings.LocationId is { } configured && configured != Guid.Empty
+            && locations.Any(candidate => candidate.Id == configured && candidate.IsActive))
         {
             return configured;
         }
 
-        var locations = await _inventory.GetLocationsAsync(cancellationToken).ConfigureAwait(false);
         var location = locations.FirstOrDefault(candidate => candidate.IsActive)
             ?? throw new ApiException(503, ApiErrorCodes.StoreUnavailable, "This business has no active location for the device.");
 
@@ -104,12 +108,15 @@ public sealed class DeviceCatalogSync
 
     private async Task ResolveRegisterAsync(Guid locationId, CancellationToken cancellationToken)
     {
-        if (_settings.RegisterId is { } configured && configured != Guid.Empty)
+        var registers = await _registers.GetRegistersAsync(cancellationToken).ConfigureAwait(false);
+
+        // The same rule as for the location: a register of another business is never reused.
+        if (_settings.RegisterId is { } configured && configured != Guid.Empty
+            && registers.Any(candidate => candidate.Id == configured && candidate.IsActive && candidate.LocationId == locationId))
         {
             return;
         }
 
-        var registers = await _registers.GetRegistersAsync(cancellationToken).ConfigureAwait(false);
         var register = registers.FirstOrDefault(candidate => candidate.IsActive && candidate.LocationId == locationId)
             ?? throw new ApiException(503, ApiErrorCodes.StoreUnavailable, "This business has no active cash register for the device location.");
 

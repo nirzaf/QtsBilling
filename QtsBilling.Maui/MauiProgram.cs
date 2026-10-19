@@ -53,7 +53,7 @@ public static class MauiProgram
         // Device synchronization (QB-22): the push/pull loop, the conflict queue and the background timer.
         builder.Services.AddScoped<ISyncCoordinator, DeviceSyncCoordinator>();
         builder.Services.AddScoped<ISyncConflictService, DeviceSyncConflictService>();
-        builder.Services.AddHostedService<DeviceSyncTimer>();
+        builder.Services.AddSingleton<DeviceSyncTimer>();
 
         // The browser never talks to a database; the desktop app uses the same typed API clients.
         builder.Services
@@ -109,6 +109,26 @@ public static class MauiProgram
         builder.Logging.AddDebug();
 #endif
 
-        return builder.Build();
+        var app = builder.Build();
+
+        // The device-local store is opened and migrated before the window exists, so no screen can query
+        // a database whose schema is not ready yet (QB-17/QB-22).
+        InitializeLocalStore(app);
+
+        return app;
+    }
+
+    private static void InitializeLocalStore(MauiApp app)
+    {
+        try
+        {
+            using var scope = app.Services.CreateScope();
+            var store = scope.ServiceProvider.GetRequiredService<SqliteLocalStore>();
+            store.InitializeAsync().GetAwaiter().GetResult();
+        }
+        catch (Exception exception)
+        {
+            System.Diagnostics.Debug.WriteLine($"QtsBilling.Maui could not open the local store: {exception}");
+        }
     }
 }

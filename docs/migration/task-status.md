@@ -30,7 +30,7 @@
 | QB-19 | Implement offline cash-only sale capture | **DONE (desktop capture)** | The shared point-of-sale view captures cash sales into the device-local store atomically (draft + lines + cash + outbox), shows a clearly provisional receipt with no invoice number, and lists the pending queue; a capture is accepted only after it is durably stored, one operation id can never create two sales, and the offline permission is limited to `sales.post` on an enrolled location/register. Verified with the server stopped and after a restart. |
 | QB-20 | Server idempotent sync-push handler | **DONE (endpoint + transaction)** | `POST /api/v1/sync/operations` (and a batch) accepts an offline operation exactly once: the receipt row and the sale share one transaction, a replay returns the original outcome, the same key with a different body is a stable 409, an unenrolled device or another business is refused, and the sale is posted by the shared QB-09 path (extracted into `SalePosting`). Verified live with five pushes of one operation. |
 | QB-21 | Implement safe server master-data change feed | **DONE (feed + revisions)** | Every master-data write appends its projection in the same transaction, with a row-locked per-business revision, so the feed order is the commit order; a device walks the `(revision, ordinal)` cursor, a deactivation is a tombstone, the feed is permission scoped and a cursor past the server is answered with `RESYNC_REQUIRED`. Verified live with four consecutive commit-ordered revisions. |
-| QB-22 | MAUI push/pull coordinator and conflict-resolution queue | TODO | |
+| QB-22 | MAUI push/pull coordinator and conflict-resolution queue | **DONE (device loop + conflict queue)** | The desktop client pushes its local outbox to POST /api/v1/sync/operations, stores the receipt, pulls the change feed into its cache and keeps a conflict queue for the operator when a server change touches a pending local sale. Verified live: an offline capture was pushed and posted exactly once, the feed was pulled and the cursor advanced, and the sync card shows the queue, the conflicts and the revision. |
 | QB-23 | Historical data export/inventory tooling | TODO | Needs an external legacy source. |
 | QB-24 | Deterministic transform and PostgreSQL import | TODO | `legacy_identifier_map` ready. |
 | QB-25 | Produce signed reconciliation report and account-reset plan | TODO | Blocked by QB-23/24. |
@@ -40,7 +40,7 @@
 | QB-29 | Retire the legacy desktop and data-access projects | **DONE** | The legacy desktop and data-access projects were removed from the solution; the MAUI client (QB-18) is the sole desktop host. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 
-## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14 / QB-16 / QB-17 / QB-18 / QB-19 / QB-20 / QB-21)
+## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14 / QB-16 / QB-17 / QB-18 / QB-19 / QB-20 / QB-21 / QB-22)
 
 - `QtsModels` — provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
 - `QtsBilling.Contracts` — wire DTOs (paging, customers, catalog, accounting, inventory, sales capture, sync envelopes, identity), canonical JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`) and `ApiException`.

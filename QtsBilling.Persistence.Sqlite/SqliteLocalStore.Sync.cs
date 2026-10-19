@@ -71,7 +71,7 @@ public sealed partial class SqliteLocalStore
                         Reason = "A pending local operation uses a record the server just changed.",
                         ServerValue = payload.GetRawText(),
                         LocalValue = await LocalValueForAsync(db, touched, cancellationToken).ConfigureAwait(false),
-                        DetectedAtUtc = DateTimeOffset.UtcNow,
+                        DetectedAtUtc = DateTime.UtcNow,
                     },
                     cancellationToken).ConfigureAwait(false);
 
@@ -122,7 +122,7 @@ public sealed partial class SqliteLocalStore
         }
 
         conflict.Resolution = resolution.ToString();
-        conflict.ResolvedAtUtc = DateTimeOffset.UtcNow;
+        conflict.ResolvedAtUtc = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
         return true;

@@ -20,9 +20,9 @@ public sealed class SyncConflict
 
     public string? LocalValue { get; set; }
 
-    public DateTimeOffset DetectedAtUtc { get; set; }
+    public DateTime DetectedAtUtc { get; set; }
 
-    public DateTimeOffset? ResolvedAtUtc { get; set; }
+    public DateTime? ResolvedAtUtc { get; set; }
 
     public string? Resolution { get; set; }
 }

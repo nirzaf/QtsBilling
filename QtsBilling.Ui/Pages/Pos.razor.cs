@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Pos;
@@ -102,13 +102,28 @@ public partial class Pos
         {
             _error = exception.Message;
         }
+        catch (Exception exception)
+        {
+            // The status is a convenience: it must never break the point of sale.
+            _error = exception.Message;
+        }
 
         var conflicts = ConflictService;
 
         if (conflicts is not null)
         {
-            _conflicts = [.. await conflicts.GetConflictsAsync()];
+            try
+            {
+                _conflicts = [.. await conflicts.GetConflictsAsync()];
+            }
+            catch (Exception exception)
+            {
+                _error = exception.Message;
+            }
         }
+
+        // The status arrives after the first render, so the card needs its own render.
+        StateHasChanged();
     }
 
     private async Task SyncNowAsync()

@@ -22,8 +22,8 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                     reason = table.Column<string>(type: "TEXT", maxLength: 256, nullable: false),
                     server_value = table.Column<string>(type: "TEXT", nullable: true),
                     local_value = table.Column<string>(type: "TEXT", nullable: true),
-                    detected_at_utc = table.Column<DateTimeOffset>(type: "TEXT", nullable: false),
-                    resolved_at_utc = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
+                    detected_at_utc = table.Column<DateTime>(type: "TEXT", nullable: false),
+                    resolved_at_utc = table.Column<DateTime>(type: "TEXT", nullable: true),
                     resolution = table.Column<string>(type: "TEXT", maxLength: 32, nullable: true)
                 },
                 constraints: table =>

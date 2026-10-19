@@ -176,7 +176,10 @@ public sealed class LocalPosStore
         return new LocalQueueSummary(summary.PendingOperations, summary.RejectedOperations, summary.ProvisionalCashAtRisk);
     }
 
-    /// <summary>Replaces the cached catalog and the cached stock for one business/location.</summary>
+    /// <summary>
+    /// Replaces the cached catalog and the cached stock for one business/location. The cache is rebuilt
+    /// first: a device that was enrolled to another business must not keep the rows of that business.
+    /// </summary>
     public async Task<int> ReplaceCatalogAsync(
         Guid businessId,
         Guid locationId,
@@ -184,6 +187,8 @@ public sealed class LocalPosStore
         CancellationToken cancellationToken = default)
     {
         ArgumentNullException.ThrowIfNull(items);
+
+        await _store.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
 
         var products = new List<CachedProduct>(items.Count);
         var stock = new List<CachedStock>(items.Count);

@@ -66,7 +66,7 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
 
             foreach (var operation in due)
             {
-                var envelope = BuildEnvelope(operation, out var payloadError);
+                SyncOperationEnvelope? envelope = BuildEnvelope(operation, out var payloadError);
 
                 if (envelope is null)
                 {
@@ -84,7 +84,29 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
                     continue;
                 }
 
-                var receipt = await _api.PushAsync(envelope, cancellationToken).ConfigureAwait(false);
+                SyncOperationReceipt receipt;
+
+                try
+                {
+                    receipt = await _api.PushAsync(envelope, cancellationToken).ConfigureAwait(false);
+                }
+                catch (ApiException exception) when (exception.IsForbidden || exception.StatusCode == 409)
+                {
+                    // The server will never accept this operation (another business, or the same key with
+                    // another body): the device stops retrying it and keeps it for the operator.
+                    await _store.ApplyReceiptAsync(
+                        new InboxReceipt
+                        {
+                            OperationId = operation.OperationId,
+                            ServerResult = "Rejected",
+                            ErrorCode = exception.Code,
+                            AppliedAtUtc = DateTime.UtcNow,
+                        },
+                        cancellationToken).ConfigureAwait(false);
+
+                    conflicts++;
+                    continue;
+                }
 
                 await _store.ApplyReceiptAsync(ToReceipt(receipt), cancellationToken).ConfigureAwait(false);
 

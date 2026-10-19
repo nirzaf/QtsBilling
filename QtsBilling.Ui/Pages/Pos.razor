@@ -1,4 +1,4 @@
-﻿@page "/pos"
+@page "/pos"
 @using QtsBilling.Contracts.Pos
 
 <PageTitle>Point of sale - QTS Billing</PageTitle>
@@ -252,8 +252,8 @@ else
                                     <MudChip T="string"
                                              Size="Size.Small"
                                              Variant="Variant.Filled"
-                                             Color="@(pending.State == "Rejected" ? Color.Error : Color.Warning)">
-                                        @(pending.State == "Rejected" ? "Rejected" : "Pending sync")
+                                             Color="@(pending.State == "Rejected" ? Color.Error : pending.State == "Posted" ? Color.Success : Color.Warning)">
+                                        @(pending.State == "Rejected" ? "Rejected" : pending.State == "Posted" ? "Posted" : "Pending sync")
                                     </MudChip>
                                 </div>
                             </MudListItem>

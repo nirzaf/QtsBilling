@@ -39,11 +39,14 @@ public partial class MainPage : ContentPage
         {
             if (services is not null)
             {
+                // The device synchronizes in the background (QB-22); MAUI does not start hosted services
+                // on its own, so the window starts the loop.
+                services.GetRequiredService<DeviceSyncTimer>().EnsureStarted();
+
                 using var scope = services.CreateScope();
                 var store = scope.ServiceProvider.GetRequiredService<SqliteLocalStore>();
                 startup = await store.InitializeAsync();
-            }
-        }
+            }        }
         catch (Exception exception)
         {
             failure = exception;

@@ -219,7 +219,8 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Offline cash-only capture (QB-19) | ✅ Done, verified live |
 | Sync-push handler (QB-20) | ✅ Done, verified live |
 | Change feed (QB-21) | ✅ Done, verified live |
-| MAUI coordinator, OIDC (QB-22) | 📋 TODO |
+| Device sync loop + conflict queue (QB-22) | ✅ Done, verified live |
+| OIDC/PKCE device flow | 📋 TODO — the client still uses the session endpoint |
 | Historical data import + reconciliation (QB-23 … QB-25) | 📋 TODO — out-of-band, needs an external source |
 | Tests, CI/CD, secret scanning (QB-26) | 📋 TODO — no CI configured yet |
 | Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | 📋 TODO |
@@ -389,17 +390,17 @@ check) is planned under **QB-26**.
 Per-task detail lives in [`docs/migration/tasks/`](docs/migration/tasks/); the aggregate tracker is
 [`docs/migration/task-status.md`](docs/migration/task-status.md). Highlights:
 
-**Done (server + desktop):** QB-01…QB-21 — solution boundaries; contracts and value objects;
+**Done (server + desktop):** QB-01…QB-22 — solution boundaries; contracts and value objects;
 the PostgreSQL schema with a balanced immutable ledger (QB-07), transactional inventory (QB-08), atomic
 idempotent sales (QB-09), cash register / receipts / refunds (QB-10), invoices & credit notes (QB-11),
 purchasing / expenses / tax / discounts (QB-12), derived reports (QB-13), and security / audit / real
 backup-restore (QB-14); the shared `QtsBilling.Ui` RCL (QB-16); the device-local SQLite store (QB-17);
 the MAUI Windows client (QB-18) with offline cash-only capture (QB-19); and the sync side — the idempotent
-push handler (QB-20) and the commit-ordered change feed (QB-21).
+push handler (QB-20), the commit-ordered change feed (QB-21) and the device synchronization loop with its conflict queue (QB-22).
 
 **Remaining:**
 
-- **QB-22** — MAUI push/pull coordinator, conflict-resolution queue, OIDC/PKCE device flow.
+- **OIDC/PKCE device flow** — the standards-based device authorisation for the desktop client.
 - **QB-23 … QB-25** — out-of-band import of historical data (export → deterministic transform →
   PostgreSQL load), plus a signed reconciliation report and account-reset plan.
 - **QB-26** — focused tests and CI pipelines (build, tests, secret scanning, WASM bundle check).

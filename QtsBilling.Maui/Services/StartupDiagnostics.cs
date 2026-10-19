@@ -1,6 +1,7 @@
 using System.Reflection;
 using System.Text;
 using Microsoft.AspNetCore.Components;
+using QtsBilling.Contracts.Sync;
 using QtsBilling.Persistence.Sqlite;
 
 namespace QtsBilling.Maui.Services;
@@ -25,15 +26,18 @@ public sealed class StartupDiagnostics : IStartupDiagnostics
     private readonly IDeviceIdentity _deviceIdentity;
     private readonly IServerSettings _settings;
     private readonly IDeviceConnectivity _connectivity;
+    private readonly IServiceProvider _services;
 
     public StartupDiagnostics(
         IDeviceIdentity deviceIdentity,
         IServerSettings settings,
-        IDeviceConnectivity connectivity)
+        IDeviceConnectivity connectivity,
+        IServiceProvider services)
     {
         _deviceIdentity = deviceIdentity;
         _settings = settings;
         _connectivity = connectivity;
+        _services = services;
     }
 
     public string ReportPath => Path.Combine(FileSystem.AppDataDirectory, "startup-diagnostics.txt");
@@ -76,9 +80,8 @@ public sealed class StartupDiagnostics : IStartupDiagnostics
             report.AppendLine($"sharedRoute={route}");
         }
 
-        report.AppendLine(failure is null
-            ? "startup=ok"
-            : $"startup=failed: {failure.GetType().Name}: {failure.Message}");
+        report.AppendLine($"startup={(failure is null ? "ok" : $"failed: {failure.GetType().Name}: {failure.Message}")}");
+        report.AppendLine($"syncCoordinatorRegistered={_services.GetService<ISyncCoordinator>() is not null}");
 
         var directory = Path.GetDirectoryName(ReportPath);
         if (!string.IsNullOrEmpty(directory))

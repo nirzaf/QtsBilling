@@ -1,4 +1,5 @@
 using QtsBilling.Contracts.Pos;
+using QtsBilling.Persistence.Sqlite.Entities;
 using QtsBilling.Persistence.Sqlite.Pos;
 using Xunit;
 
@@ -50,7 +51,65 @@ public sealed class LocalPosStoreTests
     }
 
     [Fact]
-    public async Task A_capture_survives_a_restart_and_is_still_pending()
+    public async Task Due_operations_are_returned_by_the_retry_window()
+    {
+        await using var harness = LocalStoreHarness.Create();
+        await harness.Store.InitializeAsync();
+
+        var payload = "{\"type\":\"pos.sale.capture.v1\"}";
+
+        var operation = new OutboxOperation
+        {
+            OperationId = Guid.CreateVersion7(),
+            DeviceId = Guid.CreateVersion7(),
+            BusinessId = Guid.CreateVersion7(),
+            LocationId = Guid.CreateVersion7(),
+            OperationType = "pos.sale.capture.v1",
+            PayloadVersion = 1,
+            CanonicalPayload = payload,
+            Sha256Fingerprint = SqlitePayloadHash.Compute(payload),
+            State = OutboxState.Pending,
+            NextAttemptUtc = DateTime.UtcNow.AddHours(-1),
+            CreatedAtUtc = DateTime.UtcNow.AddHours(-1),
+        };
+
+        await harness.Store.EnqueueOutboxOperationAsync(operation);
+
+        var due = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow, 50);
+        Assert.Single(due);
+        Assert.Equal(operation.OperationId, due[0].OperationId);
+
+        // A window that ends before the retry time returns nothing.
+        var notDue = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow.AddHours(-2), 50);
+        Assert.Empty(notDue);
+    }
+
+    [Fact]
+    public async Task The_pending_list_and_summary_are_readable()
+    {
+        await using var harness = LocalStoreHarness.Create();
+        await harness.Store.InitializeAsync();
+        var pos = new LocalPosStore(harness.Store);
+
+        await pos.CaptureCashSaleAsync(Context(), Draft(Guid.CreateVersion7()));
+
+        var pending = await pos.GetPendingSalesAsync();
+        Assert.Single(pending);
+
+        var summary = await pos.GetQueueSummaryAsync();
+        Assert.Equal(1, summary.Pending);
+        Assert.Equal(0, summary.Rejected);
+
+        var conflicts = await harness.Store.GetConflictsAsync();
+        Assert.Empty(conflicts);
+
+        var (revision, ordinal) = await harness.Store.GetSyncCursorAsync(Guid.CreateVersion7(), Guid.CreateVersion7());
+        Assert.Equal(0L, revision);
+        Assert.Equal(0L, ordinal);
+    }
+
+    [Fact]
+    public async Task The_capture_survives_a_restart_and_is_still_pending()
     {
         await using var harness = LocalStoreHarness.Create();
         await harness.Store.InitializeAsync();

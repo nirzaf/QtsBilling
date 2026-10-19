@@ -1,0 +1,500 @@
+﻿# QB-22 live evidence - 2026-10-19
+# Device synchronization loop: the desktop client pushes its local outbox and pulls the change feed.
+# The capture, the push, the server's sale and the pull were driven on the running Windows desktop client.
+
+====================================================================================================
+1. Device API-call log (push, pull, and the offline behaviour when the server is down)
+====================================================================================================
+2026-10-19T15:48:56.9279630+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:48:57.2086063+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=281
+2026-10-19T15:49:25.9185890+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:49:25.9439938+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=25
+2026-10-19T15:49:25.9546253+00:00 -> GET /api/v1/pos/registers
+2026-10-19T15:49:26.1101061+00:00 <- GET /api/v1/pos/registers status=200 elapsedMs=155
+2026-10-19T15:49:26.1466475+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:49:26.2174178+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=70
+2026-10-19T15:49:26.2288730+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:49:26.3029856+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=74
+2026-10-19T15:49:26.3071400+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:49:26.3662435+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=59
+2026-10-19T15:49:26.3730167+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:49:26.3856944+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=12
+2026-10-19T15:49:26.3868350+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:49:26.3945232+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=7
+2026-10-19T15:49:26.3952937+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:49:26.4024055+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=7
+2026-10-19T15:49:26.4033951+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:49:26.4106210+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=7
+2026-10-19T15:49:26.4114548+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:49:26.4213722+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=9
+2026-10-19T15:49:26.4225212+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:49:26.4305244+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=8
+2026-10-19T15:49:26.4313036+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:49:26.4383583+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=7
+2026-10-19T15:49:26.4391568+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:49:26.4478882+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=8
+2026-10-19T15:49:26.4486863+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:49:26.4570773+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=8
+2026-10-19T15:49:26.4580181+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:49:26.4656060+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=7
+2026-10-19T15:49:26.4663630+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:49:26.4734887+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=7
+2026-10-19T15:49:26.4744446+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:49:26.4843007+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=9
+2026-10-19T15:49:26.4850982+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:49:26.4929407+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=7
+2026-10-19T15:49:26.4937532+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:49:26.5009387+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=7
+2026-10-19T15:49:26.5017045+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:49:26.5112889+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=9
+2026-10-19T15:49:52.0211179+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:49:52.0343836+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=13
+2026-10-19T15:49:52.0555416+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:49:52.1164129+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=60
+2026-10-19T15:49:52.1222721+00:00    customers items=6
+2026-10-19T15:50:00.0413460+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:00.0534643+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T15:50:00.0570620+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:00.0626709+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=5
+2026-10-19T15:50:00.0634913+00:00    customers items=6
+2026-10-19T15:50:17.3520608+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:17.3665209+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=14
+2026-10-19T15:50:17.3692263+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:50:17.3789408+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=9
+2026-10-19T15:50:17.3804734+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:50:17.3909688+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=10
+2026-10-19T15:50:17.3919074+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:50:17.3999438+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=8
+2026-10-19T15:50:17.4008553+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:50:17.4086606+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=7
+2026-10-19T15:50:17.4097161+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:50:17.4212243+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=11
+2026-10-19T15:50:17.4223526+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:50:17.4310202+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=8
+2026-10-19T15:50:17.4319446+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:50:17.4403871+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=8
+2026-10-19T15:50:17.4415878+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:50:17.4553576+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=13
+2026-10-19T15:50:17.4563049+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:50:17.4667627+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=10
+2026-10-19T15:50:17.4678193+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:50:17.4796643+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=11
+2026-10-19T15:50:17.4811544+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:50:17.4926052+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=11
+2026-10-19T15:50:17.4935577+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:50:17.5029895+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=9
+2026-10-19T15:50:17.5039824+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:50:17.5158228+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=11
+2026-10-19T15:50:17.5167700+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:50:17.5251901+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=8
+2026-10-19T15:50:17.5260760+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:50:17.5353879+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=9
+2026-10-19T15:50:17.5371189+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:50:17.5472285+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=10
+2026-10-19T15:50:17.5480881+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:50:17.5572950+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=9
+2026-10-19T15:50:17.5581950+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:50:17.5672098+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=9
+2026-10-19T15:50:21.7004911+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:21.7104396+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T15:50:21.7127375+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:21.7174684+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=4
+2026-10-19T15:50:21.7181582+00:00    customers items=6
+2026-10-19T15:50:23.2590467+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:23.2681858+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T15:50:23.2708562+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:23.2766285+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=5
+2026-10-19T15:50:23.2773275+00:00    customers items=6
+2026-10-19T15:54:10.9500207+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:54:31.6699005+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=20721
+2026-10-19T15:56:42.3150098+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:57:03.3866462+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=21071
+2026-10-19T15:58:07.4998433+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:58:07.9957998+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=495
+2026-10-19T15:58:08.1881630+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:58:08.3468459+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=158
+2026-10-19T15:58:08.4472091+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:58:08.5230040+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=75
+2026-10-19T15:58:08.5511735+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:58:08.5852900+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=34
+2026-10-19T15:58:08.6221627+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:58:08.6423252+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=20
+2026-10-19T15:58:08.6459181+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:58:08.6665442+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=20
+2026-10-19T15:58:08.6693984+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:58:08.6873484+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=17
+2026-10-19T15:58:08.6902366+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:58:08.7098002+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=19
+2026-10-19T15:58:08.7124938+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:58:08.7325799+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=20
+2026-10-19T15:58:08.7349729+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:58:08.7623400+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=27
+2026-10-19T15:58:08.7676000+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:58:08.7903730+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=22
+2026-10-19T15:58:08.7932112+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:58:08.8454095+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=52
+2026-10-19T15:58:08.8483625+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:58:08.8925070+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=44
+2026-10-19T15:58:08.8953566+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:58:08.9463708+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=51
+2026-10-19T15:58:08.9496159+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:58:08.9795240+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=29
+2026-10-19T15:58:08.9824231+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:58:09.0349401+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=52
+2026-10-19T15:58:09.0379041+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:58:09.0846400+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=46
+2026-10-19T15:58:09.0877709+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:58:09.1178286+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=30
+2026-10-19T15:58:09.1208028+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:58:09.1657566+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=44
+2026-10-19T15:58:12.7541280+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:58:12.8117235+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=57
+2026-10-19T15:58:12.8951403+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:58:12.9340943+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=38
+2026-10-19T15:58:12.9632905+00:00    customers items=6
+2026-10-19T16:01:20.0702742+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:01:20.4499743+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=379
+2026-10-19T16:04:17.9823562+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:04:39.1404855+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=21158
+2026-10-19T16:08:36.5971621+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:08:41.5424706+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4950
+2026-10-19T16:09:16.8928678+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:09:20.9621653+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4069
+2026-10-19T16:10:07.5238400+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:10:12.4294245+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4907
+2026-10-19T17:24:16.6567770+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:24:17.0849765+00:00 <- GET /api/v1/auth/session status=401 elapsedMs=431
+2026-10-19T17:25:05.5060296+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:25:05.5183438+00:00 <- GET /api/v1/auth/session status=401 elapsedMs=12
+2026-10-19T17:25:56.6037387+00:00 -> POST /api/v1/auth/login
+2026-10-19T17:25:57.1958919+00:00 <- POST /api/v1/auth/login status=200 elapsedMs=592
+2026-10-19T17:25:57.3901908+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:25:57.4536824+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=63
+2026-10-19T17:25:57.4805633+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T17:25:57.5575778+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=77
+2026-10-19T17:25:57.5721029+00:00    customers items=0
+2026-10-19T17:28:58.5268797+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:28:59.2574211+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=732
+2026-10-19T17:29:24.1380724+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:29:24.1834916+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=45
+2026-10-19T17:30:00.6824319+00:00 -> POST /api/v1/auth/login
+2026-10-19T17:30:00.7412083+00:00 <- POST /api/v1/auth/login status=400 elapsedMs=58
+2026-10-19T17:34:50.1443722+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:34:50.1932509+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=48
+2026-10-19T17:41:17.1083847+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:41:19.4518219+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=2358
+2026-10-19T17:41:30.2682008+00:00 -> POST /api/v1/sync/operations
+2026-10-19T17:41:30.3877037+00:00 <- POST /api/v1/sync/operations status=403 elapsedMs=119
+2026-10-19T17:42:30.0617589+00:00 -> POST /api/v1/sync/operations
+2026-10-19T17:42:30.0921794+00:00 <- POST /api/v1/sync/operations status=403 elapsedMs=30
+2026-10-19T17:44:12.0646304+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:44:14.0326990+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=1969
+2026-10-19T17:44:23.5826509+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:44:23.6181661+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=35
+2026-10-19T17:44:23.7430130+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T17:44:23.8941289+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=151
+2026-10-19T17:45:23.4219674+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:45:23.4348548+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T17:45:23.4534027+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:45:23.4639637+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=10
+2026-10-19T17:46:23.4199562+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:46:23.4394586+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=19
+2026-10-19T17:46:23.4493442+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:46:23.4609761+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T17:47:23.4176939+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:47:23.4308160+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=13
+2026-10-19T17:47:23.4375277+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:47:23.4503743+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=12
+2026-10-19T17:48:23.4267907+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:48:23.4544447+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=27
+2026-10-19T17:48:23.4681123+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:48:23.4850271+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=16
+2026-10-19T17:50:12.7479343+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:50:15.2415680+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=2495
+2026-10-19T17:50:27.4065531+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:50:27.4543773+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=47
+2026-10-19T17:50:27.5944379+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T17:50:27.8814403+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=287
+2026-10-19T17:51:27.2166839+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:51:27.2306418+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=13
+2026-10-19T17:51:27.2413337+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:51:27.2529121+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T17:53:52.2961332+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:53:54.9722453+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=2678
+2026-10-19T17:54:09.0420844+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:54:09.3436073+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=301
+2026-10-19T17:54:09.3926109+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T17:54:09.5968901+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=204
+2026-10-19T17:55:40.5199208+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:55:43.4542579+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=2936
+2026-10-19T17:55:57.5394033+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:55:57.8597270+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=320
+2026-10-19T17:55:57.9186516+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T17:55:58.1123217+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=193
+2026-10-19T17:56:57.3180703+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:56:57.3334179+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=15
+2026-10-19T17:56:57.3458246+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:56:57.3576297+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T17:58:23.7056581+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:58:25.1555967+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=1451
+2026-10-19T17:58:41.8609170+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:58:42.0095479+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=148
+2026-10-19T17:58:42.0328623+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T17:58:42.1812584+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=148
+2026-10-19T17:59:41.7097921+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:59:41.7211537+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=11
+2026-10-19T17:59:41.7342161+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T17:59:41.7442404+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=10
+2026-10-19T17:59:47.8138246+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:59:47.8312189+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=17
+2026-10-19T17:59:50.4199325+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:59:50.4319444+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T17:59:50.4497580+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T17:59:50.5529477+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=103
+2026-10-19T17:59:50.5715963+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T17:59:50.7144865+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=142
+2026-10-19T17:59:50.7217655+00:00 -> GET /api/v1/products/01a1551e-b5b3-715b-9959-0db6a1fb2015
+2026-10-19T17:59:50.8231752+00:00 <- GET /api/v1/products/01a1551e-b5b3-715b-9959-0db6a1fb2015 status=200 elapsedMs=101
+2026-10-19T17:59:50.8330731+00:00 -> GET /api/v1/products/01a1551e-4624-7d53-82b4-e2cafc8c10fd
+2026-10-19T17:59:50.8432536+00:00 <- GET /api/v1/products/01a1551e-4624-7d53-82b4-e2cafc8c10fd status=200 elapsedMs=10
+2026-10-19T17:59:50.8441127+00:00 -> GET /api/v1/products/01a1551d-ae04-7d88-90be-eeee88e72548
+2026-10-19T17:59:50.8532524+00:00 <- GET /api/v1/products/01a1551d-ae04-7d88-90be-eeee88e72548 status=200 elapsedMs=9
+2026-10-19T17:59:50.8541792+00:00 -> GET /api/v1/products/01a15516-5cee-756c-95f4-cebe6171cf5b
+2026-10-19T17:59:50.8624970+00:00 <- GET /api/v1/products/01a15516-5cee-756c-95f4-cebe6171cf5b status=200 elapsedMs=8
+2026-10-19T17:59:50.8636249+00:00 -> GET /api/v1/products/01a15515-d86c-7955-bd5f-3339db2d9381
+2026-10-19T17:59:50.8736387+00:00 <- GET /api/v1/products/01a15515-d86c-7955-bd5f-3339db2d9381 status=200 elapsedMs=10
+2026-10-19T17:59:50.8746424+00:00 -> GET /api/v1/products/01a15515-5c44-7f54-a367-18f9132e9ee1
+2026-10-19T17:59:50.8856468+00:00 <- GET /api/v1/products/01a15515-5c44-7f54-a367-18f9132e9ee1 status=200 elapsedMs=10
+2026-10-19T17:59:50.8865498+00:00 -> GET /api/v1/products/01a15514-f318-7244-9ad3-414bc151e536
+2026-10-19T17:59:50.8952043+00:00 <- GET /api/v1/products/01a15514-f318-7244-9ad3-414bc151e536 status=200 elapsedMs=8
+2026-10-19T17:59:50.8962840+00:00 -> GET /api/v1/products/01a15514-a9b8-7462-b5bc-53d684f32ff3
+2026-10-19T17:59:50.9051993+00:00 <- GET /api/v1/products/01a15514-a9b8-7462-b5bc-53d684f32ff3 status=200 elapsedMs=8
+2026-10-19T17:59:50.9061104+00:00 -> GET /api/v1/products/01a15514-3caf-7d1c-a73d-a98245317b1b
+2026-10-19T17:59:50.9144963+00:00 <- GET /api/v1/products/01a15514-3caf-7d1c-a73d-a98245317b1b status=200 elapsedMs=8
+2026-10-19T17:59:50.9154779+00:00 -> GET /api/v1/products/01a15513-ce46-7b76-8122-da4dae0919ed
+2026-10-19T17:59:50.9236174+00:00 <- GET /api/v1/products/01a15513-ce46-7b76-8122-da4dae0919ed status=200 elapsedMs=8
+2026-10-19T17:59:50.9244602+00:00 -> GET /api/v1/products/01a15513-8e12-7b45-ad25-9f6a8e59c2f7
+2026-10-19T17:59:50.9345404+00:00 <- GET /api/v1/products/01a15513-8e12-7b45-ad25-9f6a8e59c2f7 status=200 elapsedMs=10
+2026-10-19T17:59:50.9356652+00:00 -> GET /api/v1/products/01a15506-5ca0-78a6-8398-73b0a24b413d
+2026-10-19T17:59:50.9457637+00:00 <- GET /api/v1/products/01a15506-5ca0-78a6-8398-73b0a24b413d status=200 elapsedMs=10
+2026-10-19T17:59:50.9466337+00:00 -> GET /api/v1/products/01a154fd-4eab-7c3f-a7df-4ea5f8738ba2
+2026-10-19T17:59:50.9550846+00:00 <- GET /api/v1/products/01a154fd-4eab-7c3f-a7df-4ea5f8738ba2 status=200 elapsedMs=8
+2026-10-19T17:59:51.0744306+00:00 -> GET /api/v1/auth/session
+2026-10-19T17:59:51.1058608+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=31
+2026-10-19T18:00:41.7029667+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:00:41.7164722+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=13
+2026-10-19T18:00:41.7225084+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T18:00:41.7302063+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=7
+2026-10-19T18:00:53.2641047+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:00:53.2782379+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=14
+2026-10-19T18:01:13.8610242+00:00 -> POST /api/v1/sync/operations
+2026-10-19T18:01:14.0154832+00:00 <- POST /api/v1/sync/operations status=200 elapsedMs=154
+2026-10-19T18:01:14.1003016+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:01:14.1093456+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T18:01:14.1148856+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T18:01:14.1224015+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=7
+2026-10-19T18:01:14.1553465+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:01:14.1653109+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T18:01:41.7027926+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:01:41.7135747+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=10
+2026-10-19T18:01:41.7216034+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T18:01:41.7323483+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=10
+2026-10-19T18:02:58.4608276+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:03:00.5944616+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=2135
+2026-10-19T18:03:16.2643169+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:03:16.6112625+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=346
+2026-10-19T18:03:16.6705834+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T18:03:16.9633783+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=292
+2026-10-19T18:04:14.9714930+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:04:14.9873601+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=15
+2026-10-19T18:04:15.9438674+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:04:15.9564961+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T18:04:15.9650575+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T18:04:15.9767288+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T18:04:17.6374919+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:04:17.6472861+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T18:04:17.6559807+00:00 -> GET /api/v1/locations
+2026-10-19T18:04:17.7104609+00:00 <- GET /api/v1/locations status=200 elapsedMs=54
+2026-10-19T18:04:17.7202418+00:00 -> GET /api/v1/pos/registers
+2026-10-19T18:04:18.0985695+00:00 <- GET /api/v1/pos/registers status=200 elapsedMs=378
+2026-10-19T18:04:18.1333325+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a154f9-f148-7ca9-ad02-77767dcaf851
+2026-10-19T18:04:18.2069755+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a154f9-f148-7ca9-ad02-77767dcaf851 status=200 elapsedMs=73
+2026-10-19T18:04:18.2159258+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T18:04:18.3077266+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=91
+2026-10-19T18:04:18.3148665+00:00 -> GET /api/v1/products/01a1551e-b5b3-715b-9959-0db6a1fb2015
+2026-10-19T18:04:18.3962533+00:00 <- GET /api/v1/products/01a1551e-b5b3-715b-9959-0db6a1fb2015 status=200 elapsedMs=81
+2026-10-19T18:04:18.4015128+00:00 -> GET /api/v1/products/01a1551e-4624-7d53-82b4-e2cafc8c10fd
+2026-10-19T18:04:18.4112020+00:00 <- GET /api/v1/products/01a1551e-4624-7d53-82b4-e2cafc8c10fd status=200 elapsedMs=9
+2026-10-19T18:04:18.4120733+00:00 -> GET /api/v1/products/01a1551d-ae04-7d88-90be-eeee88e72548
+2026-10-19T18:04:18.4202285+00:00 <- GET /api/v1/products/01a1551d-ae04-7d88-90be-eeee88e72548 status=200 elapsedMs=8
+2026-10-19T18:04:18.4210785+00:00 -> GET /api/v1/products/01a15516-5cee-756c-95f4-cebe6171cf5b
+2026-10-19T18:04:18.4284332+00:00 <- GET /api/v1/products/01a15516-5cee-756c-95f4-cebe6171cf5b status=200 elapsedMs=7
+2026-10-19T18:04:18.4292536+00:00 -> GET /api/v1/products/01a15515-d86c-7955-bd5f-3339db2d9381
+2026-10-19T18:04:18.4369075+00:00 <- GET /api/v1/products/01a15515-d86c-7955-bd5f-3339db2d9381 status=200 elapsedMs=7
+2026-10-19T18:04:18.4377775+00:00 -> GET /api/v1/products/01a15515-5c44-7f54-a367-18f9132e9ee1
+2026-10-19T18:04:18.4460298+00:00 <- GET /api/v1/products/01a15515-5c44-7f54-a367-18f9132e9ee1 status=200 elapsedMs=8
+2026-10-19T18:04:18.4471347+00:00 -> GET /api/v1/products/01a15514-f318-7244-9ad3-414bc151e536
+2026-10-19T18:04:18.4555896+00:00 <- GET /api/v1/products/01a15514-f318-7244-9ad3-414bc151e536 status=200 elapsedMs=8
+2026-10-19T18:04:18.4564826+00:00 -> GET /api/v1/products/01a15514-a9b8-7462-b5bc-53d684f32ff3
+2026-10-19T18:04:18.4644690+00:00 <- GET /api/v1/products/01a15514-a9b8-7462-b5bc-53d684f32ff3 status=200 elapsedMs=7
+2026-10-19T18:04:18.4652844+00:00 -> GET /api/v1/products/01a15514-3caf-7d1c-a73d-a98245317b1b
+2026-10-19T18:04:18.4739043+00:00 <- GET /api/v1/products/01a15514-3caf-7d1c-a73d-a98245317b1b status=200 elapsedMs=8
+2026-10-19T18:04:18.4748950+00:00 -> GET /api/v1/products/01a15513-ce46-7b76-8122-da4dae0919ed
+2026-10-19T18:04:18.4837926+00:00 <- GET /api/v1/products/01a15513-ce46-7b76-8122-da4dae0919ed status=200 elapsedMs=8
+2026-10-19T18:04:18.4848601+00:00 -> GET /api/v1/products/01a15513-8e12-7b45-ad25-9f6a8e59c2f7
+2026-10-19T18:04:18.4933230+00:00 <- GET /api/v1/products/01a15513-8e12-7b45-ad25-9f6a8e59c2f7 status=200 elapsedMs=8
+2026-10-19T18:04:18.4941757+00:00 -> GET /api/v1/products/01a15506-5ca0-78a6-8398-73b0a24b413d
+2026-10-19T18:04:18.5025301+00:00 <- GET /api/v1/products/01a15506-5ca0-78a6-8398-73b0a24b413d status=200 elapsedMs=8
+2026-10-19T18:04:18.5037329+00:00 -> GET /api/v1/products/01a154fd-4eab-7c3f-a7df-4ea5f8738ba2
+2026-10-19T18:04:18.5127774+00:00 <- GET /api/v1/products/01a154fd-4eab-7c3f-a7df-4ea5f8738ba2 status=200 elapsedMs=9
+2026-10-19T18:04:18.6147349+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:04:18.6362937+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=21
+2026-10-19T18:05:15.9418713+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:05:15.9548728+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T18:05:15.9597703+00:00 -> GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200
+2026-10-19T18:05:15.9710502+00:00 <- GET /api/v1/sync/changes?afterRevision=0&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T18:06:09.1690884+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:06:09.1819556+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T18:06:15.9546834+00:00 -> POST /api/v1/sync/operations
+2026-10-19T18:06:17.5950922+00:00 <- POST /api/v1/sync/operations status=200 elapsedMs=1640
+2026-10-19T18:06:17.6909596+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:06:17.7033036+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T18:06:17.7093811+00:00 -> GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200
+2026-10-19T18:06:17.7261485+00:00 <- GET /api/v1/sync/changes?afterRevision=43&afterOrdinal=0&limit=200 status=200 elapsedMs=16
+2026-10-19T18:06:17.8550184+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:06:17.8673685+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T18:06:17.8746056+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:06:17.8862376+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=11
+2026-10-19T18:06:17.9359300+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:06:17.9475292+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=11
+2026-10-19T18:08:16.6670137+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:08:21.4334558+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=4769
+2026-10-19T18:08:30.6445228+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:08:30.8896853+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:08:30.9060593+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=261
+2026-10-19T18:08:30.9592828+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:08:30.9630511+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=73
+2026-10-19T18:08:31.1618353+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=202
+2026-10-19T18:09:30.6050443+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:09:30.6262544+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=21
+2026-10-19T18:09:30.6390487+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:09:30.6530941+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=14
+2026-10-19T18:10:02.1443555+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:10:02.1760851+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=31
+2026-10-19T18:10:30.5979703+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:10:30.6220190+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=24
+2026-10-19T18:10:30.6349478+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:10:30.6518343+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=16
+2026-10-19T18:12:11.1685912+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:12:15.8041244+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4638
+2026-10-19T18:12:22.5582466+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:12:23.6016534+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:12:26.6358483+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=3034
+2026-10-19T18:12:26.6358542+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=4077
+2026-10-19T18:12:26.8900389+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:12:27.4548084+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=564
+2026-10-19T18:13:22.2147360+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:13:22.3000466+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=85
+2026-10-19T18:13:22.3263778+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:13:22.3689104+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=43
+2026-10-19T18:14:22.2214579+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:14:22.2766376+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=55
+2026-10-19T18:14:22.3115508+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:14:22.3624667+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=50
+2026-10-19T18:16:06.3784840+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:16:10.6856641+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4308
+2026-10-19T18:16:23.2061439+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:16:27.2892341+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4083
+2026-10-19T18:16:27.3206381+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:16:31.3817504+00:00 !! GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 failed=HttpRequestException elapsedMs=4061
+2026-10-19T18:17:39.5402280+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:17:43.8945104+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4359
+2026-10-19T18:17:56.1515762+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:18:00.2109065+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4059
+2026-10-19T18:18:00.2713717+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:18:00.8975045+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:18:04.3339964+00:00 !! GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 failed=HttpRequestException elapsedMs=4062
+2026-10-19T18:18:04.9505125+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4053
+2026-10-19T18:18:55.6999537+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:18:59.7645776+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4064
+2026-10-19T18:18:59.7715696+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:19:03.8356350+00:00 !! GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 failed=HttpRequestException elapsedMs=4064
+2026-10-19T18:19:55.7047784+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:19:59.8201634+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4115
+2026-10-19T18:19:59.8359917+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:20:03.9285323+00:00 !! GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 failed=HttpRequestException elapsedMs=4092
+2026-10-19T18:20:55.6994415+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:20:59.7883610+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4088
+2026-10-19T18:20:59.7989645+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:21:03.8532089+00:00 !! GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 failed=HttpRequestException elapsedMs=4054
+2026-10-19T18:22:08.5253458+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:22:10.2421437+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=1718
+2026-10-19T18:22:24.9242420+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:22:25.2359239+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=311
+2026-10-19T18:22:25.3044917+00:00 -> GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200
+2026-10-19T18:22:25.7288092+00:00 <- GET /api/v1/sync/changes?afterRevision=44&afterOrdinal=0&limit=200 status=200 elapsedMs=424
+2026-10-19T18:22:32.0878762+00:00 -> GET /api/v1/auth/session
+2026-10-19T18:22:32.1245255+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=36
+
+====================================================================================================
+2. Device-local database after the round trip (the money rows, the receipt and the outbox state)
+====================================================================================================
+drafts                     1
+lines                      1
+cash_movements             1
+outbox                     1
+inbox_receipts             1
+cached_products            13
+cached_stock               10
+draft.state                Posted
+draft.provisional_reference PROV-01a15557a30f7a0baace9e783fe16e49
+draft.amount_scaled        500000
+cash.amount_scaled         500000
+line.variant_qty_price     01A154FD-4EAC-7E16-A7AF-A445F0FBA1D7|1000000|300000
+outbox.state               Acknowledged
+outbox.type                pos.sale.capture.v1
+outbox.attempts            0
+outbox.payload             {"businessId":"01a154f9-f0aa-7e4c-89c8-f900b2eab2dc","cashReceived":50,"deviceId":"01a154d5-1915-77ac-9161-3cf0f97ba12e","lines":[{"discount":0,"expectedCatalogRevision":1,"ordinal":0,"quantity":1,"tax":0,"taxRate":0,"unitPrice":30,"variantId":"01a154fd-4eac-7e16-a7af-a445f0fba1d7"}],"locationId":"01a154f9-f148-7ca9-ad02-77767dcaf851","operationId":"01a15557-a30f-7a0b-aace-9e783fe16e49","paymentMethod":"cash","registerId":"01a154fd-c841-765d-88d6-cfae34fe2a73","total":30,"type":"pos.sale.capture.v1","userId":"01a154f9-f2d0-73b0-b7f1-845cef6706ee","version":1}
+outbox.fingerprint         926bf38d101106284a923530c470333cb166a9fd146a869941da123af58745e3
+
+====================================================================================================
+3. Server side: the pushed operation was posted exactly once
+====================================================================================================
+   operation_type    |   outcome   | has_sale |       processed_at_utc        
+---------------------+-------------+----------+-------------------------------
+ pos.sale.capture.v1 | Posted      | t        | 2026-10-19 18:06:16.206899+00
+ pos.sale.capture.v1 | Posted      | t        | 2026-10-19 16:38:15.761795+00
+ pos.sale.capture.v1 | NeedsReview | f        | 2026-10-19 16:37:45.667113+00
+(3 rows)
+
+
+====================================================================================================
+4. Desktop startup report (device identity, local store schema, shared routes)
+====================================================================================================
+writtenAtUtc=2026-10-19T18:22:04.7146221+00:00
+app=QTS Billing (Windows desktop)
+appVersion=1.0.0.0
+os=Microsoft Windows NT 10.0.26300.0
+deviceId=01a154d5-1915-77ac-9161-3cf0f97ba12e
+deviceName=DESKTOP-612U8AQ
+serverBaseUrl=http://localhost:5188/
+connectivity=Internet
+businessId=01a154f9-f0aa-7e4c-89c8-f900b2eab2dc
+locationId=01a154f9-f148-7ca9-ad02-77767dcaf851
+localStorePath=C:\Users\DELL\AppData\Local\QTS Billing\com.qtsbilling.desktop\Data\qtsbilling\local.db
+localStoreSchemaVersion=3
+localStoreJournalMode=wal
+localStoreIntegrityCheck=ok
+localStoreAppliedMigrations=
+localStorePreMigrationBackup=<none>
+localStoreRecoveredSendingOperations=0
+sharedRoute=/customers
+sharedRoute=/pos
+startup=ok
+syncCoordinatorRegistered=True
+
+====================================================================================================
+5. Screenshot (docs/migration/tasks/evidence/qb22/)
+====================================================================================================
+01-offline-capture-and-queue.png  the provisional receipt and the pending queue of the desktop client
+02-device-sync-card.png            the device sync card: online, 0 waiting, revision 44, last pull

@@ -470,7 +470,7 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("business_id");
 
-                    b.Property<DateTimeOffset>("DetectedAtUtc")
+                    b.Property<DateTime>("DetectedAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("detected_at_utc");
 
@@ -499,7 +499,7 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("resolution");
 
-                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                    b.Property<DateTime?>("ResolvedAtUtc")
                         .HasColumnType("TEXT")
                         .HasColumnName("resolved_at_utc");
 
