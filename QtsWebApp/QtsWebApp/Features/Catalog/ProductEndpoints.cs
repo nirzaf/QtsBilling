@@ -359,7 +359,9 @@ public static class ProductEndpoints
                 && (exceptProductId == null || product.Id != exceptProductId),
             cancellationToken).ConfigureAwait(false)
             || await db.ProductVariants.AnyAsync(
-                variant => variant.BusinessId == businessId && variant.Sku == sku,
+                variant => variant.BusinessId == businessId
+                    && variant.Sku == sku
+                    && (exceptProductId == null || variant.ProductId != exceptProductId),
                 cancellationToken).ConfigureAwait(false);
 
     private static async Task<ProductDetailDto> ToDetailAsync(

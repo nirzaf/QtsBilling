@@ -164,3 +164,33 @@ public sealed class InvoiceLine : Entity, ITenantScoped
 
     public decimal LineTotal { get; set; }
 }
+
+/// <summary>
+/// Full credit note referencing the original invoice (QB-11); one per invoice. Credits are immutable facts:
+/// the issued invoice entry is reversed and the invoice is voided, never edited.
+/// </summary>
+public sealed class CreditNote : TenantEntity
+{
+    public Guid InvoiceId { get; set; }
+
+    public Guid? LocationId { get; set; }
+
+    public string CreditNumber { get; set; } = string.Empty;
+
+    public DateOnly IssueDate { get; set; }
+
+    public string Currency { get; set; } = "QAR";
+
+    public decimal Amount { get; set; }
+
+    public string Reason { get; set; } = string.Empty;
+
+    public string? Note { get; set; }
+
+    /// <summary>The posted reversal entry that neutralizes the original invoice entry.</summary>
+    public Guid? JournalEntryId { get; set; }
+
+    public DateTimeOffset IssuedAtUtc { get; set; }
+
+    public Guid IssuedByUserId { get; set; }
+}

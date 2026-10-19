@@ -41,6 +41,10 @@ public static class ApiErrorCodes
     public const string DuplicatePhone = "DUPLICATE_PHONE";
     public const string DuplicateSku = "DUPLICATE_SKU";
     public const string DuplicateInvoiceNumber = "DUPLICATE_INVOICE_NUMBER";
+    public const string InvoiceNotDraft = "INVOICE_NOT_DRAFT";
+    public const string InvoiceNotIssued = "INVOICE_NOT_ISSUED";
+    public const string InvoiceHasPayments = "INVOICE_HAS_PAYMENTS";
+    public const string InvoiceAlreadyCredited = "INVOICE_ALREADY_CREDITED";
     public const string OptimisticConcurrencyFailure = "CONCURRENCY_CONFLICT";
     public const string StoreUnavailable = "STORE_UNAVAILABLE";
 }

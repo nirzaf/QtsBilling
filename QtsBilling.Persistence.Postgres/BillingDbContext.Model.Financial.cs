@@ -85,6 +85,12 @@ public partial class BillingDbContext
                 .HasForeignKey(e => e.CashRegisterSessionId)
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_payments_business_idempotency_key");
             b.ToTable(t => t.HasCheckConstraint("ck_payments_amount_positive", "amount > 0"));
         });
 
@@ -293,9 +299,13 @@ public partial class BillingDbContext
             b.HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Sale>().WithMany().HasForeignKey(e => e.SourceSaleId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<InvoiceSequence>().WithMany().HasForeignKey(e => e.InvoiceSequenceId).OnDelete(DeleteBehavior.Restrict);
-            b.HasIndex(e => new { e.BusinessId, e.InvoiceNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.InvoiceNumber })
+                .IsUnique()
+                .HasFilter("invoice_number <> ''")
+                .HasDatabaseName("ux_invoices_business_number");
             b.HasIndex(e => new { e.BusinessId, e.IssueDate });
             b.HasIndex(e => new { e.BusinessId, e.Status });
+            b.HasIndex(e => new { e.BusinessId, e.CustomerId, e.IssuedAtUtc });
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_invoices_amounts_non_negative",
                 "subtotal_amount >= 0 AND discount_amount >= 0 AND tax_amount >= 0 AND total_amount >= 0"));
@@ -318,6 +328,29 @@ public partial class BillingDbContext
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_invoice_lines_amounts",
                 "quantity > 0 AND unit_price >= 0 AND discount_amount >= 0 AND tax_rate >= 0 AND tax_rate <= 1"));
+        });
+
+        modelBuilder.Entity<CreditNote>(b =>
+        {
+            b.ToTable("credit_notes");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.CreditNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Reason).HasColumnType("text").IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.HasOne<Invoice>()
+                .WithMany()
+                .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
+                .HasPrincipalKey(i => new { i.Id, i.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.IssuedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CreditNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.InvoiceId })
+                .IsUnique()
+                .HasDatabaseName("ux_credit_notes_business_invoice");
+            b.ToTable(t => t.HasCheckConstraint("ck_credit_notes_amount_positive", "amount > 0"));
         });
     }
 

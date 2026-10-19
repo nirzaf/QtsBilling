@@ -36,7 +36,7 @@ public static class RolePermissions
                 Permissions.SalesPost, Permissions.SalesVoid, Permissions.SalesRefund,
                 Permissions.RegistersManage,
                 Permissions.AccountingPost,
-                Permissions.InvoicesIssue, Permissions.PurchasingManage,
+                Permissions.InvoicesIssue, Permissions.InvoicesManage, Permissions.PurchasingManage,
                 Permissions.ExpensesManage, Permissions.ReportsView,
                 Permissions.DevicesManage,
             ],
@@ -53,7 +53,7 @@ public static class RolePermissions
                 Permissions.CustomersRead,
                 Permissions.ProductsRead,
                 Permissions.AccountingPost, Permissions.AccountingClose,
-                Permissions.InvoicesIssue, Permissions.ExpensesManage,
+                Permissions.InvoicesIssue, Permissions.InvoicesManage, Permissions.ExpensesManage,
                 Permissions.ReportsView,
             ],
             [MembershipRole.Viewer] =

@@ -1,0 +1,47 @@
+﻿# QB-11 live smoke output - host http://localhost:5188 on PostgreSQL 18.6 (docker container qtsbilling-pg, port 5433)
+# run: powershell -File qb11-smoke.ps1
+------------------------------------------------------------------------
+== QB-11 live smoke: immutable invoices and credit workflow ==
+login | HTTP 200 | code=-
+fixture | customer=01a1543d-3e3d-7e2e-a347-d3b155e4f6b1 product=01a1543d-3edf-7532-b04f-9752e3123fba variant=01a1543d-3ee0-7830-a81e-bd4e26226f70 location=Main
+draft with oversized discount | HTTP 400 | code=VALIDATION_FAILED
+create draft | HTTP 201 | code=-
+draft | id=01a1543d-4059-7a51-b80a-8aeec60fd575 number='' status=draft subtotal=250 discount=10 tax=19.0 total=259.0
+edit draft | HTTP 200 | code=-
+draft after edit | lines=2 subtotal=150.0000 discount=10.0000 tax=9.0000 total=149.0000
+issue | HTTP 201 | code=-
+issued | number=INV-2026-00004 status=issued issuedAtUtc=True total=149.0000
+edit after issue | HTTP 409 | code=INVOICE_NOT_DRAFT
+delete after issue | HTTP 409 | code=INVOICE_NOT_DRAFT
+product rename | HTTP 200 | code=-
+variant price change | HTTP 200 | code=-
+invoice snapshot | name='QB-11 smoke service' unitPrice=100.0000 lineTotal=99.0000 (must stay 'QB-11 smoke service' / 100 / 99)
+card payment | HTTP 409 | code=PAYMENT_METHOD_DISABLED
+cheque without reference | HTTP 400 | code=VALIDATION_FAILED
+partial payment (cash 75) | HTTP 201 | code=-
+payment | id=01a1543d-446d-72a0-8bb4-45b8aa7b09f9 amount=75 status=Confirmed invoiceStatus=partiallyPaid paid=75.0000
+overpayment | HTTP 400 | code=VALIDATION_FAILED
+payment replay | HTTP 200 sameId=True
+same key, changed payload | HTTP 409 | code=SAME_KEY_DIFFERENT_PAYLOAD
+final payment (bank 74) | HTTP 201 | code=-
+invoice after final payment | status=paid paid=149.0000
+void paid invoice | HTTP 409 | code=INVOICE_HAS_PAYMENTS
+void draft invoice | HTTP 409 | code=INVOICE_NOT_ISSUED
+delete the draft | HTTP 204 | code=-
+credit note | HTTP 201 | code=-
+credit note | number=CN-2026-00002 amount=149.0000 invoiceStatus=void credited=149.0000 reversal=JE-2026-00032
+credit note again | HTTP 409 | code=INVOICE_ALREADY_CREDITED
+reversal entry | number=JE-2026-00032 lines=3 debit=149 credit=149 memo='Credit note for INV-2026-00004'
+print voided | bytes=3939 voidBadge=True creditShown=True
+print draft | bytes=3172 draftBadge=True
+delete draft | HTTP 204 | code=-
+get deleted draft | HTTP 404 | code=NOT_FOUND
+concurrent issues | A HTTP 201 number=INV-2026-00005 | B HTTP 201 number=INV-2026-00006 | distinct=True
+list voided | count=2 number=INV-2026-00004 customer=QB-11 Invoice Customer 77825e paid=149.0000 credited=149.0000
+payment journals | entries=4 cash+bank debits for INV-2026-00004= 149
+  trial balance | 1000 Cash on Hand debit=2165.5000 credit=355.0000 balance=1810.5000
+  trial balance | 1100 Accounts Receivable debit=898.0000 credit=596.0000 balance=302.0000
+  trial balance | 2100 Tax Payable debit=18.0000 credit=18.0000 balance=0.0000
+  trial balance | 4000 Sales Revenue debit=635.0000 credit=2895.5000 balance=-2260.5000
+== smoke complete ==
+

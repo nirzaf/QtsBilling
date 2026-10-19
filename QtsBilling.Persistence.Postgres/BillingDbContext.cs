@@ -21,7 +21,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(JournalLine),
         typeof(SaleLine),
         typeof(RefundLine),
-        typeof(InvoiceLine),
+        typeof(CreditNote),
         typeof(PurchaseOrderLine),
         typeof(CashRegisterMovement),
         typeof(AuditEvent),
@@ -84,6 +84,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Refund> Refunds => Set<Refund>();
 
     public DbSet<RefundLine> RefundLines => Set<RefundLine>();
+
+    public DbSet<CreditNote> CreditNotes => Set<CreditNote>();
 
     public DbSet<Account> Accounts => Set<Account>();
 

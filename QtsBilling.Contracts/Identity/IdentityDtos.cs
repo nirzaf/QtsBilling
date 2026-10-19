@@ -44,6 +44,7 @@ public static class Permissions
     public const string AccountingPost = "accounting.post";
     public const string AccountingClose = "accounting.close";
     public const string InvoicesIssue = "invoices.issue";
+    public const string InvoicesManage = "invoices.manage";
     public const string PurchasingManage = "purchasing.manage";
     public const string ExpensesManage = "expenses.manage";
     public const string ReportsView = "reports.view";
@@ -58,7 +59,7 @@ public static class Permissions
         SalesPost, SalesVoid, SalesRefund,
         RegistersManage,
         AccountingPost, AccountingClose,
-        InvoicesIssue,
+        InvoicesIssue, InvoicesManage,
         PurchasingManage, ExpensesManage,
         ReportsView, DevicesManage, UsersManage,
     ];

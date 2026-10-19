@@ -107,6 +107,11 @@ public sealed class Payment : TenantEntity
 
     /// <summary>Drawer session that captured this payment; null for sales without register tracking (QB-10).</summary>
     public Guid? CashRegisterSessionId { get; set; }
+
+    /// <summary>Idempotency receipt for client-initiated invoice payments (QB-11); null for POS sale payments.</summary>
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
 }
 
 /// <summary>Cash drawer session register for a location.</summary>
