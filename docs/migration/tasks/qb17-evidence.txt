@@ -1,0 +1,73 @@
+﻿# QB-17 live evidence - 2026-10-19
+# Device-local SQLite persistence: temp-file SQLite test suite, independent migration history, boundary checks.
+# Run: dotnet test QtsBilling.Persistence.Sqlite.Tests -c Debug
+# The suite creates a real SQLite file per test (never in-memory) under %TEMP%\qtsbilling-sqlite-tests.
+
+====================================================================================================
+1. Temp-file SQLite test suite (transactions, converters, INTEGER comparisons, open/close/recovery, migration with pending records)
+====================================================================================================
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  QtsModels -> C:\Users\DELL\repos\QtsBilling\QtsModels\bin\Debug\net10.0\QtsModels.dll
+  QtsBilling.Persistence.Sqlite -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.dll
+  QtsBilling.Persistence.Sqlite.Tests -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll
+Test run for C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    20, Skipped:     0, Total:    20, Duration: 2 s - QtsBilling.Persistence.Sqlite.Tests.dll (net10.0)
+
+====================================================================================================
+2. Per-test results
+====================================================================================================
+Test run for C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll
+[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v3.1.5+1b188a7b0a (64-bit .NET 10.0.12)
+[xUnit.net 00:00:00.13]   Discovering: QtsBilling.Persistence.Sqlite.Tests
+[xUnit.net 00:00:00.20]   Discovered:  QtsBilling.Persistence.Sqlite.Tests
+[xUnit.net 00:00:00.24]   Starting:    QtsBilling.Persistence.Sqlite.Tests
+  Passed QtsBilling.Persistence.Sqlite.Tests.ScaledDecimalConverterTests.Money_and_quantity_round_trip_exactly [16 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ScaledDecimalConverterTests.More_precision_than_the_scale_is_rejected_not_truncated [1 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ScaledDecimalConverterTests.Values_outside_the_64_bit_scaled_range_are_rejected [< 1 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.CacheAndSchemaTests.Newer_database_user_version_blocks_startup_and_preserves_money_records [1 s]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.In_flight_operations_are_recovered_to_pending_on_startup [1 s]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ReceiptAndSyncStateTests.Transient_retry_receipt_keeps_the_operation_pending [1 s]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Overflowing_money_rolls_back_the_whole_capture [100 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.CacheAndSchemaTests.Upgrading_schema_with_pending_records_keeps_them_and_snapshots_a_backup [226 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Replaying_the_same_operation_is_a_no_op_and_a_changed_payload_is_rejected [145 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ReceiptAndSyncStateTests.Device_profile_and_sync_state_round_trip [259 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Check_constraints_and_foreign_keys_protect_pending_money_records [124 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ReceiptAndSyncStateTests.Non_sale_operations_enqueue_and_replay_safely [118 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.CacheAndSchemaTests.Price_queries_use_scaled_integer_comparisons [202 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Unrepresentable_precision_rolls_back_the_whole_capture [96 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.CacheAndSchemaTests.Unknown_future_migration_blocks_startup_and_preserves_money_records [161 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.ReceiptAndSyncStateTests.Rejected_receipt_keeps_the_money_records_for_review [208 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Capture_writes_draft_lines_cash_and_outbox_in_one_transaction [169 ms]
+[xUnit.net 00:00:02.75]   Finished:    QtsBilling.Persistence.Sqlite.Tests
+  Passed QtsBilling.Persistence.Sqlite.Tests.ReceiptAndSyncStateTests.Posted_receipt_is_idempotent_and_updates_outbox_and_money_states [170 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.CacheAndSchemaTests.Cache_replacement_round_trips_customers_stock_and_tombstones [232 ms]
+  Passed QtsBilling.Persistence.Sqlite.Tests.OutboxCaptureTests.Pending_outbox_and_money_survive_a_reopen_and_a_cache_rebuild [176 ms]
+
+Test Run Successful.
+Total tests: 20
+     Passed: 20
+ Total time: 3.1375 Seconds
+
+====================================================================================================
+3. SQLite migration history (independent of the PostgreSQL history)
+====================================================================================================
+20261019141355_InitialLocalStore (Pending)
+20261019141709_AddSaleLineNonNegativeChecks (Pending)
+
+====================================================================================================
+4. Static boundary checks (dependencies, scaled-integer columns, no web reference)
+====================================================================================================
+== QB-17 static checks: dependency boundary, scaled-integer columns, independent migration histories, no web reference ==
+QtsBilling.Persistence.Sqlite assembly references: Microsoft.Data.Sqlite, Microsoft.EntityFrameworkCore, Microsoft.EntityFrameworkCore.Abstractions, Microsoft.EntityFrameworkCore.Relational, Microsoft.EntityFrameworkCore.Sqlite, Microsoft.Extensions.DependencyInjection.Abstractions, QtsModels, System.Collections, System.Data.Common, System.Linq, System.Linq.Expressions, System.Linq.Queryable, System.Runtime, System.Security.Cryptography, System.Threading
+PASS | no Npgsql/MongoDB/web-host/Contracts reference in the device-local store
+PASS | no REAL/float/double column in the SQLite migrations (money and quantity are scaled INTEGER)
+       scaled money/quantity column declarations in migrations: 41
+PASS | PostgreSQL migration history untouched by the SQLite work (changed postgres files: 0)
+PASS | no web/browser project references the device-local SQLite store
+       sqlite migration history: __EFMigrationsHistory inside the device file (independent of the PostgreSQL history)
+       table groups: discardable cache = cached_products/cached_customers/cached_stock/cache_tombstones; durable = local_sale_drafts/local_sale_lines/local_cash_movements/outbox_operations/inbox_receipts/device_profile/sync_state

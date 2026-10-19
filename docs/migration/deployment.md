@@ -126,3 +126,38 @@ all match, drill database dropped), least-privilege role proven (DML permitted, 
 clean (5 allowlisted development fixtures, 0 unallowlisted findings), typed 500 with `INTERNAL_ERROR` and
 no leakage from a host with an unreachable database, masked/correlated audit entries, typed 401/403, and
 reset-token log redaction.
+
+## 9. Device-local SQLite store as implemented (QB-17)
+
+The policy in section 7 is now backed by `QtsBilling.Persistence.Sqlite`. Operational rules for the
+device implementation:
+
+- **Location and access:** one database file per device in the app's private sandbox
+  (`FileSystem.AppDataDirectory`); the web application must never open it. The library refuses to start
+  against a file whose `PRAGMA quick_check` fails, and it never deletes or rebuilds a corrupt file - the
+  device quarantines it, re-initializes and re-syncs (the cache is disposable by design).
+- **Confidentiality:** the file is not encrypted by the application. Protection comes from the sandbox plus
+  OS-level device encryption and per-user ACLs. **OPEN-8** (SQLCipher vs. encrypted container) is still open;
+  no credentials, tokens or card/CVV data may be written to the device under any choice (D-36, D-46).
+- **Durability settings:** `journal_mode=WAL`, `synchronous=FULL`, `foreign_keys=ON`, `busy_timeout=5000`,
+  one in-process write gate. Capture and receipt application are single transactions, so a crash leaves the
+  device with either the complete operation or none of it.
+- **Upgrades:** schema migrations run only at startup, before sync starts. The device takes a `VACUUM INTO`
+  snapshot next to the database before applying them, and startup is blocked when the file carries an
+  unknown migration id or a newer `user_version` - the pending money rows are never discarded to "fix" a
+  schema mismatch.
+- **Retention:** outbox rows, provisional sales, cash movements, receipts, the device profile and the sync
+  cursors are retained until the server acknowledges the operation (and rejected operations are kept for
+  review). Only the cache group (`cached_products`, `cached_customers`, `cached_stock`,
+  `cache_tombstones`) is discardable and is what a `RESYNC_REQUIRED` re-pull replaces.
+- **Money representation:** money and quantity are stored only as scaled `INTEGER` values (money x10 000,
+  quantity x1 000 000). No `REAL` column exists; precision loss and overflow are rejected, never rounded.
+
+## 10. Verified in QB-17
+
+See `docs/migration/tasks/qb17-evidence.txt`: 20 temp-file SQLite tests (atomic capture and rollback,
+idempotent replay, outbox durability across a restart and a cache rebuild, crash recovery, `typeof()` proof
+for integer money columns, v1 -> v2 schema upgrade with pending records plus the pre-migration snapshot,
+blocked startup on an unknown/newer schema with the money rows intact, database-enforced cash-only and
+lifecycle constraints) and the static boundary checks (no Npgsql/Mongo/web reference, no floating-point
+column, PostgreSQL migration history untouched).
