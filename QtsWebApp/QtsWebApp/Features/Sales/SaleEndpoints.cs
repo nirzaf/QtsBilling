@@ -156,7 +156,7 @@ public static class SaleEndpoints
 
         try
         {
-            var sale = await PostAsync(
+            var sale = await PostSaleAsync(
                 db,
                 business,
                 userId,
@@ -349,7 +349,7 @@ public static class SaleEndpoints
                     new Dictionary<string, string[]> { ["locationId"] = ["The location does not exist or is inactive in this business."] }),
                 [],
                 [],
-                []);
+                new Dictionary<Guid, decimal>());
         }
 
         if (request.CustomerId is { } customerId)
@@ -366,7 +366,7 @@ public static class SaleEndpoints
                         new Dictionary<string, string[]> { ["customerId"] = ["The customer does not exist in this business."] }),
                     [],
                     [],
-                    []);
+                    new Dictionary<Guid, decimal>());
             }
         }
 
@@ -572,7 +572,7 @@ public static class SaleEndpoints
 
     // ---------------------------------------------------------------- the atomic unit of work
 
-    private static async Task<Sale> PostAsync(
+    private static async Task<Sale> PostSaleAsync(
         BillingDbContext db,
         Business business,
         Guid userId,
@@ -652,7 +652,7 @@ public static class SaleEndpoints
                 DiscountAmount = discount,
                 TaxAmount = tax,
                 TotalAmount = total,
-                PaymentStatus = PaymentStatus.Confirmed,
+                PaymentStatus = QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed,
                 Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
                 PostedAtUtc = now,
                 PostedByUserId = userId,
@@ -709,7 +709,7 @@ public static class SaleEndpoints
                 BusinessId = business.Id,
                 SaleId = sale.Id,
                 Method = payment.Payment!.Method,
-                Status = PaymentStatus.Confirmed,
+                Status = QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed,
                 Amount = payment.Payment.Amount,
                 Currency = business.BaseCurrency,
                 CashReceived = payment.Payment.CashReceived,
@@ -733,7 +733,7 @@ public static class SaleEndpoints
 
             if (tax > 0)
             {
-                journalLines.Add(new(0, 0, tax, "Tax payable", null));
+                journalLines.Add(new(accounts[TaxAccountCode].Id, 0, tax, "Tax payable", null));
             }
 
             if (cost > 0)
@@ -846,7 +846,7 @@ public static class SaleEndpoints
             sale.DiscountAmount,
             sale.TaxAmount,
             sale.TotalAmount,
-            EnumBridge.To<PaymentStatus>(sale.PaymentStatus),
+            EnumBridge.To<QtsBilling.Contracts.Sales.PaymentStatus>(sale.PaymentStatus),
             Provisional: false,
             sale.Note,
             sale.PostedAtUtc,
@@ -856,7 +856,7 @@ public static class SaleEndpoints
             payments.Select(payment => new PostedPaymentDto(
                 payment.Id,
                 payment.Method.ToString(),
-                EnumBridge.To<PaymentStatus>(payment.Status),
+                EnumBridge.To<QtsBilling.Contracts.Sales.PaymentStatus>(payment.Status),
                 payment.Amount,
                 payment.Currency,
                 payment.CashReceived,
