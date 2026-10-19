@@ -137,12 +137,14 @@ public sealed class CacheAndSchemaTests
 
         string firstMigration;
         string secondMigration;
+        string thirdMigration;
         await using (var db = harness.CreateContext())
         {
             var known = db.Database.GetMigrations().ToArray();
-            Assert.Equal(2, known.Length);
+            Assert.Equal(3, known.Length);
             firstMigration = known[0];
             secondMigration = known[1];
+            thirdMigration = known[2];
             await db.Database.MigrateAsync(firstMigration);
         }
 
@@ -192,7 +194,7 @@ public sealed class CacheAndSchemaTests
 
         var startup = await harness.Store.InitializeAsync();
 
-        Assert.Equal([secondMigration], startup.AppliedMigrations);
+        Assert.Equal([secondMigration, thirdMigration], startup.AppliedMigrations);
         Assert.NotNull(startup.PreMigrationBackupPath);
         Assert.True(File.Exists(startup.PreMigrationBackupPath!));
 

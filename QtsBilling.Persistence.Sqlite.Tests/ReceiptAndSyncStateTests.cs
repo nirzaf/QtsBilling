@@ -131,7 +131,7 @@ public sealed class ReceiptAndSyncStateTests
         var profile = await harness.Store.GetDeviceProfileAsync();
         Assert.NotNull(profile);
         Assert.Equal(deviceId, profile!.DeviceId);
-        Assert.Equal(2, profile.SchemaVersion);
+        Assert.Equal(3, profile.SchemaVersion);
 
         await harness.Store.SaveSyncStateAsync(new SyncState
         {
