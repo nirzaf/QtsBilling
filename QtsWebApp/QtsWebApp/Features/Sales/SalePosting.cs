@@ -450,6 +450,15 @@ internal static class SalePosting
                 entryDate.Year,
                 cancellationToken).ConfigureAwait(false);
 
+            // A customer-credit sale is financed, not collected: it creates a receivable and never a
+            // confirmed payment. The money has not been taken, so it is not reported as taken
+            // (specification D07, finding F14).
+            var financedSale = payment.Payment!.Method == PaymentMethod.CustomerCredit;
+
+            // Only cash is settled by its receipt. A cheque or a transfer is not bank money until an
+            // operator confirms the processing, so it stays unsettled (specification D07).
+            var settledByReceipt = payment.Payment.Method == PaymentMethod.Cash;
+
             var subtotal = lines.Sum(line => line.Gross);
             var discount = lines.Sum(line => line.Discount);
             var tax = lines.Sum(line => line.Tax);
@@ -468,7 +477,9 @@ internal static class SalePosting
                 DiscountAmount = discount,
                 TaxAmount = tax,
                 TotalAmount = total,
-                PaymentStatus = QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed,
+                PaymentStatus = settledByReceipt
+                    ? QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed
+                    : QtsBilling.Persistence.Postgres.PaymentStatus.Pending,
                 Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
                 PostedAtUtc = now,
                 PostedByUserId = userId,
@@ -529,7 +540,11 @@ internal static class SalePosting
                 BusinessId = business.Id,
                 SaleId = sale.Id,
                 Method = payment.Payment!.Method,
-                Status = QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed,
+                // An unsettled tender is never reported as collected: only an acknowledged receipt
+                // confirms the money (specification D07).
+                Status = settledByReceipt
+                    ? QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed
+                    : QtsBilling.Persistence.Postgres.PaymentStatus.Pending,
                 Amount = payment.Payment.Amount,
                 Currency = business.BaseCurrency,
                 CashReceived = payment.Payment.CashReceived,
@@ -634,7 +649,12 @@ internal static class SalePosting
         => method switch
         {
             PaymentMethod.Cash => accounts[CashAccountCode].Id,
-            PaymentMethod.CustomerCredit => accounts[ReceivableAccountCode].Id,
+
+            // A cheque or a transfer is not bank money until an operator confirms the processing, so
+            // the amount stays on the receivable until the collection is recorded (specification D07).
+            PaymentMethod.Cheque or PaymentMethod.BankTransfer or PaymentMethod.Other
+                or PaymentMethod.CustomerCredit => accounts[ReceivableAccountCode].Id,
+
             _ => accounts[BankAccountCode].Id,
         };
 

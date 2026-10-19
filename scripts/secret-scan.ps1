@@ -28,6 +28,7 @@ try {
     $allowlist = @(
         @{ Name = "dev database password (documented fixture)"; Regex = "(?i)password\s*=\s*qtsbilling\b" },
         @{ Name = "dev account fixture (documented)"; Regex = "QtsBilling!Dev2026" },
+    @{ Name = "integration fixture account (documented, disposable database only)"; Regex = "Fixture!Passw0rd2026" },
         @{ Name = "reset-ticket placeholder (docs)"; Regex = "(?i)token.{0,40}(header|response|ticket)" }
     )
 

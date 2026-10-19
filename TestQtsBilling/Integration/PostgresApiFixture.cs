@@ -95,7 +95,11 @@ public sealed class PostgresApiFixture : IAsyncLifetime
 
         var response = await client.PostAsJsonAsync(
             "/api/v1/auth/login",
-            new { email = user.Email, password = FixtureUsers.Password }).ConfigureAwait(false);
+            new Dictionary<string, string>
+            {
+                ["email"] = user.Email,
+                ["password"] = FixtureUsers.Password,
+            }).ConfigureAwait(false);
 
         response.EnsureSuccessStatusCode();
 
@@ -116,6 +120,16 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         db.ChangeTracker.Clear();
 
         return await action(db).ConfigureAwait(false);
+    }
+
+    /// <summary>Opens a fresh context for a check that returns nothing.</summary>
+    public async Task WithFreshContextAsync(Func<BillingDbContext, Task> action)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+        db.ChangeTracker.Clear();
+
+        await action(db).ConfigureAwait(false);
     }
 
     // ------------------------------------------------------------------ the safety rules
@@ -343,6 +357,34 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         };
 
         db.AccountingPeriods.Add(period);
+
+        // The fixture variant owns an opening stock, so a financial scenario can sell it. The balance
+        // and its movement are written together: the database guard derives the balance from the
+        // movements and refuses anything else.
+        var now = DateTimeOffset.UtcNow;
+
+        db.InventoryMovements.Add(new InventoryMovement
+        {
+            BusinessId = business.Id,
+            LocationId = location.Id,
+            VariantId = variant.Id,
+            MovementType = MovementType.Opening,
+            QuantityDelta = 100m,
+            UnitCost = 60m,
+            ReferenceType = "opening",
+            ReferenceId = Guid.CreateVersion7(),
+            OccurredAtUtc = now,
+            Memo = "fixture opening stock",
+        });
+
+        db.InventoryBalances.Add(new InventoryBalance
+        {
+            BusinessId = business.Id,
+            LocationId = location.Id,
+            VariantId = variant.Id,
+            OnHand = 100m,
+            LastMovementAtUtc = now,
+        });
 
         await db.SaveChangesAsync().ConfigureAwait(false);
 
