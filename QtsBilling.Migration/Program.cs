@@ -44,7 +44,7 @@ static async Task<int> InventoryAsync(string[] args)
     var mapping = LoadMapping(Option(args, "--mapping"));
     var source = new SnapshotSource(snapshotDirectory);
 
-    var problems = source.VerifyAsync();
+    var problems = await source.VerifyAsync();
 
     if (problems.Count > 0)
     {
@@ -93,7 +93,7 @@ static async Task<int> TransformAsync(string[] args)
     Directory.CreateDirectory(outputDirectory);
 
     var source = new SnapshotSource(snapshotDirectory);
-    var problems = source.VerifyAsync();
+    var problems = await source.VerifyAsync();
 
     if (problems.Count > 0)
     {
@@ -107,12 +107,14 @@ static async Task<int> TransformAsync(string[] args)
 
     var transform = new DeterministicTransform(mapping);
     var quarantined = 0;
+    var reconciliationCount = 0;
 
     foreach (var file in source.ReadManifest().Files)
     {
         var documents = await SnapshotSource.ReadDocumentsAsync(file.Path).ConfigureAwait(false);
         var result = transform.Transform(file.Collection, documents);
         quarantined += result.Quarantine.Count;
+        reconciliationCount += result.Reconciliation.Count;
 
         var rowsPath = Path.Combine(outputDirectory, $"{result.TargetTable}.ndjson");
         await File.WriteAllLinesAsync(
@@ -129,10 +131,19 @@ static async Task<int> TransformAsync(string[] args)
                 .ConfigureAwait(false);
         }
 
-        Console.WriteLine($"{file.Collection,-32} -> {result.TargetTable,-24} rows={result.Rows.Count} quarantined={result.Quarantine.Count}");
+        if (result.Reconciliation.Count > 0)
+        {
+            var reconciliationPath = Path.Combine(outputDirectory, $"{result.TargetTable}.reconciliation.ndjson");
+            await File.WriteAllLinesAsync(
+                reconciliationPath,
+                result.Reconciliation.Select(record => JsonSerializer.Serialize(record)))
+                .ConfigureAwait(false);
+        }
+
+        Console.WriteLine($"{file.Collection,-32} -> {result.TargetTable,-24} rows={result.Rows.Count} quarantined={result.Quarantine.Count} reconciliation={result.Reconciliation.Count}");
     }
 
-    Console.WriteLine($"transformed into {outputDirectory} ({quarantined} quarantined)");
+    Console.WriteLine($"transformed into {outputDirectory} ({quarantined} quarantined, {reconciliationCount} reconciliation exceptions)");
     return 0;
 }
 
@@ -183,7 +194,7 @@ static async Task<int> ImportAsync(string[] args)
             }
         }
 
-        tables.Add(new TransformResult(collection.TargetTable, rows, quarantine));
+        tables.Add(new TransformResult(collection.TargetTable, rows, quarantine, []));
     }
 
     var options = new DbContextOptionsBuilder<BillingDbContext>()
@@ -249,8 +260,31 @@ static async Task<int> ReconcileAsync(string[] args)
             }
         }
 
+        // A legacy value without a counterpart is an exception that needs a decision - it blocks the
+        // go-live until it is resolved (spec §3.4/§6.1 step 7).
+        var reconciliationPath = Path.Combine(rowsDirectory, $"{collection.TargetTable}.reconciliation.ndjson");
+
+        if (File.Exists(reconciliationPath))
+        {
+            foreach (var line in await File.ReadAllLinesAsync(reconciliationPath).ConfigureAwait(false))
+            {
+                if (!string.IsNullOrWhiteSpace(line))
+                {
+                    var record = JsonSerializer.Deserialize<QuarantineRecord>(line)!;
+                    exceptions.Add($"{record.Collection}/{record.SourceId}: {record.Reason} - {record.Detail}");
+                }
+            }
+        }
+
+        // The imported count is the number of rows this import owns (the ones in the identifier map),
+        // not the size of the target table.
+        var collectionName = collection.Collection.Replace("\"", "\"\"");
         var imported = await db.Database
-            .SqlQueryRaw<int>($"SELECT COUNT(*) AS \"Value\" FROM {collection.TargetTable}")
+            .SqlQueryRaw<int>($"""
+                SELECT COUNT(*) AS "Value"
+                FROM {collection.TargetTable} t
+                WHERE t.id IN (SELECT target_id FROM legacy_identifier_map WHERE source_collection = '{collectionName}');
+                """)
             .ToListAsync()
             .ConfigureAwait(false);
 
@@ -297,7 +331,9 @@ static async Task<int> ReconcileAsync(string[] args)
 
 static MigrationMapping LoadMapping(string path)
 {
-    var mapping = JsonSerializer.Deserialize<MigrationMapping>(File.ReadAllText(path))
+    var options = new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
+    options.Converters.Add(new System.Text.Json.Serialization.JsonStringEnumConverter());
+    var mapping = JsonSerializer.Deserialize<MigrationMapping>(File.ReadAllText(path), options)
         ?? throw new InvalidOperationException($"The mapping '{path}' is empty.");
 
     if (mapping.Collections.Count == 0)

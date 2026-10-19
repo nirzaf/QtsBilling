@@ -44,7 +44,7 @@ public sealed class SnapshotSource
     }
 
     /// <summary>Verifies that every file of the snapshot still matches its manifest hash.</summary>
-    public IReadOnlyList<string> VerifyAsync(CancellationToken cancellationToken = default)
+    public async Task<IReadOnlyList<string>> VerifyAsync(CancellationToken cancellationToken = default)
     {
         var problems = new List<string>();
 
@@ -117,8 +117,7 @@ public sealed class SnapshotSource
     }
 
     /// <summary>Reads one collection file into documents (the redacted values are already removed).</summary>
-    public static async Task<List<JsonObject>> ReadDocumentsAsync(string path, CancellationToken cancellationToken = default)
-    {
+    public static async Task<List<JsonObject>> ReadDocumentsAsync(string path, CancellationToken cancellationToken = default)    {
         var documents = new List<JsonObject>();
 
         await using var stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);

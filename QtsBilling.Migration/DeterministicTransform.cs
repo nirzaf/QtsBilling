@@ -17,7 +17,8 @@ public sealed record QuarantineRecord(
 public sealed record TransformResult(
     string TargetTable,
     IReadOnlyList<JsonObject> Rows,
-    IReadOnlyList<QuarantineRecord> Quarantine);
+    IReadOnlyList<QuarantineRecord> Quarantine,
+    IReadOnlyList<QuarantineRecord> Reconciliation);
 
 /// <summary>
 /// The deterministic transform (spec §6.1, step 5). The same source document always produces the same
@@ -67,6 +68,7 @@ public sealed class DeterministicTransform
 
         var rows = new List<JsonObject>();
         var quarantine = new List<QuarantineRecord>();
+        var reconciliation = new List<QuarantineRecord>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
 
         foreach (var document in documents.OrderBy(document => SourceId(document, mapping), StringComparer.Ordinal))
@@ -107,7 +109,15 @@ public sealed class DeterministicTransform
 
                 if (error is not null)
                 {
-                    quarantine.Add(new QuarantineRecord(collection, sourceId, error.Reason, error.Detail));
+                    if (error.Value.Reason == "reconciliation_required")
+                    {
+                        // The record itself is fine: only this legacy value needs a decision. It is reported
+                        // and the record is still imported.
+                        reconciliation.Add(new QuarantineRecord(collection, sourceId, error.Value.Reason, error.Value.Detail));
+                        continue;
+                    }
+
+                    quarantine.Add(new QuarantineRecord(collection, sourceId, error.Value.Reason, error.Value.Detail));
                     failed = true;
                     break;
                 }
@@ -121,7 +131,7 @@ public sealed class DeterministicTransform
             }
         }
 
-        return new TransformResult(mapping.TargetTable, rows, quarantine);
+        return new TransformResult(mapping.TargetTable, rows, quarantine, reconciliation);
     }
 
     private static string SourceId(JsonObject document, CollectionMapping mapping)
@@ -204,6 +214,11 @@ public sealed class DeterministicTransform
                 // then the raw source id is carried and the importer resolves it.
                 return (JsonValue.Create(referenceId), null);
 
+            case FieldKind.Reconcile:
+                // The value has no counterpart in the new schema: it is reported, never imported and
+                // never dropped (spec §3.4: a legacy discrepancy must produce a reconciliation exception).
+                return (null, ("reconciliation_required", $"'{field.Source}' = {raw.ToString()} has no counterpart in the new schema."));
+
             default:
                 return (null, ("invalid_mapping", $"The field '{field.Target}' has an unknown kind."));
         }
@@ -213,7 +228,7 @@ public sealed class DeterministicTransform
     {
         if (raw.GetValueKind() == System.Text.Json.JsonValueKind.Number)
         {
-            if (!raw.TryGetDecimal(out var number))
+            if (!decimal.TryParse(raw.ToString(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var number))
             {
                 return (null, ("invalid_decimal", $"'{source}' is not a decimal."));
             }

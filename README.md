@@ -225,7 +225,7 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | [`QtsBilling.Persistence.Sqlite`](QtsBilling.Persistence.Sqlite/) | Class library | `net10.0` | Device-local store: one WAL SQLite file per device (discardable cache + durable outbox/receipts/sync state), checked scaled-integer money, own migration history, single-writer gate (QB-17) | ✅ QB-17 |
 | [`QtsBilling.Persistence.Sqlite.Tests`](QtsBilling.Persistence.Sqlite.Tests/) | xUnit project | `net10.0` | 20 temp-file SQLite tests: atomic capture, rollback, idempotency, restart/cache-rebuild durability, crash recovery, integer comparisons, schema upgrade with pending records (QB-17) | ✅ QB-17 |
 | [`QtsBilling.Maui`](QtsBilling.Maui/) | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop client: shared `QtsBilling.Ui` components in a WebView2, device identity, DPAPI secure session, device-local SQLite store, offline-tolerant API adapters (QB-18) | ✅ QB-18 |
-| _planned_ `QtsBilling.Migration` | Class library | `net10.0` | Historical data import, transform and reconciliation tooling (QB-23…QB-25) | 📋 Planned |
+| [`QtsBilling.Migration`](QtsBilling.Migration/) | Console CLI | `net10.0` | Historical import chain: snapshot inventory, deterministic transform, idempotent PostgreSQL load and the signed reconciliation report - no MongoDB dependency (QB-23…QB-25) | ✅ QB-23…QB-25 |
 
 > **Platform note.** Only the MAUI Windows desktop host needs a Windows-specific TFM
 > (`net10.0-windows10.0.19041.0`). The web host, browser client and all libraries are plain `net10.0`
@@ -259,7 +259,7 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Change feed (QB-21) | ✅ Done, verified live |
 | Device sync loop + conflict queue (QB-22) | ✅ Done, verified live |
 | OIDC/PKCE device flow | 📋 TODO — the client still uses the session endpoint |
-| Historical data import + reconciliation (QB-23 … QB-25) | ⛔ Blocked — needs a reachable legacy source (and the legacy field mapping) |
+| Historical data import + reconciliation (QB-23 … QB-25) | ✅ Done — the import CLI works from an exported snapshot; MongoDB is gone from the repository |
 | Tests, CI/CD, secret scanning (QB-26) | ✅ Done — the CI and release pipelines are in place |
 | Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | ✅ Done — the runbooks live in docs/migration/deployment.md, the rehearsal passes 7/7 |
 | Production cutover (QB-30) | 🔒 GATED — requires an explicit business-owner codeword |
@@ -428,7 +428,7 @@ check) is planned under **QB-26**.
 Per-task detail lives in [`docs/migration/tasks/`](docs/migration/tasks/); the aggregate tracker is
 [`docs/migration/task-status.md`](docs/migration/task-status.md). Highlights:
 
-**Done (server + desktop):** QB-01…QB-22, plus the CI pipelines, the operational runbooks and the rehearsal (QB-26…QB-28) — solution boundaries; contracts and value objects;
+**Done (server + desktop):** QB-01…QB-28, including the historical import chain (QB-23…QB-25), the CI pipelines, the operational runbooks and the rehearsal — solution boundaries; contracts and value objects;
 the PostgreSQL schema with a balanced immutable ledger (QB-07), transactional inventory (QB-08), atomic
 idempotent sales (QB-09), cash register / receipts / refunds (QB-10), invoices & credit notes (QB-11),
 purchasing / expenses / tax / discounts (QB-12), derived reports (QB-13), and security / audit / real
@@ -439,8 +439,6 @@ push handler (QB-20), the commit-ordered change feed (QB-21) and the device sync
 **Remaining:**
 
 - **OIDC/PKCE device flow** — the standards-based device authorisation for the desktop client.
-- **QB-23 … QB-25** — out-of-band import of historical data (export → deterministic transform →
-  PostgreSQL load), plus a signed reconciliation report and account-reset plan.
 - **Pilot approval** — the business decision that opens the pilot (which business, which devices, which
   cashiers and the acceptance window).
 - **QB-30** — production cutover and post-cutover integrity verification (gated behind the business-owner's

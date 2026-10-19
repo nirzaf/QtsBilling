@@ -10,13 +10,14 @@ namespace QtsBilling.Migration;
 public sealed record ImportReport(
     IReadOnlyList<TableImportReport> Tables,
     int IdentifierMapRows,
-    int Quarantined);
+    int Quarantined,
+    IReadOnlyList<QuarantineRecord> Quarantine);
 
 /// <summary>What one target table received.</summary>
 public sealed record TableImportReport(string Table, int Rows, int Updated);
 
 /// <summary>
-/// The idempotent load (spec §6.1, step 6). Every target row is upserted against the stable derived id,
+/// The idempotent load (spec Â§6.1, step 6). Every target row is upserted against the stable derived id,
 /// and every mapping is written to <c>legacy_identifier_map</c>, so a rerun updates the same rows instead
 /// of creating a second copy. Nothing is invented: a row that cannot be mapped is quarantined upstream.
 /// </summary>
@@ -37,6 +38,7 @@ public sealed class PostgresImporter
         CancellationToken cancellationToken = default)
     {
         var tableReports = new List<TableReport>();
+        var quarantine = new List<QuarantineRecord>();
         var mapRows = 0;
         var quarantined = 0;
 
@@ -60,7 +62,7 @@ public sealed class PostgresImporter
                         continue;
                     }
 
-                    if (!columns.Contains(column))
+                    if (!columns.ContainsKey(column))
                     {
                         // The mapping targets a column the schema does not have: that is a mapping error.
                         throw new InvalidOperationException(
@@ -83,7 +85,7 @@ public sealed class PostgresImporter
                     var referenced = raw.ToString()!;
                     var targetId = _transform.TargetId(field.References!, referenced);
 
-                    values[field.Target] = targetId.ToString("D");
+                    values[field.Target] = JsonValue.Create(targetId.ToString("D"));
 
                     if (string.Equals(field.Target, "business_id", StringComparison.OrdinalIgnoreCase))
                     {
@@ -91,17 +93,35 @@ public sealed class PostgresImporter
                     }
                 }
 
-                values["id"] = row["id"]!.ToString();
-                values["version"] = 1;
-                values["created_at_utc"] = runTimestamp;
-                values["updated_at_utc"] = runTimestamp;
+                values["id"] = row["id"]!;
+                values["version"] = JsonValue.Create(1);
+                values["created_at_utc"] = JsonValue.Create(runTimestamp.UtcDateTime.ToString("O"));
+                values["updated_at_utc"] = JsonValue.Create(runTimestamp.UtcDateTime.ToString("O"));
 
-                if (columns.Contains("is_active") && !values.ContainsKey("is_active"))
+                if (columns.ContainsKey("is_active") && !values.ContainsKey("is_active"))
                 {
-                    values["is_active"] = true;
+                    values["is_active"] = JsonValue.Create(true);
                 }
 
-                var (inserted, existed) = await UpsertAsync(db, table.TargetTable, values, cancellationToken).ConfigureAwait(false);
+                bool inserted;
+                bool existed;
+
+                try
+                {
+                    (inserted, existed) = await UpsertAsync(db, table.TargetTable, values, columns, cancellationToken).ConfigureAwait(false);
+                }
+                catch (PostgresException exception) when (exception.SqlState is PostgresErrorCodes.UniqueViolation or PostgresErrorCodes.ForeignKeyViolation)
+                {
+                    // The row collides with an existing record: it is quarantined with its source id and the
+                    // import continues. It is never merged or overwritten silently.
+                    quarantine.Add(new QuarantineRecord(
+                        table.TargetTable,
+                        row["__source_id"]!.ToString()!,
+                        exception.SqlState == PostgresErrorCodes.UniqueViolation ? "unique_violation" : "foreign_key_violation",
+                        exception.MessageText));
+
+                    continue;
+                }
 
                 rows++;
                 if (existed)
@@ -126,10 +146,43 @@ public sealed class PostgresImporter
         return new ImportReport(
             tableReports.Select(report => new TableImportReport(report.Table, report.Rows, report.Updated)).ToList(),
             mapRows,
-            quarantined);
+            quarantined,
+            quarantine);
     }
 
-    private static async Task<IReadOnlySet<string>> LoadColumnsAsync(
+    /// <summary>Converts a transformed value into the CLR type the target column expects.</summary>
+    private static object? ToParameterValue(string dataType, JsonNode? node)
+    {
+        if (node is null)
+        {
+            return null;
+        }
+
+        var text = node.ToString();
+
+        return dataType switch
+        {
+            "uuid" => Guid.Parse(text),
+            "numeric" or "decimal" => decimal.Parse(text, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture),
+            "boolean" => string.Equals(text, "true", StringComparison.OrdinalIgnoreCase),
+            "integer" => int.Parse(text, System.Globalization.CultureInfo.InvariantCulture),
+            "bigint" => long.Parse(text, System.Globalization.CultureInfo.InvariantCulture),
+            "timestamp with time zone" => DateTime.Parse(
+                text,
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AdjustToUniversal | System.Globalization.DateTimeStyles.AssumeUniversal),
+            _ => text,
+        };
+    }
+
+    private static void AddParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
+    }
+    private static async Task<IReadOnlyDictionary<string, string>> LoadColumnsAsync(
         BillingDbContext db,
         string table,
         CancellationToken cancellationToken)
@@ -144,21 +197,21 @@ public sealed class PostgresImporter
 
         try
         {
-            var columns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var columns = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
 
             await using var command = connection.CreateCommand();
             command.CommandText = """
-                SELECT column_name
+                SELECT column_name, data_type
                 FROM information_schema.columns
                 WHERE table_schema = 'public' AND table_name = @table;
                 """;
-            command.Parameters.AddWithValue("table", table);
+            AddParameter(command, "table", table);
 
             await using var reader = await command.ExecuteReaderAsync(cancellationToken).ConfigureAwait(false);
 
             while (await reader.ReadAsync(cancellationToken).ConfigureAwait(false))
             {
-                columns.Add(reader.GetString(0));
+                columns[reader.GetString(0)] = reader.GetString(1);
             }
 
             return columns;
@@ -176,6 +229,7 @@ public sealed class PostgresImporter
         BillingDbContext db,
         string table,
         IReadOnlyDictionary<string, object?> values,
+        IReadOnlyDictionary<string, string> columns,
         CancellationToken cancellationToken)
     {
         var connection = db.Database.GetDbConnection();
@@ -188,22 +242,22 @@ public sealed class PostgresImporter
 
         try
         {
-            var columns = values.Keys.ToArray();
-            var parameters = new List<string>(columns.Length);
-            var arguments = new List<object?>(columns.Length);
+            var columnNames = values.Keys.ToArray();
+            var parameters = new List<string>(columnNames.Length);
+            var arguments = new List<object?>(columnNames.Length);
 
-            for (var index = 0; index < columns.Length; index++)
+            for (var index = 0; index < columnNames.Length; index++)
             {
                 parameters.Add($"@p{index}");
-                arguments.Add(values[columns[index]]);
+                arguments.Add(values[columnNames[index]]);
             }
 
-            var updatable = columns
+            var updatable = columnNames
                 .Where(column => !string.Equals(column, "id", StringComparison.OrdinalIgnoreCase))
                 .ToArray();
 
             var sql = $"""
-                INSERT INTO {table} ({string.Join(", ", columns)})
+                INSERT INTO {table} ({string.Join(", ", columnNames)})
                 VALUES ({string.Join(", ", parameters)})
                 ON CONFLICT (id) DO UPDATE SET {string.Join(", ", updatable.Select(column => $"{column} = EXCLUDED.{column}"))}
                 RETURNING (xmax = 0) AS inserted;
@@ -212,9 +266,10 @@ public sealed class PostgresImporter
             await using var command = connection.CreateCommand();
             command.CommandText = sql;
 
-            for (var index = 0; index < columns.Length; index++)
+            for (var index = 0; index < columnNames.Length; index++)
             {
-                command.Parameters.AddWithValue($"p{index}", arguments[index] ?? DBNull.Value);
+                var dataType = columns.TryGetValue(columnNames[index], out var type) ? type : "text";
+                AddParameter(command, $"p{index}", ToParameterValue(dataType, arguments[index] as JsonNode) ?? arguments[index] ?? DBNull.Value);
             }
 
             var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
@@ -231,6 +286,44 @@ public sealed class PostgresImporter
         }
     }
 
+    private static async Task<Guid?> ReadIdentifierMapAsync(
+        BillingDbContext db,
+        string sourceCollection,
+        string sourceId,
+        CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        var wasOpen = connection.State == System.Data.ConnectionState.Open;
+
+        if (!wasOpen)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                SELECT target_id
+                FROM legacy_identifier_map
+                WHERE source_collection = @collection AND legacy_id = @legacy_id;
+                """;
+
+            AddParameter(command, "collection", sourceCollection);
+            AddParameter(command, "legacy_id", sourceId);
+
+            var result = await command.ExecuteScalarAsync(cancellationToken).ConfigureAwait(false);
+
+            return result is Guid guid ? guid : null;
+        }
+        finally
+        {
+            if (!wasOpen)
+            {
+                await connection.CloseAsync().ConfigureAwait(false);
+            }
+        }
+    }
     private static async Task<bool> WriteIdentifierMapAsync(
         BillingDbContext db,
         MigrationMapping mapping,
@@ -257,19 +350,27 @@ public sealed class PostgresImporter
                     (id, business_id, source_collection, legacy_id, entity_type, target_id, migrated_at_utc, created_at_utc, updated_at_utc)
                 VALUES
                     (@id, @business_id, @collection, @legacy_id, @entity_type, @target_id, @now, @now, @now)
-                ON CONFLICT (id) DO UPDATE SET target_id = EXCLUDED.target_id, updated_at_utc = EXCLUDED.updated_at_utc;
+
                 """;
 
-            command.Parameters.AddWithValue("id", Guid.CreateVersion7());
-            command.Parameters.AddWithValue("business_id", businessId == Guid.Empty ? DBNull.Value : businessId);
-            command.Parameters.AddWithValue("collection", sourceCollection);
-            command.Parameters.AddWithValue("legacy_id", sourceId);
-            command.Parameters.AddWithValue("entity_type", sourceCollection);
-            command.Parameters.AddWithValue("target_id", targetId);
-            command.Parameters.AddWithValue("now", runTimestamp);
+            AddParameter(command, "id", Guid.CreateVersion7());
+            AddParameter(command, "business_id", businessId == Guid.Empty ? DBNull.Value : businessId);
+            AddParameter(command, "collection", sourceCollection);
+            AddParameter(command, "legacy_id", sourceId);
+            AddParameter(command, "entity_type", sourceCollection);
+            AddParameter(command, "target_id", targetId);
+            AddParameter(command, "now", runTimestamp);
 
-            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
-            return true;
+            try
+            {
+                await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+                return true;
+            }
+            catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
+            {
+                // A concurrent run mapped the same source id first: the mapping is the same by construction.
+                return false;
+            }
         }
         finally
         {

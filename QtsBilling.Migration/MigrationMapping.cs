@@ -69,4 +69,9 @@ public enum FieldKind
     Reference,
     /// <summary>The source id of the record itself.</summary>
     SourceId,
+    /// <summary>
+    /// A legacy value that has no counterpart in the new schema (an old customer balance, for example).
+    /// It is never imported and never dropped: it becomes a reconciliation exception that needs a decision.
+    /// </summary>
+    Reconcile,
 }
