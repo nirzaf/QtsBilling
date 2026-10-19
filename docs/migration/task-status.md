@@ -17,7 +17,7 @@
 | QB-06 | Migrate customers, products and supplier masters | **PARTIAL — customers + products done** | Customers, products/variants on PostgreSQL behind the API; suppliers/units/categories/brands/groups/tax rates/discounts still Mongo. |
 | QB-07 | Replace journals with balanced, immutable ledger | **DONE (verified live on PostgreSQL 18.6)** | Chart of accounts, periods, atomic posting, reversals, source idempotency, derived trial balance. |
 | QB-08 | Transactional authoritative inventory | **DONE (verified live on PostgreSQL 18.6)** | Movement+balance atomicity, no oversell under concurrency, replay-safe references, reconciliation report. |
-| QB-09 | Atomic idempotent server-side sale posting | TODO | |
+| QB-09 | Atomic idempotent server-side sale posting | **DONE (verified live on PostgreSQL 18.6)** | `POST/GET /api/v1/pos/sales`; one transaction = sale + snapshots + stock + payment + balanced journal + audit; `Idempotency-Key` replay returns the stored sale, changed payload refused; race-safe against oversell. |
 | QB-10 | Cash register, safe payments and receipts | TODO | |
 | QB-11 | Immutable invoice and credit workflow | TODO | |
 | QB-12 | Purchasing, expense, tax and discount integrity | TODO | |
@@ -40,14 +40,15 @@
 | QB-29 | Remove WinForms completely | **GATED** | Requires the user's deletion codeword; nothing removed. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 
-## Current architecture state (after QB-07 / QB-08)
+## Current architecture state (after QB-07 / QB-08 / QB-09)
 
 - `QtsModels` — legacy BSON entities retained **plus** new provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
 - `QtsBilling.Contracts` — wire DTOs (paging, customers, catalog, accounting, inventory, sales capture, sync envelopes, identity), canonical JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`) and `ApiException`.
-- `QtsBilling.Persistence.Postgres` — `BillingDbContext` (Identity-enabled), 38-table schema + identity tables, migrations `InitialCreate`, `AddIntegrityGuards`, `AddIdentity`, `AddLedgerSourceIdempotency`.
-- `QtsWebApp` — ASP.NET Core host on **PostgreSQL**: Blazor app + `/api/v1` (auth, customers, products, accounts, periods, journal entries, trial balance, locations, inventory movements/balances/reconciliation, health), cookie sessions with permission policies, ProblemDetails/correlation ids, contract JSON options, OpenAPI in Development.
+- `QtsBilling.Persistence.Postgres` — `BillingDbContext` (Identity-enabled), 38-table schema + identity tables, migrations `InitialCreate`, `AddIntegrityGuards`, `AddIdentity`, `AddLedgerSourceIdempotency`, `AddSaleIdempotencyReceipt`.
+- `QtsWebApp` — ASP.NET Core host on **PostgreSQL**: Blazor app + `/api/v1` (auth, customers, products, accounts, periods, journal entries, trial balance, locations, inventory movements/balances/reconciliation, POS sales, health), cookie sessions with permission policies, ProblemDetails/correlation ids, contract JSON options, OpenAPI in Development.
+- **Sales (QB-09).** One request posts the sale, line snapshots, stock movements, payment, balanced journal and audit event atomically; `Idempotency-Key` + payload fingerprint receipts make retries safe (replay returns the stored sale; a changed payload is refused).
 - `QtsWebApp.Client` — browser talks to the API only; **no** database assemblies or credentials in the bundle (QB-15).
-- `QtsServices` / `QtsBilling` (WinForms) — unchanged legacy MongoDB paths; WinForms removal is gated (QB-29). Sales, cash register, invoices, purchasing, expenses and reporting still live there until QB-09…QB-14.
+- `QtsServices` / `QtsBilling` (WinForms) — unchanged legacy MongoDB paths; WinForms removal is gated (QB-29). Cash register, invoices, purchasing, expenses and reporting still live there until QB-10…QB-14.
 - No dual writes exist: the PostgreSQL path serves its own (new) surface; legacy Mongo data has not been imported (QB-23/24 pending a reachable source).
 
 ## Local development environment (this machine)

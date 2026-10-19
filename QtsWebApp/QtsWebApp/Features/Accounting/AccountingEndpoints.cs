@@ -422,7 +422,7 @@ public static class AccountingEndpoints
             {
                 return ApiResults.ValidationProblem(
                     "The filter is invalid.",
-                    new Dictionary<string, string[]> { ["status"] = [$\"Unknown status '{status}'.\"] });
+                    new Dictionary<string, string[]> { ["status"] = [$"Unknown status '{status}'."] });
             }
 
             var stored = EnumBridge.To<EntryStatus>(wantedStatus);
@@ -435,7 +435,7 @@ public static class AccountingEndpoints
             {
                 return ApiResults.ValidationProblem(
                     "The filter is invalid.",
-                    new Dictionary<string, string[]> { ["origin"] = [$\"Unknown origin '{origin}'.\"] });
+                    new Dictionary<string, string[]> { ["origin"] = [$"Unknown origin '{origin}'."] });
             }
 
             var stored = EnumBridge.To<JournalSourceType>(wantedOrigin);

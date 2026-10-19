@@ -1,0 +1,29 @@
+﻿# QB-09 live smoke output - host http://localhost:5188 on PostgreSQL 18.6 (docker container qtsbilling-pg, port 5433)
+# run: powershell -File qb09-smoke.ps1
+------------------------------------------------------------------------
+== QB-09 live smoke: atomic idempotent sale posting ==
+login | HTTP 200 | code=-
+fixture | sku=SMOKE-QB09-9a2e31 variant=01a1541b-833c-7c41-9d5f-7ac95e6c3c36 location=Main customer=Paging Customer F
+opening +20 | HTTP 201 | code=-
+submitted price != catalog | HTTP 409 | code=INVALID_PRICE
+card without reference | HTTP 409 | code=PAYMENT_UNCONFIRMED
+nonexistent variant | HTTP 400 | code=VALIDATION_FAILED
+oversell | HTTP 409 | code=INSUFFICIENT_STOCK
+oversell rollback | sales before=4 after=4 onHand=20.000000
+post cash sale | HTTP 201 | code=-
+post cash sale | number=S-2026-00005 total=75.0000 tax=0.0000 provisional=False
+replay same key/payload | HTTP 200 | code=-
+replay | sameId=True number=S-2026-00005
+same key, changed payload | HTTP 409 | code=SAME_KEY_DIFFERENT_PAYLOAD
+stock after sale | onHand=17.000000 (started 20, sold 3)
+sale detail | number=S-2026-00005 lines=1 qty=3.0000 unitPrice=25.5000 discount=1.5000 lineTotal=75.0000 cost=18.0000 payment=Cash/confirmed
+journal from sale | entries=6
+  trial balance | 1000 Cash on Hand debit=1241.5000 credit=100.0000
+  trial balance | 1200 Inventory debit=0.0000 credit=774.0000
+  trial balance | 4000 Sales Revenue debit=100.0000 credit=1241.5000
+  trial balance | 5000 Cost of Goods Sold debit=774.0000 credit=0.0000
+race | A HTTP 201 | B HTTP 409
+stock after race | onHand=0.000000 (never negative)
+reconciliation | mismatches=0 totalOnHand=0.000000 totalMovementSum=0.000000
+== smoke complete ==
+

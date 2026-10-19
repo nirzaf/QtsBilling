@@ -82,11 +82,12 @@ API-first architecture**. Governing decisions and per-task status are in
 
 **Web + API (live, PostgreSQL-backed)**
 
-- Typed `/api/v1` endpoints implemented as ASP.NET Core minimal-API feature slices with ProblemDetails, error codes, correlation IDs and OpenAPI in Development — **auth**; **customers**; **catalog** (products / variants); **accounting** (accounts, periods, journal entries, trial balance); **inventory** (locations, movements, balances, reconciliation); **health**.
+- Typed `/api/v1` endpoints implemented as ASP.NET Core minimal-API feature slices with ProblemDetails, error codes, correlation IDs and OpenAPI in Development — **auth**; **customers**; **catalog** (products / variants); **accounting** (accounts, periods, journal entries, trial balance); **inventory** (locations, movements, balances, reconciliation); **health**; **POS sales** (`POST /api/v1/pos/sales`, atomic idempotent posting with stock, payment and balanced journal).
 - **Authentication** — ASP.NET Core Identity on PostgreSQL (Guid keys), cookie sessions with `SameSite=Strict`, strong password policy, lockout, permission-based claims and policies. Every account starts with `PasswordResetRequired = true`; sign-in is refused until a one-time setup ticket is completed, so **no default password is ever usable**.
 - **Multi-business tenant isolation** — every business-owned row carries `business_id`; composite FKs prevent cross-tenant linkage; enforced server-side *and* by the schema.
 - **Canonical, immutable ledger** — `journal_entries` + `journal_lines` with optimistic concurrency (`version`); posted rows are append-only, corrections happen via reversal; deferred triggers enforce balance at commit and reject illegal updates.
 - **Transactional inventory** — `inventory_balances` (unique per business / location / variant, `on_hand >= 0`) + append-only `inventory_movements`. `Product.Quantity` and `Inventory.Quantity` cease to be authorities.
+- **Atomic, idempotent sales** — one transaction posts the sale, its line snapshots, the stock movements, the confirmed payment, the balanced journal entry and the audit event. `Idempotency-Key` + payload fingerprint receipts make retries safe (replay returns the original sale; a changed payload under the same key is refused). Concurrent terminals cannot oversell.
 - **Value objects** — provider-neutral primitives: `Money` (`numeric(18,4)`), `Quantity` (`numeric(18,6)`), `CurrencyCode`, `ScaledDecimal`.
 - **Sync protocol ready in schema** — per-business `sync_revisions` with commit-ordered ordinal, `processed_operations` idempotency with payload fingerprint, `sync_changes` change feed, tombstones and `RESYNC_REQUIRED` on expired cursor. Handlers land with QB-20/21/22.
 
