@@ -71,6 +71,52 @@ public static class LikePattern
         => $"%{value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal)}%";
 }
 
+/// <summary>
+/// Bridges between stored enums and wire enums that intentionally share member names. Casting inside a
+/// LINQ projection would make EF translate a text column to an integer; bridging in memory avoids that.
+/// </summary>
+public static class EnumBridge
+{
+    public static TTarget To<TTarget>(Enum value)
+        where TTarget : struct, Enum
+        => Enum.Parse<TTarget>(value.ToString());
+}
+
+/// <summary>
+/// Opaque keyset cursors. Identifiers are UUIDv7 (time-ordered), so id-order is a stable, unique page key
+/// and a page can never repeat or skip a row when data changes between requests (specification §3.3/§7.1).
+/// </summary>
+public static class CursorPaging
+{
+    public static string Encode(Guid id)
+        => Convert.ToBase64String(Encoding.UTF8.GetBytes(id.ToString("D")))
+            .TrimEnd('=')
+            .Replace('+', '-')
+            .Replace('/', '_');
+
+    public static bool TryDecode(string? cursor, out Guid id)
+    {
+        id = Guid.Empty;
+
+        if (string.IsNullOrWhiteSpace(cursor))
+        {
+            return false;
+        }
+
+        try
+        {
+            var value = cursor.Replace('-', '+').Replace('_', '/');
+            value = value.PadRight(value.Length + ((4 - (value.Length % 4)) % 4), '=');
+
+            return Guid.TryParse(Encoding.UTF8.GetString(Convert.FromBase64String(value)), out id) && id != Guid.Empty;
+        }
+        catch (FormatException)
+        {
+            return false;
+        }
+    }
+}
+
 /// <summary>Correlates every request/response pair so support can trace a report to server logs.</summary>
 public sealed class CorrelationIdMiddleware(RequestDelegate next)
 {

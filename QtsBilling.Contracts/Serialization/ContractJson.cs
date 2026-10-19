@@ -15,17 +15,30 @@ public static class ContractJson
     /// <summary>Options for offline payload fingerprints (canonical form is applied separately).</summary>
     public static JsonSerializerOptions FingerprintOptions { get; } = CreateOptions();
 
+    /// <summary>
+    /// Applies the shared wire contract to an existing options instance (for example the server's
+    /// HTTP JSON options) so every producer and consumer of a contract agrees on the encoding.
+    /// </summary>
+    public static void Apply(JsonSerializerOptions options)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+
+        options.DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull;
+        options.PropertyNamingPolicy = JsonNamingPolicy.CamelCase;
+        options.DictionaryKeyPolicy = JsonNamingPolicy.CamelCase;
+        options.WriteIndented = false;
+        options.NumberHandling = JsonNumberHandling.Strict;
+
+        if (!options.Converters.Any(converter => converter is JsonStringEnumConverter))
+        {
+            options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        }
+    }
+
     private static JsonSerializerOptions CreateOptions()
     {
-        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web)
-        {
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-            DictionaryKeyPolicy = JsonNamingPolicy.CamelCase,
-            WriteIndented = false,
-            NumberHandling = JsonNumberHandling.Strict,
-        };
-        options.Converters.Add(new JsonStringEnumConverter(JsonNamingPolicy.CamelCase));
+        var options = new JsonSerializerOptions(JsonSerializerDefaults.Web);
+        Apply(options);
         return options;
     }
 }

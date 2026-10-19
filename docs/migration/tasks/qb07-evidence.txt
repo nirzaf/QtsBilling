@@ -1,0 +1,21 @@
+﻿== QB-07 / QB-08 live smoke ==
+login | HTTP 200 | code=-
+accounts | count=11
+accounts | cash=01a153fb-638f-7b4e-b7e0-db59160531ac sales=01a153fb-63ba-778d-8bb4-71ad3c3aba93
+post balanced | HTTP 201 | code=-
+post balanced | number=JE-2026-00001 totalDebit=100 totalCredit=100
+post unbalanced | HTTP 400 | code=UNBALANCED_JOURNAL
+post unbalanced detail | {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.1","title":"The journal entry is not balanced.","status":400,"detail":"Total debits (100) must equal total credits (90).","code":"UNBALANCED_JOURNAL","traceId":"00-dbc8f5c4412e7824e28fa38692d9a024-259b1782e0aacde6-00"}
+post zero-sided line | HTTP 400 | code=VALIDATION_FAILED
+post sourced (first delivery) | HTTP 201 | code=-
+post sourced (replay) | HTTP 409 | code=IDEMPOTENCY_KEY_REUSED
+reverse entry | HTTP 201 | code=-
+reverse entry | number=JE-2026-00003 reversalOf=01a15401-bcff-717d-a8f7-095975fa9f2e
+reverse entry again | HTTP 409 | code=IDEMPOTENCY_KEY_REUSED
+original after reversal | number=JE-2026-00001 status=posted memo=QB-07 smoke balanced totalDebit=100.0000
+trial balance | rows=2 totalDebit=250.0000 totalCredit=250.0000
+  trial balance row | 1000 Cash on Hand debit=150.0000 credit=100.0000 balance=50.0000
+  trial balance row | 4000 Sales Revenue debit=100.0000 credit=150.0000 balance=-50.0000
+create FY2027 period | HTTP 409 | code=CONFLICT
+FY2027 period already closed | id=01a153fc-71df-737b-a5ec-3e8faf87816e
+post into closed period | HTTP 409 | code=ACCOUNTING_PERIOD_CLOSED

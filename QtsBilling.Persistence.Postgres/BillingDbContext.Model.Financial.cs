@@ -145,7 +145,10 @@ public partial class BillingDbContext
             b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.ReversalOfEntryId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.EntryNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.EntryDate });
-            b.HasIndex(e => new { e.BusinessId, e.SourceType, e.SourceId });
+            b.HasIndex(e => new { e.BusinessId, e.SourceType, e.SourceId })
+                .IsUnique()
+                .HasFilter("source_id IS NOT NULL")
+                .HasDatabaseName("ux_journal_entries_business_source");
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_journal_entries_totals_non_negative",
                 "total_debit >= 0 AND total_credit >= 0"));

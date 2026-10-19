@@ -105,5 +105,69 @@ public static class DevDataSeeder
                 email,
                 ticket);
         }
+
+        await SeedAccountingAsync(db, business, logger, cancellationToken).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// Development convenience so the ledger API is immediately usable: a minimal chart of accounts, the
+    /// current fiscal year as an open period and the journal number series. Production chart setup is an
+    /// explicit onboarding step, not a side effect of starting the host.
+    /// </summary>
+    private static async Task SeedAccountingAsync(
+        BillingDbContext db,
+        Business business,
+        ILogger logger,
+        CancellationToken cancellationToken)
+    {
+        if (!await db.Accounts.AnyAsync(account => account.BusinessId == business.Id, cancellationToken).ConfigureAwait(false))
+        {
+            foreach (var (code, name, type) in DefaultChart)
+            {
+                db.Accounts.Add(new Account
+                {
+                    BusinessId = business.Id,
+                    Code = code,
+                    Name = name,
+                    AccountType = type,
+                    IsActive = true,
+                });
+            }
+
+            logger.LogInformation("Seeded {Count} chart-of-accounts entries for {Business}.", DefaultChart.Length, business.Name);
+        }
+
+        var fiscalYear = DateTime.UtcNow.Year;
+
+        if (!await db.AccountingPeriods.AnyAsync(period => period.BusinessId == business.Id, cancellationToken).ConfigureAwait(false))
+        {
+            db.AccountingPeriods.Add(new AccountingPeriod
+            {
+                BusinessId = business.Id,
+                Name = $"FY {fiscalYear}",
+                StartDate = new DateOnly(fiscalYear, 1, 1),
+                EndDate = new DateOnly(fiscalYear, 12, 31),
+                Status = AccountingPeriodStatus.Open,
+            });
+
+            logger.LogInformation("Seeded open accounting period FY {Year} for {Business}.", fiscalYear, business.Name);
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static readonly (string Code, string Name, AccountType Type)[] DefaultChart =
+    [
+        ("1000", "Cash on Hand", AccountType.Asset),
+        ("1010", "Bank", AccountType.Asset),
+        ("1100", "Accounts Receivable", AccountType.Asset),
+        ("1200", "Inventory", AccountType.Asset),
+        ("2000", "Accounts Payable", AccountType.Liability),
+        ("2100", "Tax Payable", AccountType.Liability),
+        ("3000", "Owner Equity", AccountType.Equity),
+        ("4000", "Sales Revenue", AccountType.Revenue),
+        ("4100", "Sales Discounts", AccountType.Revenue),
+        ("5000", "Cost of Goods Sold", AccountType.Expense),
+        ("5100", "Operating Expenses", AccountType.Expense),
+    ];
 }

@@ -1,0 +1,1157 @@
+using System.Globalization;
+using System.Security.Claims;
+using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Accounting;
+using QtsBilling.Contracts.Identity;
+using QtsBilling.Persistence.Postgres;
+using QtsBilling.Persistence.Postgres.Entities;
+using QtsWebApp.Infrastructure;
+
+namespace QtsWebApp.Features.Accounting;
+
+/// <summary>
+/// Balanced, immutable ledger (QB-07). Posted journal entries are never edited: corrections are reversal
+/// entries, balances are always derived from posted lines, closed periods reject posting, and one idempotency
+/// reference can produce at most one entry so a retried posting cannot double-post (F-03/F-04/F-11).
+/// </summary>
+public static class AccountingEndpoints
+{
+    private const int DefaultPageSize = 25;
+    private const int MaxPageSize = 200;
+    private const int MaxCodeLength = 32;
+    private const int MaxNameLength = 200;
+    private const int MaxMemoLength = 2_000;
+    private const int MoneyScale = 4;
+    private const string JournalSequenceName = "journal";
+    private const string JournalSequencePrefix = "JE-";
+
+    public static IEndpointRouteBuilder MapAccountingEndpoints(this IEndpointRouteBuilder app)
+    {
+        var accounts = app.MapGroup("/api/v1/accounts").WithTags("Accounting");
+        accounts.MapGet("/", ListAccountsAsync).RequireAuthorization(Permissions.ReportsView);
+        accounts.MapPost("/", CreateAccountAsync).RequireAuthorization(Permissions.AccountingPost);
+        accounts.MapPut("/{id:guid}", UpdateAccountAsync).RequireAuthorization(Permissions.AccountingPost);
+
+        var periods = app.MapGroup("/api/v1/accounting-periods").WithTags("Accounting");
+        periods.MapGet("/", ListPeriodsAsync).RequireAuthorization(Permissions.ReportsView);
+        periods.MapPost("/", CreatePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
+        periods.MapPost("/{id:guid}/close", ClosePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
+
+        var journal = app.MapGroup("/api/v1/journal-entries").WithTags("Accounting");
+        journal.MapGet("/", ListJournalAsync).RequireAuthorization(Permissions.ReportsView);
+        journal.MapGet("/{id:guid}", GetJournalAsync).RequireAuthorization(Permissions.ReportsView);
+        journal.MapPost("/", PostJournalAsync).RequireAuthorization(Permissions.AccountingPost);
+        journal.MapPost("/{id:guid}/reverse", ReverseJournalAsync).RequireAuthorization(Permissions.AccountingPost);
+
+        app.MapGet("/api/v1/reports/trial-balance", TrialBalanceAsync)
+            .WithTags("Accounting")
+            .RequireAuthorization(Permissions.ReportsView);
+
+        return app;
+    }
+
+    // ---------------------------------------------------------------- accounts
+
+    private static async Task<IResult> ListAccountsAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        string? search,
+        bool? includeInactive,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var query = db.Accounts.AsNoTracking().Where(account => account.BusinessId == businessId);
+
+        if (includeInactive != true)
+        {
+            query = query.Where(account => account.IsActive);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            query = query.Where(account =>
+                EF.Functions.ILike(account.Code, pattern) || EF.Functions.ILike(account.Name, pattern));
+        }
+
+        var rows = await query
+            .OrderBy(account => account.Code)
+            .Select(account => new AccountRow(
+                account.Id,
+                account.Code,
+                account.Name,
+                account.AccountType,
+                account.ParentId,
+                account.IsActive,
+                account.Version,
+                account.CreatedAtUtc,
+                account.UpdatedAtUtc))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return Results.Ok(rows
+            .Select(row => new AccountDto(
+                row.Id,
+                row.Code,
+                row.Name,
+                EnumBridge.To<AccountKind>(row.AccountType),
+                row.ParentId,
+                row.IsActive,
+                row.Version,
+                row.CreatedAtUtc,
+                row.UpdatedAtUtc))
+            .ToList());
+    }
+
+    private static async Task<IResult> CreateAccountAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        SaveAccountRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var code = request.Code?.Trim() ?? string.Empty;
+        var name = request.Name?.Trim() ?? string.Empty;
+        var errors = new Dictionary<string, string[]>();
+
+        if (code.Length is 0 or > MaxCodeLength)
+        {
+            errors["code"] = [$"A code of 1-{MaxCodeLength} characters is required."];
+        }
+
+        if (name.Length is 0 or > MaxNameLength)
+        {
+            errors["name"] = [$"A name of 1-{MaxNameLength} characters is required."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return ApiResults.ValidationProblem("The account payload is invalid.", errors);
+        }
+
+        if (await db.Accounts.AnyAsync(
+                account => account.BusinessId == businessId && account.Code == code,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.Conflict,
+                "An account with this code already exists in this business.");
+        }
+
+        if (request.ParentId is { } parentId)
+        {
+            var parentError = await ValidateParentAsync(db, businessId, parentId, null, cancellationToken).ConfigureAwait(false);
+
+            if (parentError is not null)
+            {
+                return parentError;
+            }
+        }
+
+        var account = new Account
+        {
+            BusinessId = businessId,
+            Code = code,
+            Name = name,
+            AccountType = (AccountType)request.AccountType,
+            ParentId = request.ParentId,
+            IsActive = true,
+        };
+
+        db.Accounts.Add(account);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Created($"/api/v1/accounts/{account.Id}", ToDto(account));
+    }
+
+    private static async Task<IResult> UpdateAccountAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        UpdateAccountRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var account = await db.Accounts
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (account is null)
+        {
+            return NotFound();
+        }
+
+        var name = request.Name?.Trim() ?? string.Empty;
+
+        if (name.Length is 0 or > MaxNameLength)
+        {
+            return ApiResults.ValidationProblem(
+                "The account payload is invalid.",
+                new Dictionary<string, string[]> { ["name"] = [$"A name of 1-{MaxNameLength} characters is required."] });
+        }
+
+        if (request.ParentId is { } parentId)
+        {
+            var parentError = await ValidateParentAsync(db, businessId, parentId, id, cancellationToken).ConfigureAwait(false);
+
+            if (parentError is not null)
+            {
+                return parentError;
+            }
+        }
+
+        account.Name = name;
+        account.ParentId = request.ParentId;
+        account.IsActive = request.IsActive;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Ok(ToDto(account));
+    }
+
+    /// <summary>Guards hierarchy integrity: the parent must exist in the business and must not create a cycle.</summary>
+    private static async Task<IResult?> ValidateParentAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid parentId,
+        Guid? accountId,
+        CancellationToken cancellationToken)
+    {
+        if (accountId == parentId)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "An account cannot be its own parent.");
+        }
+
+        var parents = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == businessId)
+            .Select(account => new { account.Id, account.ParentId })
+            .ToDictionaryAsync(account => account.Id, account => account.ParentId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!parents.ContainsKey(parentId))
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The parent account does not exist in this business.");
+        }
+
+        if (accountId is { } current)
+        {
+            var seen = new HashSet<Guid>();
+            Guid? cursor = parentId;
+
+            while (cursor is { } step && seen.Add(step))
+            {
+                if (step == current)
+                {
+                    return ApiResults.Problem(
+                        StatusCodes.Status400BadRequest,
+                        ApiErrorCodes.ValidationFailed,
+                        "The parent account would create a hierarchy cycle.");
+                }
+
+                cursor = parents.TryGetValue(step, out var next) ? next : null;
+            }
+        }
+
+        return null;
+    }
+
+    // ---------------------------------------------------------------- periods
+
+    private static async Task<IResult> ListPeriodsAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var rows = await db.AccountingPeriods.AsNoTracking()
+            .Where(period => period.BusinessId == businessId)
+            .OrderByDescending(period => period.StartDate)
+            .Select(period => new PeriodRow(period.Id, period.Name, period.StartDate, period.EndDate, period.Status, period.Version))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return Results.Ok(rows
+            .Select(row => new AccountingPeriodDto(
+                row.Id,
+                row.Name,
+                row.StartDate,
+                row.EndDate,
+                EnumBridge.To<AccountingPeriodState>(row.Status),
+                row.Version))
+            .ToList());
+    }
+
+    private static async Task<IResult> CreatePeriodAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        SaveAccountingPeriodRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var name = request.Name?.Trim() ?? string.Empty;
+
+        if (name.Length is 0 or > 100)
+        {
+            return ApiResults.ValidationProblem(
+                "The period payload is invalid.",
+                new Dictionary<string, string[]> { ["name"] = ["A name of 1-100 characters is required."] });
+        }
+
+        if (request.StartDate > request.EndDate)
+        {
+            return ApiResults.ValidationProblem(
+                "The period payload is invalid.",
+                new Dictionary<string, string[]> { ["startDate"] = ["The start date must not be after the end date."] });
+        }
+
+        var overlaps = await db.AccountingPeriods.AnyAsync(
+            period => period.BusinessId == businessId
+                && period.StartDate <= request.EndDate
+                && period.EndDate >= request.StartDate,
+            cancellationToken).ConfigureAwait(false);
+
+        if (overlaps)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.Conflict,
+                "The period overlaps an existing accounting period.");
+        }
+
+        var entity = new AccountingPeriod
+        {
+            BusinessId = businessId,
+            Name = name,
+            StartDate = request.StartDate,
+            EndDate = request.EndDate,
+            Status = AccountingPeriodStatus.Open,
+        };
+
+        db.AccountingPeriods.Add(entity);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Created(
+            $"/api/v1/accounting-periods/{entity.Id}",
+            new AccountingPeriodDto(entity.Id, entity.Name, entity.StartDate, entity.EndDate, AccountingPeriodState.Open, entity.Version));
+    }
+
+    private static async Task<IResult> ClosePeriodAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var period = await db.AccountingPeriods
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (period is null)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status404NotFound,
+                ApiErrorCodes.NotFound,
+                "The accounting period does not exist in this business.");
+        }
+
+        period.Status = AccountingPeriodStatus.Closed;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Ok(new AccountingPeriodDto(
+            period.Id,
+            period.Name,
+            period.StartDate,
+            period.EndDate,
+            AccountingPeriodState.Closed,
+            period.Version));
+    }
+
+    // ---------------------------------------------------------------- journal
+
+    private static async Task<IResult> ListJournalAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        string? cursor,
+        int? pageSize,
+        JournalEntryState? status,
+        JournalOrigin? origin,
+        DateOnly? from,
+        DateOnly? to,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
+        var query = db.JournalEntries.AsNoTracking().Where(entry => entry.BusinessId == businessId);
+
+        if (status is { } wantedStatus)
+        {
+            var stored = EnumBridge.To<EntryStatus>(wantedStatus);
+            query = query.Where(entry => entry.Status == stored);
+        }
+
+        if (origin is { } wantedOrigin)
+        {
+            var stored = EnumBridge.To<JournalSourceType>(wantedOrigin);
+            query = query.Where(entry => entry.SourceType == stored);
+        }
+
+        if (from is { } start)
+        {
+            query = query.Where(entry => entry.EntryDate >= start);
+        }
+
+        if (to is { } end)
+        {
+            query = query.Where(entry => entry.EntryDate <= end);
+        }
+
+        if (CursorPaging.TryDecode(cursor, out var cursorId))
+        {
+            query = query.Where(entry => entry.Id.CompareTo(cursorId) < 0);
+        }
+
+        // Identifiers are UUIDv7 (time-ordered), so newest-first id order is a stable, unique page key.
+        var rows = await query
+            .OrderByDescending(entry => entry.Id)
+            .Take(size + 1)
+            .Select(entry => new JournalRow(
+                entry.Id,
+                entry.EntryNumber,
+                entry.EntryDate,
+                entry.Status,
+                entry.SourceType,
+                entry.TotalDebit,
+                entry.TotalCredit,
+                entry.Memo,
+                entry.PostedAtUtc,
+                entry.CreatedAtUtc))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        string? nextCursor = null;
+
+        if (rows.Count > size)
+        {
+            rows.RemoveAt(rows.Count - 1);
+            nextCursor = CursorPaging.Encode(rows[^1].Id);
+        }
+
+        var page = rows
+            .Select(row => new JournalEntrySummaryDto(
+                row.Id,
+                row.EntryNumber,
+                row.EntryDate,
+                EnumBridge.To<JournalEntryState>(row.Status),
+                EnumBridge.To<JournalOrigin>(row.SourceType),
+                row.TotalDebit,
+                row.TotalCredit,
+                row.Memo,
+                row.PostedAtUtc,
+                row.CreatedAtUtc))
+            .ToList();
+
+        return Results.Ok(new PagedResult<JournalEntrySummaryDto>(page, nextCursor, size));
+    }
+
+    private static async Task<IResult> GetJournalAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var entry = await db.JournalEntries.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (entry is null)
+        {
+            return NotFoundJournal();
+        }
+
+        return Results.Ok(await ToDetailDtoAsync(db, entry, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<IResult> PostJournalAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        PostJournalEntryRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        if (!TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        if (request.Origin == JournalOrigin.Reversal)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "Reversal entries are created by POST /api/v1/journal-entries/{id}/reverse.");
+        }
+
+        if (request.Origin == JournalOrigin.Manual && request.SourceId is not null)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "A manual entry must not carry a source id.");
+        }
+
+        var (currency, currencyError) = await ResolveCurrencyAsync(db, businessId, request.Currency, cancellationToken).ConfigureAwait(false);
+
+        if (currencyError is not null)
+        {
+            return currencyError;
+        }
+
+        var lines = request.Lines ?? [];
+
+        if (request.Memo is { Length: > MaxMemoLength })
+        {
+            return ApiResults.ValidationProblem(
+                "The journal entry is invalid.",
+                new Dictionary<string, string[]> { ["memo"] = [$"A memo of at most {MaxMemoLength} characters is supported."] });
+        }
+
+        if (ValidateLines(lines) is { Count: > 0 } lineErrors)
+        {
+            return ApiResults.ValidationProblem("The journal entry is invalid.", lineErrors);
+        }
+
+        var totals = Totals(lines);
+
+        if (totals.Debit != totals.Credit)
+        {
+            return Unbalanced(totals.Debit, totals.Credit);
+        }
+
+        if (await ValidateAccountsAsync(db, businessId, lines, cancellationToken).ConfigureAwait(false) is { } accountError)
+        {
+            return accountError;
+        }
+
+        try
+        {
+            var entry = await PostEntryAsync(
+                db,
+                businessId,
+                userId,
+                currency,
+                request.EntryDate,
+                request.Memo,
+                (JournalSourceType)request.Origin,
+                request.SourceId,
+                reversalOfEntryId: null,
+                lines,
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Created($"/api/v1/journal-entries/{entry.Id}", await ToDetailDtoAsync(db, entry, cancellationToken).ConfigureAwait(false));
+        }
+        catch (LedgerException exception)
+        {
+            return exception.ToResult();
+        }
+        catch (PostgresException exception)
+        {
+            return MapPostgresException(exception);
+        }
+    }
+
+    private static async Task<IResult> ReverseJournalAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        string? memo,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        if (!TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var original = await db.JournalEntries.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (original is null)
+        {
+            return NotFoundJournal();
+        }
+
+        if (original.Status != EntryStatus.Posted)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.Conflict,
+                "Only posted journal entries can be reversed.");
+        }
+
+        if (await db.JournalEntries.AnyAsync(
+                entry => entry.BusinessId == businessId
+                    && entry.SourceType == JournalSourceType.Reversal
+                    && entry.SourceId == original.Id,
+                cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.IdempotencyKeyReused,
+                "This journal entry already has a reversal; a posted entry can be reversed at most once.");
+        }
+
+        var originalLines = await db.JournalLines.AsNoTracking()
+            .Where(line => line.JournalEntryId == original.Id)
+            .OrderBy(line => line.LineNo)
+            .Select(line => new JournalLineRequest(line.AccountId, line.CreditAmount, line.DebitAmount, line.Description, line.LocationId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        try
+        {
+            var reversal = await PostEntryAsync(
+                db,
+                businessId,
+                userId,
+                original.Currency,
+                original.EntryDate,
+                string.IsNullOrWhiteSpace(memo) ? $"Reversal of {original.EntryNumber}" : memo.Trim(),
+                JournalSourceType.Reversal,
+                original.Id,
+                reversalOfEntryId: original.Id,
+                originalLines,
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Created(
+                $"/api/v1/journal-entries/{reversal.Id}",
+                await ToDetailDtoAsync(db, reversal, cancellationToken).ConfigureAwait(false));
+        }
+        catch (LedgerException exception)
+        {
+            return exception.ToResult();
+        }
+        catch (PostgresException exception)
+        {
+            return MapPostgresException(exception);
+        }
+    }
+
+    // ---------------------------------------------------------------- trial balance
+
+    private static async Task<IResult> TrialBalanceAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        DateOnly? from,
+        DateOnly? to,
+        Guid? accountId,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var rangeTo = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var rangeFrom = from ?? rangeTo.AddYears(-1);
+
+        if (rangeFrom > rangeTo)
+        {
+            return ApiResults.ValidationProblem(
+                "The date range is invalid.",
+                new Dictionary<string, string[]> { ["from"] = ["The start date must not be after the end date."] });
+        }
+
+        var activity = await (
+                from line in db.JournalLines.AsNoTracking()
+                join entry in db.JournalEntries.AsNoTracking() on line.JournalEntryId equals entry.Id
+                where line.BusinessId == businessId
+                    && entry.BusinessId == businessId
+                    && entry.Status == EntryStatus.Posted
+                    && entry.EntryDate >= rangeFrom
+                    && entry.EntryDate <= rangeTo
+                    && (accountId == null || line.AccountId == accountId)
+                group line by line.AccountId
+                into grouped
+                select new
+                {
+                    AccountId = grouped.Key,
+                    Debit = grouped.Sum(line => line.DebitAmount),
+                    Credit = grouped.Sum(line => line.CreditAmount),
+                })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var accounts = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == businessId)
+            .ToDictionaryAsync(account => account.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        var rows = activity
+            .Where(item => accounts.ContainsKey(item.AccountId))
+            .Select(item =>
+            {
+                var account = accounts[item.AccountId];
+
+                return new TrialBalanceRowDto(
+                    account.Id,
+                    account.Code,
+                    account.Name,
+                    (AccountKind)account.AccountType,
+                    item.Debit,
+                    item.Credit,
+                    item.Debit - item.Credit);
+            })
+            .OrderBy(row => row.Code, StringComparer.Ordinal)
+            .ToList();
+
+        return Results.Ok(new TrialBalanceDto(
+            rangeFrom,
+            rangeTo,
+            rows.Sum(row => row.Debit),
+            rows.Sum(row => row.Credit),
+            rows));
+    }
+
+    // ---------------------------------------------------------------- posting core
+
+    /// <summary>
+    /// Posts one balanced entry inside a single transaction: the deferred balance trigger fires at COMMIT,
+    /// so an entry that reaches the database unbalanced is impossible even if service validation regresses.
+    /// </summary>
+    private static async Task<JournalEntry> PostEntryAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid userId,
+        string currency,
+        DateOnly entryDate,
+        string? memo,
+        JournalSourceType sourceType,
+        Guid? sourceId,
+        Guid? reversalOfEntryId,
+        IReadOnlyList<JournalLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        if (sourceId is { } reference)
+        {
+            var existing = await db.JournalEntries.AsNoTracking()
+                .Where(entry => entry.BusinessId == businessId && entry.SourceType == sourceType && entry.SourceId == reference)
+                .Select(entry => entry.EntryNumber)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (existing is not null)
+            {
+                throw new LedgerException(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.IdempotencyKeyReused,
+                    "The source reference was already posted.",
+                    $"Business effect for this source already exists as {existing}; a retried delivery must not post twice.");
+            }
+        }
+
+        var period = await db.AccountingPeriods.AsNoTracking()
+            .Where(candidate => candidate.BusinessId == businessId
+                && candidate.StartDate <= entryDate
+                && candidate.EndDate >= entryDate)
+            .OrderByDescending(candidate => candidate.StartDate)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (period is { Status: not AccountingPeriodStatus.Open })
+        {
+            throw new LedgerException(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.AccountingPeriodClosed,
+                "The accounting period is closed.",
+                $"'{period.Name}' ({period.StartDate:yyyy-MM-dd}..{period.EndDate:yyyy-MM-dd}) is {period.Status.ToString().ToLowerInvariant()}; reopen the period before posting.");
+        }
+
+        var totals = Totals(lines);
+        var strategy = db.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            // A retry starts from a clean slate: state tracked by an aborted attempt must not leak into it.
+            db.ChangeTracker.Clear();
+
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            var entryNumber = await AllocateEntryNumberAsync(db, businessId, entryDate.Year, cancellationToken).ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+
+            var entry = new JournalEntry
+            {
+                BusinessId = businessId,
+                EntryNumber = entryNumber,
+                EntryDate = entryDate,
+                AccountingPeriodId = period?.Id,
+                Memo = string.IsNullOrWhiteSpace(memo) ? null : memo.Trim(),
+                SourceType = sourceType,
+                SourceId = sourceId,
+                Status = EntryStatus.Posted,
+                Currency = currency,
+                TotalDebit = totals.Debit,
+                TotalCredit = totals.Credit,
+                PostedAtUtc = now,
+                PostedByUserId = userId,
+                ReversalOfEntryId = reversalOfEntryId,
+            };
+
+            db.JournalEntries.Add(entry);
+
+            var lineNo = 1;
+
+            foreach (var line in lines)
+            {
+                db.JournalLines.Add(new JournalLine
+                {
+                    BusinessId = businessId,
+                    JournalEntryId = entry.Id,
+                    LineNo = lineNo++,
+                    AccountId = line.AccountId,
+                    DebitAmount = Round(line.Debit),
+                    CreditAmount = Round(line.Credit),
+                    Currency = currency,
+                    Description = string.IsNullOrWhiteSpace(line.Description) ? null : line.Description.Trim(),
+                    LocationId = line.LocationId,
+                });
+            }
+
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            return entry;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Transactional per-business/per-year series using the invoice sequence table with a row lock, so
+    /// concurrent posting cannot produce duplicate or gap-riddled entry numbers (QB-11 reuses this table).
+    /// </summary>
+    private static async Task<string> AllocateEntryNumberAsync(
+        BillingDbContext db,
+        Guid businessId,
+        int fiscalYear,
+        CancellationToken cancellationToken)
+    {
+        await db.Database.ExecuteSqlAsync(
+            $"""
+            INSERT INTO invoice_sequences (id, business_id, name, prefix, fiscal_year, next_number, padding, version, created_at_utc, updated_at_utc)
+            VALUES ({Guid.CreateVersion7()}, {businessId}, {JournalSequenceName}, {JournalSequencePrefix}, {fiscalYear}, 1, 5, 1, now(), now())
+            ON CONFLICT (business_id, name, fiscal_year) DO NOTHING
+            """,
+            cancellationToken).ConfigureAwait(false);
+
+        var sequence = await db.InvoiceSequences
+            .FromSql($"SELECT * FROM invoice_sequences WHERE business_id = {businessId} AND name = {JournalSequenceName} AND fiscal_year = {fiscalYear} FOR UPDATE")
+            .FirstAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var number = sequence.NextNumber;
+        sequence.NextNumber = number + 1;
+
+        return $"{sequence.Prefix}{fiscalYear}-{number.ToString("D" + sequence.Padding.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)}";
+    }
+
+    // ---------------------------------------------------------------- validation helpers
+
+    private static async Task<(string Currency, IResult? Error)> ResolveCurrencyAsync(
+        BillingDbContext db,
+        Guid businessId,
+        string? requested,
+        CancellationToken cancellationToken)
+    {
+        var baseCurrency = await db.Businesses.AsNoTracking()
+            .Where(business => business.Id == businessId)
+            .Select(business => business.BaseCurrency)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(baseCurrency))
+        {
+            return ("QAR", null);
+        }
+
+        if (!string.IsNullOrWhiteSpace(requested)
+            && !string.Equals(requested.Trim(), baseCurrency, StringComparison.OrdinalIgnoreCase))
+        {
+            return (baseCurrency, ApiResults.ValidationProblem(
+                "The journal currency is invalid.",
+                new Dictionary<string, string[]> { ["currency"] = [$"This business posts in {baseCurrency}; multi-currency journals are out of scope (spec §3.4)."] }));
+        }
+
+        return (baseCurrency, null);
+    }
+
+    private static Dictionary<string, string[]> ValidateLines(IReadOnlyList<JournalLineRequest> lines)
+    {
+        var errors = new Dictionary<string, string[]>();
+
+        if (lines.Count < 2)
+        {
+            errors["lines"] = ["A posted entry requires at least two lines."];
+            return errors;
+        }
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            var line = lines[index];
+
+            if (line.Debit < 0 || line.Credit < 0)
+            {
+                errors[$"lines[{index}]"] = ["Debit and credit must not be negative; use the opposite side instead."];
+            }
+            else if (line.Debit > 0 && line.Credit > 0)
+            {
+                errors[$"lines[{index}]"] = ["Exactly one of debit/credit must be greater than zero."];
+            }
+            else if (line.Debit == 0 && line.Credit == 0)
+            {
+                errors[$"lines[{index}]"] = ["A line must carry either a debit or a credit."];
+            }
+            else if (Round(line.Debit) != line.Debit || Round(line.Credit) != line.Credit)
+            {
+                errors[$"lines[{index}]"] = [$"Amounts support at most {MoneyScale} decimal places."];
+            }
+        }
+
+        return errors;
+    }
+
+    private static async Task<IResult?> ValidateAccountsAsync(
+        BillingDbContext db,
+        Guid businessId,
+        IReadOnlyList<JournalLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        var ids = lines.Select(line => line.AccountId).Distinct().ToArray();
+        var accounts = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == businessId && ids.Contains(account.Id))
+            .Select(account => new { account.Id, account.IsActive })
+            .ToDictionaryAsync(account => account.Id, account => account.IsActive, cancellationToken)
+            .ConfigureAwait(false);
+
+        var errors = new Dictionary<string, string[]>();
+
+        for (var index = 0; index < lines.Count; index++)
+        {
+            if (!accounts.TryGetValue(lines[index].AccountId, out var isActive))
+            {
+                errors[$"lines[{index}].accountId"] = ["The account does not exist in this business."];
+            }
+            else if (!isActive)
+            {
+                errors[$"lines[{index}].accountId"] = ["The account is inactive and cannot be posted against."];
+            }
+        }
+
+        return errors.Count == 0 ? null : ApiResults.ValidationProblem("The journal entry references invalid accounts.", errors);
+    }
+
+    private static (decimal Debit, decimal Credit) Totals(IReadOnlyList<JournalLineRequest> lines)
+        => (lines.Sum(line => Round(line.Debit)), lines.Sum(line => Round(line.Credit)));
+
+    private static decimal Round(decimal amount) => decimal.Round(amount, MoneyScale, MidpointRounding.AwayFromZero);
+
+    private static IResult Unbalanced(decimal debit, decimal credit)
+        => ApiResults.Problem(
+            StatusCodes.Status400BadRequest,
+            ApiErrorCodes.UnbalancedJournal,
+            "The journal entry is not balanced.",
+            $"Total debits ({debit}) must equal total credits ({credit}).");
+
+    private static IResult MapPostgresException(PostgresException exception)
+        => exception.SqlState switch
+        {
+            PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_journal_entries_business_source" =>
+                ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.IdempotencyKeyReused,
+                    "The source reference was already posted."),
+            PostgresErrorCodes.UniqueViolation =>
+                ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.Conflict,
+                    "The write conflicts with an existing record."),
+            PostgresErrorCodes.CheckViolation =>
+                ApiResults.Problem(
+                    StatusCodes.Status400BadRequest,
+                    ApiErrorCodes.UnbalancedJournal,
+                    "The journal entry violates ledger integrity guards."),
+            _ => ApiResults.Problem(
+                StatusCodes.Status500InternalServerError,
+                ApiErrorCodes.InternalError,
+                "The ledger write failed."),
+        };
+
+    private static async Task<JournalEntryDto> ToDetailDtoAsync(
+        BillingDbContext db,
+        JournalEntry entry,
+        CancellationToken cancellationToken)
+    {
+        var lines = await db.JournalLines.AsNoTracking()
+            .Where(line => line.JournalEntryId == entry.Id)
+            .OrderBy(line => line.LineNo)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var accountIds = lines.Select(line => line.AccountId).Distinct().ToArray();
+        var accounts = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == entry.BusinessId && accountIds.Contains(account.Id))
+            .Select(account => new { account.Id, account.Code, account.Name })
+            .ToDictionaryAsync(account => account.Id, cancellationToken)
+            .ConfigureAwait(false);
+
+        return new JournalEntryDto(
+            entry.Id,
+            entry.EntryNumber,
+            entry.EntryDate,
+            EnumBridge.To<JournalEntryState>(entry.Status),
+            EnumBridge.To<JournalOrigin>(entry.SourceType),
+            entry.SourceId,
+            entry.Currency,
+            entry.TotalDebit,
+            entry.TotalCredit,
+            entry.Memo,
+            entry.PostedAtUtc,
+            entry.PostedByUserId,
+            entry.ReversalOfEntryId,
+            entry.Version,
+            entry.CreatedAtUtc,
+            lines.Select(line => new JournalLineDto(
+                line.Id,
+                line.LineNo,
+                line.AccountId,
+                accounts.TryGetValue(line.AccountId, out var account) ? account.Code : string.Empty,
+                accounts.TryGetValue(line.AccountId, out var named) ? named.Name : string.Empty,
+                line.DebitAmount,
+                line.CreditAmount,
+                line.Currency,
+                line.Description,
+                line.LocationId)).ToList());
+    }
+
+    private static AccountDto ToDto(Account account)
+        => new(
+            account.Id,
+            account.Code,
+            account.Name,
+            EnumBridge.To<AccountKind>(account.AccountType),
+            account.ParentId,
+            account.IsActive,
+            account.Version,
+            account.CreatedAtUtc,
+            account.UpdatedAtUtc);
+
+    private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)
+        => Guid.TryParse(principal.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value, out userId);
+
+    private static IResult NotFound()
+        => ApiResults.Problem(
+            StatusCodes.Status404NotFound,
+            ApiErrorCodes.NotFound,
+            "The account does not exist in this business.");
+
+    private static IResult NotFoundJournal()
+        => ApiResults.Problem(
+            StatusCodes.Status404NotFound,
+            ApiErrorCodes.NotFound,
+            "The journal entry does not exist in this business.");
+
+    /// <summary>
+    /// Projection shapes carry stored enum values; wire DTOs are built in memory so a text-to-integer
+    /// cast can never leak into SQL (see <see cref="EnumBridge"/>).
+    /// </summary>
+    private sealed record AccountRow(
+        Guid Id,
+        string Code,
+        string Name,
+        AccountType AccountType,
+        Guid? ParentId,
+        bool IsActive,
+        long Version,
+        DateTimeOffset CreatedAtUtc,
+        DateTimeOffset UpdatedAtUtc);
+
+    private sealed record PeriodRow(
+        Guid Id,
+        string Name,
+        DateOnly StartDate,
+        DateOnly EndDate,
+        AccountingPeriodStatus Status,
+        long Version);
+
+    private sealed record JournalRow(
+        Guid Id,
+        string EntryNumber,
+        DateOnly EntryDate,
+        EntryStatus Status,
+        JournalSourceType SourceType,
+        decimal TotalDebit,
+        decimal TotalCredit,
+        string? Memo,
+        DateTimeOffset? PostedAtUtc,
+        DateTimeOffset CreatedAtUtc);
+
+    /// <summary>Domain rejection carrying a stable error code so every handler answers with the same contract.</summary>
+    private sealed class LedgerException(int statusCode, string code, string title, string detail) : Exception(detail)
+    {
+        public int StatusCode { get; } = statusCode;
+
+        public string Code { get; } = code;
+
+        public string Title { get; } = title;
+
+        public IResult ToResult() => ApiResults.Problem(StatusCode, Code, Title, Message);
+    }
+}

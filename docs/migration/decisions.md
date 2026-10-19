@@ -42,7 +42,10 @@
 | D-27 | CSRF stance for the cookie-authenticated API: `SameSite=Strict` session cookie, no cross-origin CORS, state changes only through the typed clients over the same origin. Antiforgery tokens remain available for future HTML form posts. | Cross-site requests cannot carry the session cookie; verified by design + 401/403 behaviour. |
 | D-28 | Every account (including the development owner) starts with `PasswordResetRequired = true`: sign-in is refused until a one-time reset/invitation ticket is completed. Tickets are returned in the API response **in Development only**; Production delivers them out of band. | Implements the QB-04 "no usable credential until safe enrolment" rule; no default password is ever usable. |
 | D-29 | `DELETE /api/v1/customers/{id}` deactivates instead of erasing master data (soft delete); `includeInactive=true` exposes deactivated rows for audit. | Historical invoices/sales keep resolving the customer (specification §3.7, no silent data loss). |
-
+| D-30 | The server's HTTP JSON options are the shared contract settings (`ContractJson.Apply`): camelCase members, camelCase **string** enums, nulls omitted, strict numbers. Server, browser and MAUI therefore encode contracts identically. | Discovered while wiring QB-07: without it the API rejected `origin`/`movementType` strings. |
+| D-31 | Enum values are stored as readable **text** (`account_type = 'Asset'`, `status = 'Posted'`). Wire enums that mirror stored enums are bridged **in memory** (`EnumBridge`) and never cast inside a LINQ projection, because EF would translate a text column to an integer (`22P02`). | Live defect found and fixed during QB-07 (`GET /api/v1/accounts`); stored format unchanged (no migration). |
+| D-32 | Posting idempotency: unique partial index `ux_journal_entries_business_source` on `(business_id, source_type, source_id) WHERE source_id IS NOT NULL` plus a pre-check; a replay answers `409 IDEMPOTENCY_KEY_REUSED` naming the existing entry. Document numbers come from `invoice_sequences` locked `FOR UPDATE` inside the same transaction (`JE-<year>-00001`), so concurrent posts cannot duplicate numbers and rolled-back posts consume no number. | Exactly-once business effect on top of at-least-once delivery (spec §3.4/§4.6); QB-09/QB-11 reuse both mechanisms. |
+| D-33 | Negative on-hand is possible only through a `stockAdjustment` that explicitly sets `allowNegative: true` **and** carries a memo (authorization + reason on the movement row); every other movement kind and path refuses to go below zero with `409 INSUFFICIENT_STOCK`. | Spec §3.5 "negative stock prohibited except separately authorized adjustment policy"; verified live under concurrency. |
 ## Part C — OPEN decisions required from the business (spec §13)
 
 | # | Decision | Default if unanswered | Owner (to confirm) |
@@ -73,5 +76,7 @@
 | 2026-10-19 | QB-05 typed authenticated API (`/api/v1` auth, customers, health) | `docs/migration/tasks/QB-05.md` |
 | 2026-10-19 | QB-06 customers vertical slice on PostgreSQL (API + UI) | `docs/migration/tasks/QB-06.md` |
 | 2026-10-19 | QB-15 browser off the database (Mongo/Npgsql/EF absent from the WebAssembly bundle) | `docs/migration/tasks/QB-15.md` |
+| 2026-10-19 | QB-07 balanced immutable ledger (accounts, periods, posting, reversals, trials balance) — verified live | `docs/migration/tasks/QB-07.md`, `qb07-evidence.txt` |
+| 2026-10-19 | QB-08 transactional inventory + minimal product/variant API — verified live (no oversell under a race, replay-safe references) | `docs/migration/tasks/QB-08.md`, `qb08-evidence.txt` |
 
 > Remaining tasks QB-04 … QB-30 are tracked in `docs/migration/task-status.md`.

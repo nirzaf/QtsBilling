@@ -6,8 +6,11 @@ using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
 using QtsWebApp.Features.Auth;
+using QtsWebApp.Features.Accounting;
+using QtsWebApp.Features.Catalog;
 using QtsWebApp.Features.Customers;
 using QtsWebApp.Features.Health;
+using QtsWebApp.Features.Inventory;
 using QtsWebApp.Infrastructure;
 using static MudBlazor.Defaults.Classes.Position;
 
@@ -97,6 +100,7 @@ builder.Services.ConfigureApplicationCookie(options =>
 // API plumbing (QB-05) and the typed API clients used by server prerender and the browser.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddProblemDetails();
+builder.Services.ConfigureHttpJsonOptions(options => QtsBilling.Contracts.Serialization.ContractJson.Apply(options.SerializerOptions));
 builder.Services.AddOpenApi();
 builder.Services.AddTransient<LocalApiHandler>();
 
@@ -131,6 +135,9 @@ app.MapStaticAssets();
 
 app.MapAuthEndpoints();
 app.MapCustomerEndpoints();
+app.MapProductEndpoints();
+app.MapAccountingEndpoints();
+app.MapInventoryEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

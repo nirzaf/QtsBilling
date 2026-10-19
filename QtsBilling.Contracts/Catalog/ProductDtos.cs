@@ -36,3 +36,35 @@ public sealed record StockSnapshotDto(
     Guid LocationId,
     decimal OnHand,
     long Revision);
+
+public sealed record ProductVariantDto(
+    Guid Id,
+    Guid ProductId,
+    string Name,
+    string? Sku,
+    string? Barcode,
+    decimal SellingPrice,
+    decimal? PurchasePrice,
+    bool IsDefault,
+    bool IsActive,
+    long Version);
+
+public sealed record ProductDetailDto(ProductDto Product, IReadOnlyList<ProductVariantDto> Variants);
+
+/// <summary>
+/// Creates a product together with its default variant (a simple product always has exactly one variant,
+/// so transaction lines can reference a concrete variant — spec §3.2/§3.5).
+/// </summary>
+public sealed record SaveProductRequest(
+    string Name,
+    string? Sku,
+    Guid? UnitId,
+    Guid? CategoryId,
+    bool TrackStock,
+    string? VariantName,
+    decimal SellingPrice,
+    decimal? PurchasePrice);
+
+public sealed record UpdateProductRequest(string Name, string? Sku, Guid? CategoryId, bool IsActive);
+
+public sealed record UpdateVariantRequest(string Name, string? Sku, string? Barcode, decimal SellingPrice, decimal? PurchasePrice, bool IsActive);

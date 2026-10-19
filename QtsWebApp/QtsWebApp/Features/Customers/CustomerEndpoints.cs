@@ -67,7 +67,7 @@ public static class CustomerEndpoints
                 || (customer.Phone != null && EF.Functions.ILike(customer.Phone, pattern)));
         }
 
-        if (TryDecodeCursor(cursor, out var cursorId))
+        if (CursorPaging.TryDecode(cursor, out var cursorId))
         {
             query = query.Where(customer => customer.Id.CompareTo(cursorId) < 0);
         }
@@ -94,7 +94,7 @@ public static class CustomerEndpoints
         if (rows.Count > size)
         {
             rows.RemoveAt(rows.Count - 1);
-            nextCursor = EncodeCursor(rows[^1].Id);
+            nextCursor = CursorPaging.Encode(rows[^1].Id);
         }
 
         return Results.Ok(new PagedResult<CustomerDto>(rows, nextCursor, size));
@@ -343,32 +343,4 @@ public static class CustomerEndpoints
             StatusCodes.Status404NotFound,
             ApiErrorCodes.NotFound,
             "The customer does not exist in this business.");
-
-    private static string EncodeCursor(Guid id)
-        => Convert.ToBase64String(Encoding.UTF8.GetBytes(id.ToString("D")))
-            .TrimEnd('=')
-            .Replace('+', '-')
-            .Replace('/', '_');
-
-    private static bool TryDecodeCursor(string? cursor, out Guid id)
-    {
-        id = Guid.Empty;
-
-        if (string.IsNullOrWhiteSpace(cursor))
-        {
-            return false;
-        }
-
-        try
-        {
-            var value = cursor.Replace('-', '+').Replace('_', '/');
-            value = value.PadRight(value.Length + ((4 - (value.Length % 4)) % 4), '=');
-
-            return Guid.TryParse(Encoding.UTF8.GetString(Convert.FromBase64String(value)), out id) && id != Guid.Empty;
-        }
-        catch (FormatException)
-        {
-            return false;
-        }
-    }
 }

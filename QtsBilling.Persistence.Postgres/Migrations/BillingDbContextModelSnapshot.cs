@@ -1624,7 +1624,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("BusinessId", "EntryNumber")
                         .IsUnique();
 
-                    b.HasIndex("BusinessId", "SourceType", "SourceId");
+                    b.HasIndex("BusinessId", "SourceType", "SourceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_journal_entries_business_source")
+                        .HasFilter("source_id IS NOT NULL");
 
                     b.ToTable("journal_entries", null, t =>
                         {

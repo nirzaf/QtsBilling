@@ -1,0 +1,16 @@
+﻿create product | HTTP 201 | code=-
+product | id=01a15401-c237-70db-bf6a-8e2f8cfa92bf variant=01a15401-c237-73eb-9fd1-75fffbe1df7a price=25.5000
+create duplicate sku | HTTP 409 | code=DUPLICATE_SKU
+locations | count=1 first=Main
+record opening +10 | HTTP 201 | code=-
+replay opening (same reference) | HTTP 409 | code=IDEMPOTENCY_KEY_REUSED
+adjust -4 | HTTP 201 | code=-
+adjust -10 (oversell) | HTTP 409 | code=INSUFFICIENT_STOCK
+adjust -1 with allowNegative | HTTP 201 | code=-
+balances | count=1 onHand=5.000000
+race | A HTTP 201 | B HTTP 409
+balances after race | onHand=0.000000
+reconciliation | mismatches=0 totalOnHand=0.000000 totalMovements=
+journal foreign id | HTTP 404 | code=NOT_FOUND
+product foreign id | HTTP 404 | code=NOT_FOUND
+== smoke complete ==

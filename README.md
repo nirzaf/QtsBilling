@@ -2,12 +2,13 @@
 
 # QtsBilling
 
-**An offline-first accounting system with Point of Sale (POS) and inventory management — built with .NET 10, WinForms, Blazor and MongoDB.**
+**An accounting platform with Point of Sale (POS) and inventory management — .NET 10, Blazor, PostgreSQL, and an API-first boundary, with a MAUI Windows hybrid client and SQLite offline tier under active development.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![.NET](https://img.shields.io/badge/.NET-10.0-512BD4?logo=dotnet&logoColor=white)](https://dotnet.microsoft.com/download/dotnet/10.0)
 [![C#](https://img.shields.io/badge/C%23-14-239120?logo=csharp&logoColor=white)](https://learn.microsoft.com/dotnet/csharp/)
-[![MongoDB](https://img.shields.io/badge/MongoDB-4EA94B?logo=mongodb&logoColor=white)](https://www.mongodb.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-18-336791?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
+[![EF Core](https://img.shields.io/badge/EF_Core-10-5C2D91)](https://learn.microsoft.com/ef/core/)
 [![Blazor](https://img.shields.io/badge/UI-MudBlazor-5C2D91?logo=blazor&logoColor=white)](https://mudblazor.com/)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
 
@@ -18,6 +19,7 @@
 ## Table of Contents
 
 - [About](#about)
+- [Architecture in Flux](#architecture-in-flux)
 - [Features](#features)
 - [Technology Stack](#technology-stack)
 - [Architecture](#architecture)
@@ -26,6 +28,7 @@
 - [Getting Started](#getting-started)
 - [Configuration](#configuration)
 - [Running the Apps](#running-the-apps)
+- [Applying Database Migrations](#applying-database-migrations)
 - [Running Tests](#running-tests)
 - [Roadmap](#roadmap)
 - [Security](#security)
@@ -38,42 +41,60 @@
 
 ## About
 
-**QtsBilling** is a desktop-and-web accounting platform for small and medium businesses. It combines
-double-entry accounting, a Point of Sale terminal, and inventory management in a single solution backed
-by MongoDB.
+**QtsBilling** is a desktop-and-web accounting platform for small and medium businesses that
+combines double-entry bookkeeping, a Point of Sale terminal, and inventory management.
 
-The solution ships **two front ends over a shared domain and service layer**:
+The project is currently mid-migration. The web + API surface has moved onto **PostgreSQL** with
+**ASP.NET Core Identity** and a typed `/api/v1` boundary; the browser bundle has been decoupled from
+any database dependency. The legacy **MongoDB**-backed service layer and the **Windows Forms**
+desktop client are still present and are being retired task by task according to
+[`docs/migration/`](docs/migration/).
 
-- a **Windows Forms** desktop client, and
-- a **Blazor** web app (interactive Server + WebAssembly rendering) built with **MudBlazor**.
+| Surface | Storage | Runtime |
+| --- | --- | --- |
+| Web app (`QtsWebApp`) + `/api/v1` | **PostgreSQL 18** (authoritative) | ASP.NET Core host — Blazor Server + WebAssembly rendering, MudBlazor |
+| Browser (`QtsWebApp.Client`) | Contracts only — talks to `/api/v1` over HTTP | Blazor WebAssembly |
+| Desktop (`QtsBilling`) — legacy | MongoDB | Windows Forms (`net10.0-windows`) |
+| Services (`QtsServices`) — legacy | MongoDB.Driver 3.12 | Class library; the browser no longer references it |
+| MAUI hybrid + SQLite offline | SQLite (device cache + outbox) + REST API | .NET MAUI Blazor Hybrid (Windows) — **planned** |
 
-Both clients consume the same `QtsServices` business-logic library and `QtsModels` domain entities, so
-behaviour stays consistent across desktop and web.
+---
 
-> **Note:** QtsBilling is under active development. The service and domain layers are substantially
-> built out and covered by tests; the user interfaces are early-stage. See
-> [Project Status](#project-status) and [Roadmap](#roadmap) for what works today.
+## Architecture in Flux
+
+QtsBilling is transitioning from a three-tier MongoDB/WinForms app to a **hybrid online/offline,
+API-first architecture**. Governing decisions and per-task status are in
+[`docs/migration/decisions.md`](docs/migration/decisions.md) and
+[`docs/migration/task-status.md`](docs/migration/task-status.md). The load-bearing rules:
+
+- **D-01** — PostgreSQL 18 is the only authoritative production database. EF Core 10 + Npgsql.
+- **D-02** — SQLite is device-local only: cache, provisional offline operations, outbox, sync cursors. **Never an independent ledger.**
+- **D-03** — .NET MAUI Blazor Hybrid (Windows) replaces the WinForms `QtsBilling/` project (gated at QB-29).
+- **D-04** — The existing Blazor web UI is retained; shared presentation moves to an RCL. Web stays online-only.
+- **D-05** — All business writes go through server-side application services / API. No PostgreSQL credentials or direct connections in WASM or MAUI.
+- **D-06** — No dual-production-database writes. MongoDB is a read-only migration source, removed at cutover.
+- **D-07** — No silent data repair. Unmappable records are quarantined; financial imbalance blocks cutover.
+- **D-08** — WinForms deletion (QB-29) and production cutover (QB-30) require explicit business-owner codewords.
 
 ---
 
 ## Features
 
-**Domain & service layer (implemented and unit-tested)**
+**Web + API (live, PostgreSQL-backed)**
 
-- **Customer management** — full CRUD, search and paging
-- **Accounting** — chart of accounts, journal entries, double-entry bookkeeping, balance sheet
-- **Point of Sale** — sales transaction processing
-- **Inventory management** — stock levels and product tracking
-- **Purchasing** — purchase orders and supplier workflows
-- **Invoicing, discounts, taxes and expenses**
-- **User management** — login/logout, role management, deactivation
-- **System utilities** — audit logging, configuration, backup/restore, and local↔cloud sync
+- Typed `/api/v1` endpoints implemented as ASP.NET Core minimal-API feature slices with ProblemDetails, error codes, correlation IDs and OpenAPI in Development — **auth**; **customers**; **catalog** (products / variants); **accounting** (accounts, periods, journal entries, trial balance); **inventory** (locations, movements, balances, reconciliation); **health**.
+- **Authentication** — ASP.NET Core Identity on PostgreSQL (Guid keys), cookie sessions with `SameSite=Strict`, strong password policy, lockout, permission-based claims and policies. Every account starts with `PasswordResetRequired = true`; sign-in is refused until a one-time setup ticket is completed, so **no default password is ever usable**.
+- **Multi-business tenant isolation** — every business-owned row carries `business_id`; composite FKs prevent cross-tenant linkage; enforced server-side *and* by the schema.
+- **Canonical, immutable ledger** — `journal_entries` + `journal_lines` with optimistic concurrency (`version`); posted rows are append-only, corrections happen via reversal; deferred triggers enforce balance at commit and reject illegal updates.
+- **Transactional inventory** — `inventory_balances` (unique per business / location / variant, `on_hand >= 0`) + append-only `inventory_movements`. `Product.Quantity` and `Inventory.Quantity` cease to be authorities.
+- **Value objects** — provider-neutral primitives: `Money` (`numeric(18,4)`), `Quantity` (`numeric(18,6)`), `CurrencyCode`, `ScaledDecimal`.
+- **Sync protocol ready in schema** — per-business `sync_revisions` with commit-ordered ordinal, `processed_operations` idempotency with payload fingerprint, `sync_changes` change feed, tombstones and `RESYNC_REQUIRED` on expired cursor. Handlers land with QB-20/21/22.
 
-**User interfaces (early-stage)**
+**Legacy (MongoDB path, retained while migration proceeds)**
 
-- **Windows Forms** desktop client
-- **Blazor + MudBlazor** web client (Server + WebAssembly)
-- The **Customers** module is currently wired end-to-end in both clients
+- **Customer / Supplier / Product / Category / Brand / Unit / Discount / Tax / Expense / Invoice / Purchase Order / Sale / Journal / Ledger / Balance Sheet / POS** — 17 service classes on MongoDB.Driver.
+- **Windows Forms** desktop client.
+- **System utilities** — audit logging, configuration, backup/restore, local↔cloud sync.
 
 ---
 
@@ -83,69 +104,102 @@ behaviour stays consistent across desktop and web.
 | --- | --- |
 | Language | C# 14 |
 | Runtime | .NET 10 |
-| Desktop UI | Windows Forms (`net10.0-windows`) |
-| Web UI | Blazor Server + WebAssembly, [MudBlazor](https://mudblazor.com/) 9.x |
-| Database | MongoDB via the official [MongoDB.Driver](https://mongodb.github.io/mongo-csharp-driver/) 3.12 |
+| Web UI | Blazor Server + WebAssembly, [MudBlazor](https://mudblazor.com/) 9.11 |
+| Desktop (legacy) | Windows Forms (`net10.0-windows`) |
+| Desktop (planned) | .NET MAUI Blazor Hybrid, Windows (QB-18) |
+| Authoritative DB | [PostgreSQL 18](https://www.postgresql.org/) via EF Core 10 + [Npgsql.EntityFrameworkCore.PostgreSQL](https://www.npgsql.org/) 10.x |
+| Identity | ASP.NET Core Identity on PostgreSQL (Guid keys), cookie authentication |
+| Device-local DB (planned) | `Microsoft.EntityFrameworkCore.Sqlite` (QB-17) |
+| Legacy DB | [MongoDB.Driver](https://mongodb.github.io/mongo-csharp-driver/) 3.12 (read-only migration source, retired at cutover) |
+| Contracts | Plain-`net10.0` DTOs, typed API clients, canonical-JSON fingerprinting |
 | Client storage | [Blazored.LocalStorage](https://github.com/Blazored/LocalStorage) 4.5 |
 | Guard clauses | [Throw](https://github.com/amantinband/throw) 1.4 |
 | Testing | [xUnit](https://xunit.net/) 2.9, [Moq](https://github.com/devlooped/moq) 4.21, [Bogus](https://github.com/bchavez/Bogus) 35.6, [coverlet](https://github.com/coverlet-coverage/coverlet) 10.1 |
+| Tooling | `dotnet-ef` 10.0.13 (local manifest in [`dotnet-tools.json`](dotnet-tools.json)) |
 | Code quality | [Qodana](https://www.jetbrains.com/qodana/) (`qodana.yaml`), Dependabot |
 
 ---
 
 ## Architecture
 
-QtsBilling follows a classic **three-tier architecture** with a shared domain core:
-
 ```
-┌─────────────────────────────┐     ┌─────────────────────────────┐
-│   QtsBilling (WinForms)     │     │  QtsWebApp / QtsWebApp.Client│
-│     Presentation Layer      │     │     Presentation Layer       │
-└──────────────┬──────────────┘     └──────────────┬──────────────┘
-               │                                    │
-               └──────────────┬─────────────────────┘
-                              ▼
-                  ┌───────────────────────┐
-                  │      QtsServices      │   Business Logic + Data Access
-                  │  (service-per-domain) │   (MongoDB.Driver)
-                  └───────────┬───────────┘
-                              ▼
-                  ┌───────────────────────┐
-                  │       QtsModels       │   Domain entities (POCOs)
-                  └───────────┬───────────┘
-                              ▼
-                        ┌───────────┐
-                        │  MongoDB  │
-                        └───────────┘
+                     ┌─────────────────────────────────────────────┐
+                     │  QtsWebApp.Client  (Blazor WebAssembly)     │
+                     │  References Contracts only — no DB          │
+                     └────────────────────┬────────────────────────┘
+                                          │ HTTP via typed API clients
+                                          ▼
+                     ┌─────────────────────────────────────────────┐
+                     │  QtsWebApp  (ASP.NET Core host)             │
+                     │  · Blazor Server UI                         │
+                     │  · /api/v1  minimal-API endpoints           │
+                     │  · Identity · policies · correlation IDs    │
+                     │  · ProblemDetails · OpenAPI (dev)           │
+                     └────┬──────────────────────────────┬─────────┘
+                          │                              │
+                          ▼                              ▼
+       ┌────────────────────────────────┐    ┌──────────────────────────┐
+       │ QtsBilling.Persistence.Postgres│    │ (legacy) QtsServices     │
+       │  EF Core 10 · Npgsql 10.x      │    │  MongoDB.Driver 3.12     │
+       │  BillingDbContext (Identity)   │    │  17 service classes      │
+       │  38-table schema + guards      │    └─────────────┬────────────┘
+       │  append-only + concurrency     │                  │
+       └────────────────┬───────────────┘                  ▼
+                        │                          ┌──────────────┐
+                        ▼                          │   MongoDB    │
+                ┌────────────────┐                 │ (legacy src) │
+                │  PostgreSQL 18 │                 └──────────────┘
+                │  authoritative │
+                └────────────────┘
+
+Planned (docs/migration/tasks):
+   ┌───────────────────────────────────────────────────────────────┐
+   │ QtsBilling.Maui (Windows hybrid)  ⇄  QtsBilling.Ui (RCL)      │
+   │      ⇄  QtsBilling.Persistence.Sqlite (offline cache + outbox)│
+   │      ⇄  sync-push / change-feed server handlers               │
+   │ QtsBilling.Migration  — Mongo → Postgres export/transform/    │
+   │                          import + reconciliation              │
+   └───────────────────────────────────────────────────────────────┘
 ```
 
-- **Presentation layer** — WinForms and Blazor collect user input and render data.
-- **Business logic layer** (`QtsServices`) — one service class per domain (e.g. `CustomerService`,
-  `AccountingService`, `PosService`). Services encapsulate business rules, validation and MongoDB
-  data access, and expose both synchronous and `async` APIs.
-- **Domain layer** (`QtsModels`) — MongoDB-mapped POCOs. Most entities derive from `BaseEntity`,
-  which provides `Id`, `CreatedAt`, `UpdatedAt` and `DeletedAt`.
-- **Data store** — MongoDB. Collections are created on demand via
-  [`DatabaseUtilities.GetOrCreateCollection`](QtsServices/UtilityServices/DatabaseUtilities.cs).
+- **Presentation** — Blazor (server + WASM) for web; WinForms (legacy) and MAUI Hybrid (planned)
+  for desktop. Shared MudBlazor components move to an RCL (QB-16).
+- **Application/API** — `QtsWebApp` hosts a typed `/api/v1` minimal-API surface with feature slices
+  under `Features/*` and cross-cutting concerns under `Infrastructure/*` (correlation IDs,
+  ProblemDetails, permission policies, claims factory, dev seeder). The browser never touches a
+  database directly.
+- **Persistence** — `QtsBilling.Persistence.Postgres` owns the authoritative `BillingDbContext`
+  (`IdentityDbContext`), domain-split entity configuration, snake_case naming, financial invariants
+  enforced at both context and DB (deferred balance triggers, append-only tables, cross-tenant FK
+  guards, draft-vs-issued constraints).
+- **Domain** — `QtsModels` retains legacy BSON entities and now also hosts the provider-neutral
+  **value objects** (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
+- **Contracts** — `QtsBilling.Contracts` is the browser/MAUI-facing wire format: DTOs (Customers /
+  Catalog / Sales / Inventory / Accounting / Identity / Sync), canonical JSON, typed API clients,
+  `ApiException` and stable error codes.
 
 ---
 
 ## Solution Structure
 
-| Project | Type | Target | Responsibility |
-| --- | --- | --- | --- |
-| [`QtsModels`](QtsModels/) | Class library | `net10.0` | Domain entities and shared constants |
-| [`QtsServices`](QtsServices/) | Class library | `net10.0` | Business logic, validation and MongoDB data access |
-| [`QtsBilling`](QtsBilling/) | WinForms app | `net10.0-windows` | Desktop client |
-| [`QtsWebApp`](QtsWebApp/QtsWebApp/) | Blazor Server host | `net10.0-windows` | Web host (Server + WASM render modes) |
-| [`QtsWebApp.Client`](QtsWebApp/QtsWebApp.Client/) | Blazor WebAssembly | `net10.0-windows` | Interactive web UI (MudBlazor) |
-| [`TestQtsBilling`](TestQtsBilling/) | xUnit test project | `net10.0` | Service-layer test suite |
+| Project | Type | Target | Role | Status |
+| --- | --- | --- | --- | --- |
+| [`QtsModels`](QtsModels/) | Class library | `net10.0` | Legacy BSON entities + new [`ValueObjects/`](QtsModels/ValueObjects/) (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`) | ✅ Active |
+| [`QtsBilling.Contracts`](QtsBilling.Contracts/) | Class library | `net10.0` | Wire DTOs, canonical-JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`), `ApiException`, error codes, paging | ✅ QB-02 |
+| [`QtsBilling.Persistence.Postgres`](QtsBilling.Persistence.Postgres/) | Class library | `net10.0` | EF Core 10 + Npgsql `BillingDbContext` (Identity-enabled), 38-table schema, migrations, snake_case naming, append-only + financial invariants, optimistic concurrency | ✅ QB-03 / QB-04 |
+| [`QtsWebApp`](QtsWebApp/QtsWebApp/) | ASP.NET Core host | `net10.0` | Blazor Server UI + `/api/v1` (auth, customers, products, accounting, inventory, health); Identity cookie auth + permission policies; correlation IDs; ProblemDetails; OpenAPI in Dev | ✅ QB-05 / QB-06 |
+| [`QtsWebApp.Client`](QtsWebApp/QtsWebApp.Client/) | Blazor WebAssembly | `net10.0` | Browser UI — references **only** Contracts; **no database or credential material** ships in the bundle | ✅ QB-15 (current surface) |
+| [`QtsServices`](QtsServices/) | Class library | `net10.0` | Legacy 17 service classes over MongoDB.Driver (still used by the WinForms desktop app) | ♻️ Legacy — retiring per QB-07…QB-14 |
+| [`QtsBilling`](QtsBilling/) | WinForms app | `net10.0-windows` | Legacy desktop client | ♻️ Retained until QB-29 (gated) |
+| [`TestQtsBilling`](TestQtsBilling/) | xUnit project | `net10.0` | Focused tests for value objects and contracts (41 pass) **and** legacy service integration tests (93, need a live MongoDB) | ✅ Active |
+| _planned_ `QtsBilling.Ui` | Razor Class Library | `net10.0` | Shared MudBlazor components (QB-16) | 📋 Planned |
+| _planned_ `QtsBilling.Persistence.Sqlite` | Class library | `net10.0` | Device-local cache, outbox, sync cursors (QB-17) | 📋 Planned |
+| _planned_ `QtsBilling.Maui` | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop app replacing WinForms (QB-18) | 📋 Planned |
+| _planned_ `QtsBilling.Migration` | Class library | `net10.0` | Mongo → Postgres export/transform/import + reconciliation (QB-23…QB-25) | 📋 Planned |
 
-At a glance: **~86 domain models**, **17 services**, and **93 tests** across 15 test files.
-
-> **Platform note:** the application projects (`QtsBilling`, `QtsWebApp`, `QtsWebApp.Client`) target
-> `net10.0-windows` and therefore build and run on **Windows**. The `QtsModels`, `QtsServices` and
-> `TestQtsBilling` libraries are cross-platform (`net10.0`).
+> **Platform note.** Only the (future) MAUI project needs a Windows-specific TFM. The web host and
+> browser client are plain `net10.0` and build portably. The legacy WinForms project still targets
+> `net10.0-windows`.
 
 ---
 
@@ -153,13 +207,23 @@ At a glance: **~86 domain models**, **17 services**, and **93 tests** across 15 
 
 | Area | Status |
 | --- | --- |
-| Domain models (`QtsModels`) | ✅ Broad coverage |
-| Service layer (`QtsServices`) | ✅ Implemented + tested |
-| Automated tests | ✅ 93 tests (integration-style, require MongoDB) |
-| Customers module (WinForms + Blazor) | ✅ Working end-to-end |
-| POS / Inventory / Accounting UI | 🚧 Services ready, UI in progress |
-| PDF reporting (e.g. invoices, statements) | 📋 Planned |
-| CI/CD pipeline | 📋 Planned |
+| Contracts + value objects (QB-02) | ✅ Implemented; 41 focused tests pass |
+| PostgreSQL EF Core foundation (QB-03) | ✅ Implemented and verified live against PostgreSQL 18.6 (integrity guards exercised with real transactions) |
+| Identity, permissions, tenant isolation (QB-04) | ✅ Server core done; OIDC/PKCE deferred to QB-22 |
+| Typed authenticated `/api/v1` (QB-05) | ✅ Live: auth, customers, catalog, accounting, inventory, health |
+| Customers + catalog masters on PostgreSQL (QB-06) | 🟡 Partial — customers and products/variants done; suppliers / units / categories / brands / groups / tax rates / discounts still Mongo |
+| Balanced, immutable ledger (QB-07) | ✅ Done, verified live on PostgreSQL 18.6 — chart of accounts, periods, atomic posting, reversals, source idempotency, derived trial balance |
+| Transactional authoritative inventory (QB-08) | ✅ Done, verified live — movement+balance atomicity, no oversell under concurrency, replay-safe references, reconciliation |
+| Browser off the database (QB-15) | ✅ Done for current surface; CI bundle-check still TODO (QB-26) |
+| Sales posting / cash register / invoices / purchasing / reports (QB-09 … QB-14) | 📋 TODO — ledger (QB-07) and inventory (QB-08) foundations are already live |
+| MAUI Windows hybrid client (QB-18) | 📋 TODO — requires `dotnet workload install maui-windows` |
+| SQLite offline persistence + sync (QB-17, QB-19 … QB-22) | 📋 TODO |
+| Data migration + reconciliation (QB-23 … QB-25) | 📋 TODO — blocked on a reachable MongoDB source |
+| CI/CD + secret scanning (QB-26) | 📋 TODO — not configured yet |
+| WinForms deletion (QB-29) and production cutover (QB-30) | 🔒 GATED — require explicit business-owner codewords |
+
+Full task-by-task view: [`docs/migration/task-status.md`](docs/migration/task-status.md).
+Definition of Done per task: [`docs/migration/tasks/`](docs/migration/tasks/).
 
 ---
 
@@ -168,12 +232,22 @@ At a glance: **~86 domain models**, **17 services**, and **93 tests** across 15 
 ### Prerequisites
 
 - **[.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0)**
-- **Windows 10/11** — required to build and run the desktop and web apps
-- **MongoDB** — either a local server ([Community Edition](https://www.mongodb.com/try/download/community))
-  or a [MongoDB Atlas](https://www.mongodb.com/atlas) cluster
-- An IDE such as **Visual Studio 2022** (17.12 or later) or **JetBrains Rider** (optional but recommended)
+- **PostgreSQL 18.6** — either via Docker:
 
-### 1. Clone the repository
+  ```bash
+  docker run -d --name qtsbilling-pg -p 5433:5432 \
+    -e POSTGRES_USER=qtsbilling \
+    -e POSTGRES_PASSWORD=qtsbilling \
+    -e POSTGRES_DB=qtsbilling \
+    postgres:18.6
+  ```
+
+  …or a local install.
+- **Windows 10/11** to build and run the **legacy WinForms** desktop client.
+- (Optional) **MongoDB** (local or Atlas) — only if you want to run the legacy `QtsServices` or the 93 Mongo-dependent integration tests.
+- An IDE such as **Visual Studio 2022** (17.12+) or **JetBrains Rider**.
+
+### 1. Clone
 
 ```bash
 git clone https://github.com/nirzaf/QtsBilling.git
@@ -182,139 +256,185 @@ cd QtsBilling
 
 ### 2. Configure your environment
 
-QtsBilling reads all secrets from **environment variables** — nothing sensitive is stored in source
-control. Start from the provided template:
+Set the PostgreSQL connection string (see [Configuration](#configuration)). The default in code
+targets `Host=localhost;Port=5432`; the Docker example above maps to `5433`, so set the variable:
 
-```bash
-# Review .env.example, then set the variables in your shell / user environment.
+```powershell
+$env:QTS_POSTGRES_CONNECTION = "Host=localhost;Port=5433;Database=qtsbilling;Username=qtsbilling;Password=qtsbilling"
 ```
 
-Set at least the primary connection string. For local-only development you can point it at your local
-MongoDB:
-
-**Windows (PowerShell — current session)**
+If you intend to run the legacy Mongo services or the 93 legacy integration tests, also set:
 
 ```powershell
 $env:QTS_MONGODB_REMOTE = "mongodb://localhost:27017/qts-Billing"
 ```
 
-**Windows (persistent, user scope)**
-
-```powershell
-setx QTS_MONGODB_REMOTE "mongodb://localhost:27017/qts-Billing"
-```
-
-**macOS / Linux**
-
-```bash
-export QTS_MONGODB_REMOTE="mongodb://localhost:27017/qts-Billing"
-```
-
-See [Configuration](#configuration) for the full list of variables.
-
-### 3. Restore and build
+### 3. Restore, build, apply migrations
 
 ```bash
 dotnet restore QtsBilling.sln
 dotnet build QtsBilling.sln
+dotnet tool restore
+dotnet ef database update --project QtsBilling.Persistence.Postgres
 ```
 
 ---
 
 ## Configuration
 
-All configuration is supplied through environment variables:
+All secrets come from **environment variables**. Nothing sensitive is stored in source control —
+use [`.env.example`](.env.example) as a template.
 
-| Variable | Required | Description | Default |
-| --- | --- | --- | --- |
-| `QTS_MONGODB_REMOTE` | **Yes** | Primary/remote MongoDB connection string. May point at a local instance for development. | *none — throws if unset* |
-| `QTS_MONGODB_LOCAL` | No | Local MongoDB connection string used by offline-capable features. | `mongodb://localhost:27017/qts-Billing` |
-| `QTS_ENCRYPTION_KEY` | Only if using encryption | Base64-encoded AES key for `EncryptionService`. | *none — throws if used unset* |
-| `QTS_ENCRYPTION_IV` | Only if using encryption | Base64-encoded AES initialization vector. | *none — throws if used unset* |
+| Variable | Applies to | Required? | Description | Default |
+| --- | --- | --- | --- | --- |
+| `QTS_POSTGRES_CONNECTION` | New PostgreSQL path | **Yes** to run the web app or apply migrations | Npgsql connection string for the authoritative PostgreSQL 18 database | *localhost dev fallback* — set a real value for anything other than the throwaway local case |
+| `QTS_MONGODB_REMOTE` | Legacy `QtsServices` | Only when you use the legacy Mongo path | Primary/remote MongoDB connection string | *none — throws if unset* |
+| `QTS_MONGODB_LOCAL` | Legacy `QtsServices` | No | Local MongoDB connection string for offline / sync features | `mongodb://localhost:27017/qts-Billing` |
+| `QTS_ENCRYPTION_KEY` | Legacy `EncryptionService` | Only if using the legacy encryption helper | Base64-encoded AES key | *none — throws if used unset* |
+| `QTS_ENCRYPTION_IV` | Legacy `EncryptionService` | Only if using the legacy encryption helper | Base64-encoded AES IV | *none — throws if used unset* |
+| `QtsBilling:DevOwner:Password` | Dev seeder | No | Password used to seed the local development Owner account | `QtsBilling!Dev2026` |
 
-The connection-string accessors live in
-[`QtsModels/GlobalConstants.cs`](QtsModels/GlobalConstants.cs).
+Connection-string accessors:
 
-**Generating an AES key/IV pair**
+- **New:** [`PostgresServiceCollectionExtensions.ResolveConnectionString()`](QtsBilling.Persistence.Postgres/PostgresServiceCollectionExtensions.cs)
+- **Legacy:** [`QtsModels/GlobalConstants.cs`](QtsModels/GlobalConstants.cs)
 
-```csharp
-QtsServices.UtilityServices.EncryptionService.GenerateKeyAndIV();
-// Prints ready-to-use QTS_ENCRYPTION_KEY / QTS_ENCRYPTION_IV values.
-```
-
-> 💡 In Visual Studio you can also add these variables to a launch profile's `environmentVariables`
-> section for convenient local debugging (never commit real secrets).
+> **Note on `EncryptionService`.** The static-IV AES-CBC helper is on the retire list (see decision
+> **D-22**): it will be replaced with a reviewed AEAD (AES-GCM, fresh nonce, keyed identifier) only
+> where genuinely required. Do not build new features on it.
 
 ---
 
 ## Running the Apps
 
-### Desktop client (WinForms)
+### Web host (Blazor Server + WebAssembly + `/api/v1`)
+
+```bash
+dotnet run --project QtsWebApp/QtsWebApp/QtsWebApp.csproj --urls http://localhost:5188
+```
+
+Then open `http://localhost:5188`. In Development, OpenAPI is served at `/openapi/v1.json`.
+
+On **first start**, the app applies pending migrations and seeds one Owner account
+(`owner@qtsbilling.local`). Sign-in is intentionally refused with `PASSWORD_RESET_REQUIRED` until
+the one-time setup ticket is completed — the ticket is logged at startup and is also returned by
+`POST /api/v1/auth/password-reset/request` in Development (never in Production).
+
+### Desktop client (legacy WinForms)
 
 ```bash
 dotnet run --project QtsBilling/QtsBilling.csproj
 ```
 
-### Web client (Blazor Server + WebAssembly)
+Requires `QTS_MONGODB_REMOTE`. Retained until QB-29 (gated) removes it in favour of the MAUI
+Blazor Hybrid client.
+
+---
+
+## Applying Database Migrations
+
+The PostgreSQL schema is managed with EF Core migrations. The local tool manifest
+([`dotnet-tools.json`](dotnet-tools.json)) pins `dotnet-ef` to **10.0.13**.
 
 ```bash
-dotnet run --project QtsWebApp/QtsWebApp/QtsWebApp.csproj
+# One-time per clone
+dotnet tool restore
+
+# Apply pending migrations to the connection in QTS_POSTGRES_CONNECTION
+dotnet ef database update --project QtsBilling.Persistence.Postgres
+
+# Author a new migration after a model change
+dotnet ef migrations add <Name> --project QtsBilling.Persistence.Postgres
 ```
 
-Then open the URL printed to the console (for example `https://localhost:7124`).
+Current migrations:
+
+| Migration | Purpose |
+| --- | --- |
+| `20261019082345_InitialCreate` | 38-table schema (core, master data, catalog, inventory, sales, accounting, purchasing, platform) |
+| `20261019082426_AddIntegrityGuards` | Deferred balance triggers, unique indexes, append-only / draft-vs-issued / cross-tenant FK guards |
+| `20261019111310_AddIdentity` | ASP.NET Core Identity tables in the same schema |
+| `20261019114425_AddLedgerSourceIdempotency` | Source-namespace uniqueness on `journal_entries` for replay safety |
 
 ---
 
 ## Running Tests
 
-The test suite uses **xUnit** with **Moq** and **Bogus**. Several tests are integration-style and
-connect to MongoDB, so configure `QTS_MONGODB_REMOTE` (see [Configuration](#configuration)) before
-running them.
-
 ```bash
-# Run all tests
-dotnet test TestQtsBilling/TestQtsBilling.csproj
+# Focused — value objects and contracts. No external services needed (41 tests).
+dotnet test TestQtsBilling \
+  --filter "FullyQualifiedName~TestQtsBilling.ValueObjects|FullyQualifiedName~TestQtsBilling.Contracts"
 
-# With coverage collection
-dotnet test TestQtsBilling/TestQtsBilling.csproj --collect:"XPlat Code Coverage"
+# Full suite. The 93 legacy integration tests connect to MongoDB and require QTS_MONGODB_REMOTE.
+dotnet test TestQtsBilling
+
+# Coverage.
+dotnet test TestQtsBilling --collect:"XPlat Code Coverage"
 ```
+
+CI (build + focused tests + integration tests against a Postgres service container + WASM bundle
+check) is planned under **QB-26**.
 
 ---
 
 ## Roadmap
 
-- [ ] Wire up UI for the POS, Inventory, Accounting and Invoicing services
-- [ ] PDF report generation (financial statements, invoices, receipts)
-- [ ] Role-based access control across the UIs
-- [ ] CI/CD pipeline (build + test) with a MongoDB service container
-- [ ] Dependency-injection refactor for service construction and testability
-- [ ] Packaging/installer for the desktop client
-- [ ] Broader test coverage and mocking of the data layer
+Per-task detail lives in [`docs/migration/tasks/`](docs/migration/tasks/); the aggregate tracker is
+[`docs/migration/task-status.md`](docs/migration/task-status.md). Highlights:
 
-Have an idea? Open a [feature request](https://github.com/nirzaf/QtsBilling/issues/new?template=feature_request.md).
+- **QB-09 … QB-14** — port sales posting, cash register & payments, invoices & credits, purchasing, expenses/taxes/discounts, and financial/operational reports onto the PostgreSQL authoritative ledger (journals **QB-07** and inventory **QB-08** are already live and verified).
+- **QB-16** — extract shared MudBlazor presentation into `QtsBilling.Ui` (RCL).
+- **QB-17** — implement `QtsBilling.Persistence.Sqlite` (cache, outbox, sync cursors).
+- **QB-18** — `QtsBilling.Maui` Windows Blazor Hybrid application.
+- **QB-19** — cash-only offline sale capture on the device.
+- **QB-20 / QB-21** — server idempotent `sync-push` handler and master-data change feed.
+- **QB-22** — MAUI push/pull coordinator, conflict-resolution queue, OIDC/PKCE device flow.
+- **QB-23 … QB-25** — read-only Mongo source inventory and export, deterministic transform and Postgres import, signed reconciliation report + account-reset plan.
+- **QB-26** — focused tests and CI pipelines (build, tests, secret scanning, WASM bundle check).
+- **QB-27** — operational runbooks, backup, packaging, observability.
+- **QB-28** — end-to-end rehearsal and pilot approval.
+- **QB-29** — remove WinForms (gated behind the business-owner's deletion codeword).
+- **QB-30** — production cutover and post-cutover integrity verification (gated behind the business-owner's cutover codeword).
+
+Have an idea? Open a
+[feature request](https://github.com/nirzaf/QtsBilling/issues/new?template=feature_request.md).
 
 ---
 
 ## Security
 
-- **No secrets in source control.** Connection strings and encryption keys are read exclusively from
-  environment variables. `.env`, `secrets.json` and other local secret files are ignored by
+- **No secrets in source control.** Connection strings and keys come exclusively from environment
+  variables. `.env`, `secrets.json` and other local secret files are ignored by
   [`.gitignore`](.gitignore); use [`.env.example`](.env.example) as a template.
-- **Rotate exposed credentials.** If a credential was ever committed to this repository's history, treat
-  it as compromised and rotate it — removing it from the current source does **not** remove it from
-  Git history.
-- **Report vulnerabilities privately.** Please do **not** open a public issue for security
-  problems. See [CONTRIBUTING.md](CONTRIBUTING.md) for the private disclosure process.
+- **Server-side data access only.** The WebAssembly bundle (and, in the future, the MAUI client)
+  carries **no database credentials, no database drivers, and no direct database connections**.
+  All state changes flow through `/api/v1` behind Identity + permission policies.
+- **Authentication hardening.** Strong password policy, lockout on repeated failures, per-request
+  permission re-check, SameSite=Strict session cookie, no cross-origin CORS, and a safe enrolment
+  gate — every account starts with `PasswordResetRequired = true`; **no default password is ever
+  usable**.
+- **Tenant isolation.** Every business-owned row carries `business_id`; composite FKs and
+  server-side authorization enforce cross-tenant separation.
+- **Immutable financial facts.** Posted journals, sale lines, invoice lines and movement/audit rows
+  are append-only; corrections go through reversal. Enforced both by the `SaveChanges` invariants
+  in `BillingDbContext` and by PostgreSQL deferred triggers.
+- **Payment card data.** `CardNumber` / `CardSecurity` are **never** migrated, logged, serialized
+  to sync payloads, or persisted — only the PSP reference + brand / last-four may exist. Offline
+  card payments are disabled (see decisions **D-21**, QB-14 / F-07).
+- **Rotate exposed credentials.** If a credential was ever committed to this repository's history,
+  treat it as compromised and rotate it — removing it from source does **not** remove it from Git
+  history.
+- **Report vulnerabilities privately.** See [`SECURITY.md`](SECURITY.md) for the disclosure process.
 
 ---
 
 ## Contributing
 
-Contributions are what make the open-source community such an amazing place to learn, inspire and
-create. Any contribution — from a typo fix to a new module — is **greatly appreciated**.
-
-Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for details on our development process, coding
-conventions and how to submit a pull request.
+Contributions of any kind are welcome. Please read [`CONTRIBUTING.md`](CONTRIBUTING.md) for the
+development process, coding conventions and pull-request checklist. If your contribution is part
+of the migration effort, follow [`docs/migration/`](docs/migration/): pick a QB-xx task, satisfy
+its Definition of Done, and update
+[`docs/migration/task-status.md`](docs/migration/task-status.md) as part of the PR.
 
 ---
 
@@ -334,8 +454,12 @@ Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more informa
 
 ## Acknowledgments
 
-- [MongoDB.Driver](https://mongodb.github.io/mongo-csharp-driver/) — official MongoDB C# driver
-- [MudBlazor](https://mudblazor.com/) — Material Design components for Blazor
+- [PostgreSQL](https://www.postgresql.org/) and [Npgsql](https://www.npgsql.org/) — the authoritative data platform
+- [Entity Framework Core 10](https://learn.microsoft.com/ef/core/) — model, migrations, change tracking
+- [ASP.NET Core Identity](https://learn.microsoft.com/aspnet/core/security/authentication/identity) — authentication and membership
+- [Blazor](https://learn.microsoft.com/aspnet/core/blazor/) and [MudBlazor](https://mudblazor.com/) — web UI
+- [.NET MAUI](https://learn.microsoft.com/dotnet/maui/) — planned Windows hybrid client
+- [MongoDB.Driver](https://mongodb.github.io/mongo-csharp-driver/) — legacy data source (retiring at cutover)
 - [xUnit.net](https://xunit.net/), [Moq](https://github.com/devlooped/moq) and [Bogus](https://github.com/bchavez/Bogus) — testing
 - [QuestPDF](https://www.questpdf.com/) — planned PDF reporting engine
 
