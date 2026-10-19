@@ -11,6 +11,7 @@
     <ItemGroup>
         <PackageReference Include="Bogus" Version="35.6.5" />
         <PackageReference Include="coverlet.collector" Version="10.1.0" />
+        <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="10.0.13" />
         <PackageReference Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
         <PackageReference Include="Moq" Version="4.21.0" />
         <PackageReference Include="Newtonsoft.Json" Version="13.0.4" />
@@ -21,6 +22,8 @@
     <ItemGroup>
         <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
         <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
+        <!-- The integration harness runs the real host against a disposable PostgreSQL database. -->
+        <ProjectReference Include="..\QtsWebApp\QtsWebApp\QtsWebApp.csproj" />
     </ItemGroup>
 
 </Project>

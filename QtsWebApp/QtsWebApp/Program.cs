@@ -38,7 +38,13 @@ builder.Services.AddMudServices(options =>
 });
 
 // PostgreSQL 18 is the single authoritative store (QB-03). Credentials stay server-side.
-builder.Services.AddQtsPostgresBilling(PostgresServiceCollectionExtensions.ResolveConnectionString());
+// The connection string is read from the configuration, so a test host can point the same code at its
+// own disposable database; in every real deployment the environment variable keeps the precedence.
+var billingConnectionString = builder.Configuration[PostgresServiceCollectionExtensions.ConnectionStringVariable] is { Length: > 0 } configured
+    ? configured
+    : PostgresServiceCollectionExtensions.ResolveConnectionString();
+
+builder.Services.AddQtsPostgresBilling(billingConnectionString);
 
 // ---------------------------------------------------------------------------------------------
 // Identity (QB-04): no raw-password lookups, lockout on repeated failures, safe account enrolment.
@@ -204,3 +210,11 @@ app.MapRazorComponents<App>()
     .AddAdditionalAssemblies(typeof(QtsWebApp.Client._Imports).Assembly, typeof(QtsBilling.Ui.Pages.Customers).Assembly);
 
 app.Run();
+
+/// <summary>
+/// The entry point is visible to the integration test host, which points the same code at its own
+/// disposable database (specification task 01). It adds no production behaviour and no bypass.
+/// </summary>
+public partial class Program
+{
+}

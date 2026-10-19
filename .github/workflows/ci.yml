@@ -22,6 +22,27 @@ jobs:
   build-and-test:
     name: Build & test (server · web · libraries)
     runs-on: ubuntu-latest
+
+    # The financial tests run against a real PostgreSQL 18, never against a mock and never against a
+    # production target. The fixture creates its own random qts_test… database and drops it afterwards.
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: qtsbilling
+          POSTGRES_PASSWORD: qtsbilling
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qtsbilling"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      QTS_TEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Username=qtsbilling;Password=qtsbilling;Database=postgres
+
     steps:
       - uses: actions/checkout@v4
 
@@ -33,7 +54,7 @@ jobs:
       - name: Build web host + WASM client + libraries (MAUI excluded on Linux)
         run: dotnet build QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release
 
-      - name: Test domain + contracts (no external services)
+      - name: Test domain, contracts and the PostgreSQL/API integration suite
         run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
 
       - name: Test device store (SQLite, no external services)

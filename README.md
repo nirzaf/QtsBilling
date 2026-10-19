@@ -407,7 +407,9 @@ The device store keeps its **own** migration history (separate from PostgreSQL);
 ## Running Tests
 
 ```bash
-# Value objects + contracts (no external services).
+# Value objects + contracts + the PostgreSQL/API integration suite.
+# The integration cases need a disposable PostgreSQL 18; they fail (never silently skip) without it.
+export QTS_TEST_POSTGRES_CONNECTION="Host=localhost;Port=5432;Username=qtsbilling;Password=qtsbilling;Database=postgres"
 dotnet test TestQtsBilling
 
 # Device-local SQLite store (no external services).
@@ -417,9 +419,13 @@ dotnet test QtsBilling.Persistence.Sqlite.Tests
 dotnet test TestQtsBilling --collect:"XPlat Code Coverage"
 ```
 
-PostgreSQL-backed flows are verified against a running instance (the Docker container above). CI
-(build + the suites above + an integration run against a Postgres service container + a WASM bundle
-check) is planned under **QB-26**.
+The integration fixture creates its own random `qts_test_…` database on the allowlisted host, applies
+the real migrations, runs the real host against it and drops the database afterwards. It refuses a
+production-shaped target, a host that is not on the allowlist (`QTS_TEST_POSTGRES_ALLOWED_HOSTS`) and
+the production connection string. CI runs the suite against a PostgreSQL 18 service container.
+
+The current readiness record — what is implemented, what is verified and what is still missing — lives
+in [`docs/migration/readiness.md`](docs/migration/readiness.md).
 
 ---
 
