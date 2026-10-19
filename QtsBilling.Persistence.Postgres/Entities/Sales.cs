@@ -104,6 +104,9 @@ public sealed class Payment : TenantEntity
     public DateTimeOffset ReceivedAtUtc { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
+
+    /// <summary>Drawer session that captured this payment; null for sales without register tracking (QB-10).</summary>
+    public Guid? CashRegisterSessionId { get; set; }
 }
 
 /// <summary>Cash drawer session register for a location.</summary>
@@ -136,4 +139,100 @@ public sealed class CashRegisterMovement : Entity, ITenantScoped
     public Guid? CreatedByUserId { get; set; }
 
     public DateTimeOffset OccurredAtUtc { get; set; }
+
+    /// <summary>Drawer session the movement belongs to; null only for legacy/uncoupled movements (QB-10).</summary>
+    public Guid? CashRegisterSessionId { get; set; }
+}
+
+/// <summary>
+/// Cash drawer session (open/close, opening float, counted vs expected). Expected cash is always derived
+/// from the append-only movements, never stored as mutable truth except at close (QB-10).
+/// </summary>
+public sealed class CashRegisterSession : TenantEntity
+{
+    public Guid CashRegisterId { get; set; }
+
+    public string Currency { get; set; } = "QAR";
+
+    public CashRegisterSessionStatus Status { get; set; } = CashRegisterSessionStatus.Open;
+
+    public decimal OpeningFloat { get; set; }
+
+    public Guid OpenedByUserId { get; set; }
+
+    public DateTimeOffset OpenedAtUtc { get; set; }
+
+    public Guid? ClosedByUserId { get; set; }
+
+    public DateTimeOffset? ClosedAtUtc { get; set; }
+
+    public decimal? CountedCash { get; set; }
+
+    public decimal? ExpectedCash { get; set; }
+
+    public decimal? Variance { get; set; }
+
+    public string? ClosingNote { get; set; }
+}
+
+/// <summary>
+/// Full refund of a posted sale (QB-10): cash returned, stock returned, reversal entry posted. Refunds are
+/// immutable facts tied to the original sale; partial refunds/credit notes arrive with QB-11.
+/// </summary>
+public sealed class Refund : TenantEntity
+{
+    public Guid SaleId { get; set; }
+
+    public Guid LocationId { get; set; }
+
+    public string RefundNumber { get; set; } = string.Empty;
+
+    public string Currency { get; set; } = "QAR";
+
+    public PaymentMethod Method { get; set; } = PaymentMethod.Cash;
+
+    public decimal Amount { get; set; }
+
+    public string Reason { get; set; } = string.Empty;
+
+    public string? Note { get; set; }
+
+    public Guid? CashRegisterSessionId { get; set; }
+
+    /// <summary>The posted reversal entry that neutralizes the original sale entry.</summary>
+    public Guid? JournalEntryId { get; set; }
+
+    public DateTimeOffset PostedAtUtc { get; set; }
+
+    public Guid PostedByUserId { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>Refund line mirroring the original sale line snapshot (spec §3.6 refunds).</summary>
+public sealed class RefundLine : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid RefundId { get; set; }
+
+    public Guid SaleLineId { get; set; }
+
+    public int LineNo { get; set; }
+
+    public string ProductNameSnapshot { get; set; } = string.Empty;
+
+    public string? SkuSnapshot { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    public decimal UnitPrice { get; set; }
+
+    public decimal TaxAmount { get; set; }
+
+    public decimal LineTotal { get; set; }
+
+    public decimal UnitCostSnapshot { get; set; }
 }

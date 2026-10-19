@@ -142,6 +142,13 @@ public enum CashMovementType
     Closing,
 }
 
+/// <summary>Cash drawer session lifecycle; at most one open session per register (QB-10).</summary>
+public enum CashRegisterSessionStatus
+{
+    Open,
+    Closed,
+}
+
 public enum MembershipRole
 {
     Owner,

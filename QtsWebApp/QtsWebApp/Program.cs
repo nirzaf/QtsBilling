@@ -140,6 +140,8 @@ app.MapProductEndpoints();
 app.MapAccountingEndpoints();
 app.MapInventoryEndpoints();
 app.MapSaleEndpoints();
+app.MapCashRegisterEndpoints();
+app.MapRefundEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

@@ -22,7 +22,8 @@ public sealed record SaleCaptureRequest(
     string Currency,
     IReadOnlyList<SaleLineRequest> Lines,
     PaymentCaptureRequest Payment,
-    string? Note);
+    string? Note,
+    Guid? RegisterId);
 
 /// <summary>Cash-only payment capture. Card fields (PAN/CVV) are structurally impossible here.</summary>
 public sealed record PaymentCaptureRequest(

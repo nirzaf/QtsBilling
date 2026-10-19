@@ -29,7 +29,11 @@ public static class ApiErrorCodes
     // Business outcomes
     public const string InsufficientStock = "INSUFFICIENT_STOCK";
     public const string PaymentUnconfirmed = "PAYMENT_UNCONFIRMED";
+    public const string PaymentMethodDisabled = "PAYMENT_METHOD_DISABLED";
     public const string InvalidPrice = "INVALID_PRICE";
+    public const string CashRegisterNotOpen = "CASH_REGISTER_NOT_OPEN";
+    public const string AlreadyRefunded = "ALREADY_REFUNDED";
+    public const string RefundNotSupported = "REFUND_NOT_SUPPORTED";
     public const string PermissionDenied = "PERMISSION_DENIED";
     public const string NeedsReview = "NEEDS_REVIEW";
     public const string AccountingPeriodClosed = "ACCOUNTING_PERIOD_CLOSED";

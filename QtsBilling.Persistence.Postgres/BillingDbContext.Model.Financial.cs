@@ -80,6 +80,11 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.PspReference })
                 .IsUnique()
                 .HasFilter("\"psp_reference\" IS NOT NULL");
+            b.HasOne<CashRegisterSession>()
+                .WithMany()
+                .HasForeignKey(e => e.CashRegisterSessionId)
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
             b.ToTable(t => t.HasCheckConstraint("ck_payments_amount_positive", "amount > 0"));
         });
 
@@ -110,8 +115,87 @@ public partial class BillingDbContext
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Sale>().WithMany().HasForeignKey(e => e.SaleId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<CashRegisterSession>()
+                .WithMany()
+                .HasForeignKey(e => e.CashRegisterSessionId)
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CashRegisterId, e.OccurredAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
             b.ToTable(t => t.HasCheckConstraint("ck_cash_register_movements_amount_non_negative", "amount >= 0"));
+        });
+
+        modelBuilder.Entity<CashRegisterSession>(b =>
+        {
+            b.ToTable("cash_register_sessions");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.ClosingNote).HasColumnType("text");
+            b.HasOne<CashRegister>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CashRegisterId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.OpenedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ClosedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterId, e.OpenedAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterId })
+                .IsUnique()
+                .HasFilter("status = 'Open'")
+                .HasDatabaseName("ux_cash_register_sessions_open");
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_cash_register_sessions_amounts",
+                "opening_float >= 0 AND (counted_cash IS NULL OR counted_cash >= 0)"));
+        });
+
+        modelBuilder.Entity<Refund>(b =>
+        {
+            b.ToTable("refunds");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.RefundNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Reason).HasColumnType("text").IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.HasOne<Sale>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SaleId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.RefundNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.SaleId })
+                .IsUnique()
+                .HasDatabaseName("ux_refunds_business_sale");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_refunds_business_idempotency_key");
+            b.ToTable(t => t.HasCheckConstraint("ck_refunds_amount_positive", "amount > 0"));
+        });
+
+        modelBuilder.Entity<RefundLine>(b =>
+        {
+            b.ToTable("refund_lines");
+            HasBusinessFk(b);
+            b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
+            b.Property(e => e.SkuSnapshot).HasMaxLength(64);
+            b.HasOne<Refund>()
+                .WithMany()
+                .HasForeignKey(e => new { e.RefundId, e.BusinessId })
+                .HasPrincipalKey(r => new { r.Id, r.BusinessId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<SaleLine>().WithMany().HasForeignKey(e => e.SaleLineId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.RefundId, e.LineNo }).IsUnique();
+            b.ToTable(t => t.HasCheckConstraint("ck_refund_lines_amounts", "quantity > 0 AND unit_price >= 0"));
         });
     }
 

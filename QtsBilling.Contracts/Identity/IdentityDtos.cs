@@ -39,6 +39,8 @@ public static class Permissions
     public const string InventoryAdjust = "inventory.adjust";
     public const string SalesPost = "sales.post";
     public const string SalesVoid = "sales.void";
+    public const string SalesRefund = "sales.refund";
+    public const string RegistersManage = "registers.manage";
     public const string AccountingPost = "accounting.post";
     public const string AccountingClose = "accounting.close";
     public const string InvoicesIssue = "invoices.issue";
@@ -53,7 +55,8 @@ public static class Permissions
         CustomersRead, CustomersWrite,
         ProductsRead, ProductsWrite,
         InventoryAdjust,
-        SalesPost, SalesVoid,
+        SalesPost, SalesVoid, SalesRefund,
+        RegistersManage,
         AccountingPost, AccountingClose,
         InvoicesIssue,
         PurchasingManage, ExpensesManage,

@@ -49,6 +49,7 @@ public static class SaleEndpoints
         group.MapPost("/", PostAsync).RequireAuthorization(Permissions.SalesPost);
         group.MapGet("/", ListAsync).RequireAuthorization(Permissions.SalesPost);
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Permissions.SalesPost);
+        group.MapGet("/{id:guid}/receipt", ReceiptAsync).RequireAuthorization(Permissions.SalesPost);
 
         return app;
     }
@@ -154,6 +155,13 @@ public static class SaleEndpoints
             return payment.Error;
         }
 
+        var register = await ResolveRegisterAsync(db, businessId, request, cancellationToken).ConfigureAwait(false);
+
+        if (register.Error is not null)
+        {
+            return register.Error;
+        }
+
         try
         {
             var sale = await PostSaleAsync(
@@ -163,6 +171,7 @@ public static class SaleEndpoints
                 request,
                 pricing.Lines,
                 payment,
+                register.Session,
                 idempotencyKey,
                 payloadHash,
                 http.TraceIdentifier,
@@ -201,6 +210,50 @@ public static class SaleEndpoints
         }
 
         return Results.Ok(await ToDetailAsync(db, sale, cancellationToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Receipt content for a posted sale (QB-10). Values come from the sale snapshots, so a later product
+    /// rename or price change never alters a receipt; <c>?format=html</c> returns a printable page.
+    /// </summary>
+    private static async Task<IResult> ReceiptAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        string? format,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var sale = await db.Sales.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sale is null)
+        {
+            return NotFound();
+        }
+
+        var business = await db.Businesses.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (business is null)
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var receipt = await BuildReceiptAsync(db, business, sale, cancellationToken).ConfigureAwait(false);
+
+        if (string.Equals(format?.Trim(), "html", StringComparison.OrdinalIgnoreCase))
+        {
+            return Results.Content(ReceiptRenderer.RenderHtml(receipt), "text/html", System.Text.Encoding.UTF8);
+        }
+
+        return Results.Ok(receipt);
     }
 
     private static async Task<IResult> ListAsync(
@@ -550,8 +603,17 @@ public static class SaleEndpoints
 
                 break;
 
+            case PaymentMethod.Card:
+                // No verified PSP integration exists (OPEN-6): a card payment can never be substantiated from
+                // this system, so the method is disabled instead of reporting a success it cannot prove (F-09).
+                return new PaymentResult(null!, ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.PaymentMethodDisabled,
+                    "Card payments are disabled.",
+                    "No verified PSP integration exists (OPEN-6). Accept cash, or cheque/bank transfer with a processing reference."));
+
             default:
-                // Card, cheque, bank transfer and other externally processed methods need proof of processing:
+                // Cheque, bank transfer and other externally processed methods need proof of processing:
                 // no placeholder may ever report success (F-09, spec §3.6).
                 if (string.IsNullOrWhiteSpace(reference))
                 {
@@ -579,6 +641,7 @@ public static class SaleEndpoints
         SaleCaptureRequest request,
         IReadOnlyList<ComputedLine> lines,
         PaymentResult payment,
+        RegisterSession? registerSession,
         string idempotencyKey,
         string payloadHash,
         string correlationId,
@@ -592,6 +655,27 @@ public static class SaleEndpoints
             db.ChangeTracker.Clear();
 
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            CashRegisterSession? lockedSession = null;
+
+            if (registerSession is { } targetSession)
+            {
+                // Lock the drawer session and re-verify it is still open: a concurrent close must not be
+                // missed between validation and the write (QB-10).
+                lockedSession = await db.CashRegisterSessions
+                    .FromSql($"SELECT * FROM cash_register_sessions WHERE id = {targetSession.SessionId} AND business_id = {business.Id} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (lockedSession is null || lockedSession.Status != CashRegisterSessionStatus.Open)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.CashRegisterNotOpen,
+                        "The drawer session was closed.",
+                        "Open a new session before capturing payments on this register.");
+                }
+            }
 
             var accounts = await LedgerWriter.ResolveAccountsAsync(
                 db,
@@ -716,9 +800,26 @@ public static class SaleEndpoints
                 Reference = payment.Payment.Reference,
                 ReceivedAtUtc = now,
                 CreatedByUserId = userId,
+                CashRegisterSessionId = lockedSession?.Id,
             };
 
             db.Payments.Add(paymentEntity);
+
+            if (payment.Payment.Method == PaymentMethod.Cash && lockedSession is not null)
+            {
+                db.CashRegisterMovements.Add(new CashRegisterMovement
+                {
+                    BusinessId = business.Id,
+                    CashRegisterId = lockedSession.CashRegisterId,
+                    CashRegisterSessionId = lockedSession.Id,
+                    MovementType = CashMovementType.SalePayment,
+                    Amount = payment.Payment.Amount,
+                    Currency = business.BaseCurrency,
+                    SaleId = sale.Id,
+                    CreatedByUserId = userId,
+                    OccurredAtUtc = now,
+                });
+            }
 
             var revenue = subtotal - discount;
             var journalLines = new List<QtsBilling.Contracts.Accounting.JournalLineRequest>
@@ -773,6 +874,8 @@ public static class SaleEndpoints
                     payment = payment.Payment.Method.ToString(),
                     journalEntry = journal.EntryNumber,
                     locationId = request.LocationId,
+                    registerId = lockedSession?.CashRegisterId,
+                    cashRegisterSessionId = lockedSession?.Id,
                 }),
             });
 
@@ -790,6 +893,55 @@ public static class SaleEndpoints
             PaymentMethod.CustomerCredit => accounts[ReceivableAccountCode].Id,
             _ => accounts[BankAccountCode].Id,
         };
+
+    /// <summary>
+    /// Resolves the optional drawer session: a register must be active, belong to the sale location and have an
+    /// open session, otherwise a cashier would believe the money is accounted when it is not (QB-10).
+    /// </summary>
+    private static async Task<RegisterContext> ResolveRegisterAsync(
+        BillingDbContext db,
+        Guid businessId,
+        SaleCaptureRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (request.RegisterId is not { } registerId)
+        {
+            return new RegisterContext(null, null);
+        }
+
+        var register = await db.CashRegisters.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == registerId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (register is null || !register.IsActive || register.LocationId != request.LocationId)
+        {
+            return new RegisterContext(
+                ApiResults.ValidationProblem(
+                    "The sale payload is invalid.",
+                    new Dictionary<string, string[]> { ["registerId"] = ["The register must be active and belong to the sale location (spec §3.6)."] }),
+                null);
+        }
+
+        var session = await db.CashRegisterSessions.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId
+                && candidate.CashRegisterId == registerId
+                && candidate.Status == CashRegisterSessionStatus.Open,
+                cancellationToken)
+            .ConfigureAwait(false);
+
+        if (session is null)
+        {
+            return new RegisterContext(
+                ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.CashRegisterNotOpen,
+                    "The register has no open drawer session.",
+                    "Open a drawer session before capturing payments on this register."),
+                null);
+        }
+
+        return new RegisterContext(null, new RegisterSession(register.Id, session.Id));
+    }
 
     // ---------------------------------------------------------------- reads
 
@@ -865,6 +1017,132 @@ public static class SaleEndpoints
                 payment.ReceivedAtUtc)).ToList());
     }
 
+    /// <summary>Receipt content from immutable snapshots; renaming a product or changing a price never alters it.</summary>
+    private static async Task<SaleReceiptDto> BuildReceiptAsync(
+        BillingDbContext db,
+        Business business,
+        Sale sale,
+        CancellationToken cancellationToken)
+    {
+        var location = await db.BusinessLocations.AsNoTracking()
+            .Where(candidate => candidate.Id == sale.LocationId)
+            .Select(candidate => new { candidate.Name, candidate.Address })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        string? cashierName = null;
+
+        if (sale.PostedByUserId is { } cashierId)
+        {
+            cashierName = await db.Users.AsNoTracking()
+                .Where(user => user.Id == cashierId)
+                .Select(user => user.DisplayName)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var lines = await db.SaleLines.AsNoTracking()
+            .Where(line => line.SaleId == sale.Id)
+            .OrderBy(line => line.LineNo)
+            .Select(line => new SaleReceiptLineDto(
+                line.LineNo,
+                line.ProductNameSnapshot,
+                line.SkuSnapshot,
+                line.Quantity,
+                line.UnitPrice,
+                line.DiscountAmount,
+                line.TaxRate,
+                line.TaxAmount,
+                line.LineTotal))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var paymentRows = await db.Payments.AsNoTracking()
+            .Where(payment => payment.SaleId == sale.Id)
+            .OrderBy(payment => payment.ReceivedAtUtc)
+            .Select(payment => new
+            {
+                payment.Method,
+                payment.Status,
+                payment.Amount,
+                payment.CashReceived,
+                payment.Reference,
+                payment.CashRegisterSessionId,
+            })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        string? registerName = null;
+        Guid? sessionId = null;
+
+        if (paymentRows.FirstOrDefault(row => row.CashRegisterSessionId is not null) is { } linked)
+        {
+            sessionId = linked.CashRegisterSessionId;
+
+            registerName = await db.CashRegisterSessions.AsNoTracking()
+                .Where(session => session.Id == linked.CashRegisterSessionId!.Value)
+                .Join(
+                    db.CashRegisters.AsNoTracking(),
+                    session => session.CashRegisterId,
+                    register => register.Id,
+                    (session, register) => register.Name)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        var payments = paymentRows
+            .Select(row => new SaleReceiptPaymentDto(
+                row.Method.ToString(),
+                EnumBridge.To<QtsBilling.Contracts.Sales.PaymentStatus>(row.Status).ToString(),
+                row.Amount,
+                row.CashReceived,
+                row.Method == PaymentMethod.Cash && row.CashReceived is { } received ? LedgerWriter.Round(received - row.Amount) : null,
+                row.Reference))
+            .ToList();
+
+        return new SaleReceiptDto(
+            sale.Id,
+            sale.SaleNumber,
+            sale.Status == SaleStatus.Reversed ? "Reversed" : "Posted",
+            null,
+            business.Name,
+            business.LegalName,
+            location?.Name,
+            location?.Address,
+            sale.Currency,
+            sale.PostedAtUtc,
+            FormatLocal(business.TimeZone, sale.PostedAtUtc),
+            cashierName,
+            registerName,
+            sessionId,
+            lines,
+            sale.SubtotalAmount,
+            sale.DiscountAmount,
+            sale.TaxAmount,
+            sale.TotalAmount,
+            payments);
+    }
+
+    private static string FormatLocal(string? timeZone, DateTimeOffset instant)
+    {
+        if (!string.IsNullOrWhiteSpace(timeZone))
+        {
+            try
+            {
+                return TimeZoneInfo.ConvertTime(instant, TimeZoneInfo.FindSystemTimeZoneById(timeZone))
+                    .ToString("yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        return instant.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss 'UTC'", CultureInfo.InvariantCulture);
+    }
+
     private static IResult NotFound()
         => ApiResults.Problem(
             StatusCodes.Status404NotFound,
@@ -925,6 +1203,10 @@ public static class SaleEndpoints
     private sealed record ComputedPayment(PaymentMethod Method, decimal Amount, decimal? CashReceived, string? Reference);
 
     private sealed record SaleContext(IResult? Error, IReadOnlyList<VariantRow> Variants, IReadOnlyList<ProductRow> Products, IReadOnlyDictionary<Guid, decimal> TaxRates);
+
+    private sealed record RegisterSession(Guid RegisterId, Guid SessionId);
+
+    private sealed record RegisterContext(IResult? Error, RegisterSession? Session);
 
     private sealed record PricingResult(IResult? Error, IReadOnlyList<ComputedLine> Lines);
 

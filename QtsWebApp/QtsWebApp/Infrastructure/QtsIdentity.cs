@@ -33,7 +33,8 @@ public static class RolePermissions
                 Permissions.CustomersRead, Permissions.CustomersWrite,
                 Permissions.ProductsRead, Permissions.ProductsWrite,
                 Permissions.InventoryAdjust,
-                Permissions.SalesPost, Permissions.SalesVoid,
+                Permissions.SalesPost, Permissions.SalesVoid, Permissions.SalesRefund,
+                Permissions.RegistersManage,
                 Permissions.AccountingPost,
                 Permissions.InvoicesIssue, Permissions.PurchasingManage,
                 Permissions.ExpensesManage, Permissions.ReportsView,
@@ -44,6 +45,7 @@ public static class RolePermissions
                 Permissions.CustomersRead, Permissions.CustomersWrite,
                 Permissions.ProductsRead,
                 Permissions.SalesPost,
+                Permissions.RegistersManage,
                 Permissions.ReportsView,
             ],
             [MembershipRole.Accountant] =

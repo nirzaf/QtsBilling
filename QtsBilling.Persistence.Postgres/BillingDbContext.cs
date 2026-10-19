@@ -20,6 +20,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(InventoryMovement),
         typeof(JournalLine),
         typeof(SaleLine),
+        typeof(RefundLine),
         typeof(InvoiceLine),
         typeof(PurchaseOrderLine),
         typeof(CashRegisterMovement),
@@ -77,6 +78,12 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<CashRegister> CashRegisters => Set<CashRegister>();
 
     public DbSet<CashRegisterMovement> CashRegisterMovements => Set<CashRegisterMovement>();
+
+    public DbSet<CashRegisterSession> CashRegisterSessions => Set<CashRegisterSession>();
+
+    public DbSet<Refund> Refunds => Set<Refund>();
+
+    public DbSet<RefundLine> RefundLines => Set<RefundLine>();
 
     public DbSet<Account> Accounts => Set<Account>();
 
