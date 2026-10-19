@@ -1,0 +1,34 @@
+﻿# QB-13 live smoke output - host http://localhost:5188 on PostgreSQL 18.6 (docker container qtsbilling-pg, port 5433)
+# run: powershell -File qb13-smoke.ps1
+------------------------------------------------------------------------
+== QB-13 live smoke: statements from authoritative facts (posted journal + inventory movements) ==
+login | HTTP 200 | code=-
+balance sheet without a session | HTTP 401 (must be 401)
+balance sheet @2026-10-19 | business=01a153e4-9c15-7bcd-8fbc-4a7de04e267a assets=1,126.50 liabilities=0.00 equity=1,126.50 currentEarnings=1,126.50 totalL+E=1,126.50 balanced=True provisional=False
+  asset | 1000 Cash on Hand = 1,810.50
+  asset | 1010 Bank = 148.00
+  asset | 1100 Accounts Receivable = 302.00
+  asset | 1200 Inventory = -1,134.00
+balance sheet @2025-12-31 | assets=0.00 liabilities=0.00 equity=0.00 balanced=True assetRows=0 (slice before activity)
+P&L 2026 | revenue=2,260.50 expenses=1,134.00 netProfit=1,126.50 provisional=False
+  revenue | 4000 Sales Revenue = 2,260.50
+  expense | 5000 Cost of Goods Sold = 1,134.00
+tie-out | P&L net profit equals balance-sheet current earnings: True
+P&L with from after to | HTTP 400 | code=VALIDATION_FAILED
+balance sheet in USD | HTTP 400 | code=VALIDATION_FAILED
+P&L in USD | HTTP 400 | code=VALIDATION_FAILED
+  cash | 1000 Cash on Hand opening=0.00 debits=2,527.00 credits=716.50 closing=1,810.50 trialBalance=1,810.50 tie=True
+  cash | 1010 Bank opening=0.00 debits=148.00 credits=0.00 closing=148.00 trialBalance=148.00 tie=True
+cash totals | opening=0.00 debits=2,675.00 credits=716.50 closing=1,958.50
+stock summary | rows=11 totalQuantity=56.00 totalValue=1,208.50 balancesOnHandSum=56.00 tie=True
+  stock | Main / Default (sku SMOKE-QB10-6d28ec) onHand=9.00 value=162.00
+  stock | Main / QB-08 smoke product (sku SMOKE-QB08-477a5c) onHand=0.00 value=182.50
+  stock | Main / QB-09 smoke product (sku SMOKE-QB09-f63810) onHand=0.00 value=0.00
+  stock | Main / QB-09 smoke product (sku SMOKE-QB09-067331) onHand=0.00 value=0.00
+  stock | Main / QB-09 smoke product (sku SMOKE-QB09-9a2e31) onHand=0.00 value=0.00
+  stock | Main / QB-10 smoke product (sku SMOKE-QB10-566999) onHand=10.00 value=180.00
+stock summary with a foreign location id | HTTP 404 | code=NOT_FOUND
+sales summary 2026 | count=9 subtotal=1,615.50 discount=5.00 tax=0.00 total=1,610.50 provisional=False
+  payment | Cash count=9 amount=1,610.50
+== smoke complete ==
+
