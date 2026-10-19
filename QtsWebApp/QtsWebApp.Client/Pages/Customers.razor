@@ -1,0 +1,104 @@
+@page "/customers"
+@using QtsModels
+
+<MudText Typo="Typo.h3">Customers</MudText>
+
+<MudCard>
+    <MudCardContent>
+        <MudTextField @bind-Value="SearchText"
+                      Label="Search customers"
+                      Adornment="Adornment.Start"
+                      AdornmentIcon="@Icons.Material.Filled.Search"
+                      IconSize="Size.Medium"
+                      Class="mt-0"
+                      Immediate="true"
+                      DebounceInterval="500" />
+    </MudCardContent>
+</MudCard>
+
+<MudGrid Class="mt-4">
+    <MudItem xs="12" sm="4" md="3">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="@AddCustomer" StartIcon="@Icons.Material.Filled.Add" FullWidth="true">Add Customer</MudButton>
+    </MudItem>
+</MudGrid>
+
+<MudDialog @bind-Visible="_addCustomerDialogVisible">
+    <TitleContent>
+        <MudText Typo="Typo.h6">Add New Customer</MudText>
+    </TitleContent>
+    <DialogContent>
+        <MudTextField @bind-Value="_newCustomer.Name" Label="Name" />
+        <MudTextField @bind-Value="_newCustomer.Email" Label="Email" />
+        <MudTextField @bind-Value="_newCustomer.Phone" Label="Phone" />
+        <MudTextField @bind-Value="_newCustomer.Address" Label="Address" />
+    </DialogContent>
+    <DialogActions>
+        <MudButton OnClick="CancelAddCustomer">Cancel</MudButton>
+        <MudButton Color="Color.Primary" OnClick="SubmitAddCustomer">Add</MudButton>
+    </DialogActions>
+</MudDialog>
+
+
+<MudTable Items="@_pagedCustomers" RowsPerPage="10" Dense="true" Hover="true" Striped="true" Bordered="true" Class="mt-4">
+    <HeaderContent>
+        <MudTh>Name</MudTh>
+        <MudTh>Email</MudTh>
+        <MudTh>Phone</MudTh>
+        <MudTh>Address</MudTh>
+        <MudTh>Actions</MudTh>
+    </HeaderContent>
+    <RowTemplate>
+        <MudTd DataLabel="Name">
+            @if (context.IsEditing)
+            {
+            <MudTextField @bind-Value="context.Name" />
+            }
+            else
+            {
+            @context.Name
+            }
+        </MudTd>
+        <MudTd DataLabel="Email">
+            @if (context.IsEditing)
+            {
+            <MudTextField @bind-Value="context.Email" />
+            }
+            else
+            {
+            <MudLink Href="@($"mailto:{context.Email}")">@context.Email</MudLink>
+            }
+        </MudTd>
+        <MudTd DataLabel="Phone">
+            @if (context.IsEditing)
+            {
+            <MudTextField @bind-Value="context.Phone" />
+            }
+            else
+            {
+            <MudChip T="string" Color="Color.Primary" Size="Size.Small">@context.Phone</MudChip>
+            }
+        </MudTd>
+        <MudTd DataLabel="Address">
+            @if (context.IsEditing)
+            {
+            <MudTextField @bind-Value="context.Address" />
+            }
+            else
+            {
+            <MudTooltip Text="@context.Address">
+                <MudText Typo="Typo.body2" Class="text-truncate">@context.Address</MudText>
+            </MudTooltip>
+            }
+        </MudTd>
+        <MudTd>
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="@((args) => ToggleEdit(args, context))" StartIcon="@Icons.Material.Filled.Edit">
+                @(context.IsEditing ? "Save" : "Edit")
+            </MudButton>
+            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="@((args) => DeleteCustomerConfirmation(args, context))" StartIcon="@Icons.Material.Filled.Delete">Delete</MudButton>
+        </MudTd>
+    </RowTemplate>
+    <PagerContent>
+        <MudTablePager />
+    </PagerContent>
+</MudTable>
+

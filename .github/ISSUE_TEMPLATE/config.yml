@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/nirzaf/QtsBilling/blob/master/README.md
+    about: Read the project documentation before opening an issue.
+  - name: 💬 Questions & Discussions
+    url: https://github.com/nirzaf/QtsBilling/discussions
+    about: Ask questions and discuss ideas with the community.
+  - name: 🔒 Report a security vulnerability
+    url: https://github.com/nirzaf/QtsBilling/security/advisories/new
+    about: Please report security issues privately (do not open a public issue).
