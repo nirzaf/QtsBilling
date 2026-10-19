@@ -459,6 +459,61 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         });
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.SyncConflict", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("business_id");
+
+                    b.Property<DateTimeOffset>("DetectedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("detected_at_utc");
+
+                    b.Property<Guid>("EntityId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("entity_id");
+
+                    b.Property<string>("EntityType")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("entity_type");
+
+                    b.Property<string>("LocalValue")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("local_value");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("reason");
+
+                    b.Property<string>("Resolution")
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resolution");
+
+                    b.Property<DateTimeOffset?>("ResolvedAtUtc")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("resolved_at_utc");
+
+                    b.Property<string>("ServerValue")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("server_value");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "ResolvedAtUtc");
+
+                    b.ToTable("sync_conflicts", (string)null);
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.SyncState", b =>
                 {
                     b.Property<Guid>("BusinessId")

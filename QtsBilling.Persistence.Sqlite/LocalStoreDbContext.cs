@@ -38,6 +38,8 @@ public sealed class LocalStoreDbContext : DbContext
 
     public DbSet<SyncState> SyncStates => Set<SyncState>();
 
+    public DbSet<SyncConflict> SyncConflicts => Set<SyncConflict>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<DeviceProfile>(b =>
@@ -221,6 +223,23 @@ public sealed class LocalStoreDbContext : DbContext
             b.Property(x => x.LastOrdinal).HasColumnName("last_ordinal");
             b.Property(x => x.LastSuccessUtc).HasColumnName("last_success_utc");
             b.Property(x => x.BaselineVersion).HasColumnName("baseline_version");
+        });
+
+        modelBuilder.Entity<SyncConflict>(b =>
+        {
+            b.ToTable("sync_conflicts");
+            b.HasKey(x => x.Id);
+            b.Property(x => x.Id).HasColumnName("id");
+            b.Property(x => x.BusinessId).HasColumnName("business_id");
+            b.Property(x => x.EntityType).HasColumnName("entity_type").HasMaxLength(64).IsRequired();
+            b.Property(x => x.EntityId).HasColumnName("entity_id");
+            b.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(256).IsRequired();
+            b.Property(x => x.ServerValue).HasColumnName("server_value");
+            b.Property(x => x.LocalValue).HasColumnName("local_value");
+            b.Property(x => x.DetectedAtUtc).HasColumnName("detected_at_utc");
+            b.Property(x => x.ResolvedAtUtc).HasColumnName("resolved_at_utc");
+            b.Property(x => x.Resolution).HasColumnName("resolution").HasMaxLength(32);
+            b.HasIndex(x => new { x.BusinessId, x.ResolvedAtUtc });
         });
     }
 }

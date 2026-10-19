@@ -18,7 +18,7 @@ namespace QtsBilling.Persistence.Sqlite;
 /// money and outbox rows are never touched. Money and quantities cross the boundary as checked scaled
 /// <c>INTEGER</c> values (never <c>REAL</c>).
 /// </summary>
-public sealed class SqliteLocalStore
+public sealed partial class SqliteLocalStore
 {
     private readonly IDbContextFactory<LocalStoreDbContext> _factory;
     private readonly SqliteLocalStoreOptions _options;

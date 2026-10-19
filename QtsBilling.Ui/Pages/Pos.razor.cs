@@ -2,6 +2,7 @@
 using MudBlazor;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Pos;
+using QtsBilling.Contracts.Sync;
 
 namespace QtsBilling.Ui.Pages;
 
@@ -19,6 +20,10 @@ public partial class Pos
 
     private ILocalPosService? PosService => Services.GetService(typeof(ILocalPosService)) as ILocalPosService;
 
+    private ISyncCoordinator? Sync => Services.GetService(typeof(ISyncCoordinator)) as ISyncCoordinator;
+
+    private ISyncConflictService? ConflictService => Services.GetService(typeof(ISyncConflictService)) as ISyncConflictService;
+
     private readonly List<CartLine> _lines = [];
     private List<LocalCatalogItem> _catalog = [];
     private List<LocalPendingSale> _pending = [];
@@ -29,6 +34,9 @@ public partial class Pos
     private decimal? _cashReceived;
     private Guid? _operationId;
     private bool _busy;
+    private bool _syncing;
+    private SyncStatus? _status;
+    private List<SyncConflict> _conflicts = [];
 
     private IReadOnlyList<LocalCatalogItem> Filtered => string.IsNullOrWhiteSpace(_search)
         ? _catalog
@@ -71,6 +79,100 @@ public partial class Pos
         }
         finally
         {
+            StateHasChanged();
+        }
+
+        await LoadSyncStateAsync();
+    }
+
+    private async Task LoadSyncStateAsync()
+    {
+        var coordinator = Sync;
+
+        if (coordinator is null)
+        {
+            return;
+        }
+
+        try
+        {
+            _status = await coordinator.GetStatusAsync();
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+        }
+
+        var conflicts = ConflictService;
+
+        if (conflicts is not null)
+        {
+            _conflicts = [.. await conflicts.GetConflictsAsync()];
+        }
+    }
+
+    private async Task SyncNowAsync()
+    {
+        var coordinator = Sync;
+
+        if (coordinator is null || _syncing)
+        {
+            return;
+        }
+
+        _syncing = true;
+        _error = null;
+
+        try
+        {
+            var report = await coordinator.RunAsync();
+
+            if (!string.IsNullOrWhiteSpace(report.Error))
+            {
+                _error = report.Error;
+            }
+            else
+            {
+                Snackbar.Add(
+                    $"Synchronized: {report.Pushed} sent, {report.Pulled} changes, {report.Conflicts} conflict(s).",
+                    Severity.Success);
+            }
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _syncing = false;
+            await LoadAsync();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ResolveConflictAsync(SyncConflict conflict, SyncConflictResolution resolution)
+    {
+        var conflicts = ConflictService;
+
+        if (conflicts is null || _busy)
+        {
+            return;
+        }
+
+        _busy = true;
+
+        try
+        {
+            await conflicts.ResolveConflictAsync(conflict.Id, resolution);
+            await LoadSyncStateAsync();
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
             StateHasChanged();
         }
     }

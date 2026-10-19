@@ -151,6 +151,83 @@ else
 
             <MudCard Class="mt-2">
                 <MudCardContent>
+                    <MudText Typo="Typo.h6">Device sync</MudText>
+                    @if (Sync is not null)
+                    {
+                        <MudStack Row="true" Spacing="2" Class="mt-2" AlignItems="AlignItems.Center">
+                            <MudChip T="string" Size="Size.Small" Color="@(_status?.Online == true ? Color.Success : Color.Warning)">
+                                @(_status?.Online == true ? "Online" : "Offline")
+                            </MudChip>
+                            <MudText Typo="Typo.body2">@_status?.PendingOperations waiting to be sent</MudText>
+                            <MudText Typo="Typo.body2">@_status?.Conflicts conflict(s)</MudText>
+                            <MudText Typo="Typo.body2">revision @_status?.LastRevision</MudText>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mt-1">
+                            Last successful pull: @(_status?.LastSuccessUtc?.ToString("yyyy-MM-dd HH:mm:ss") ?? "never")
+                        </MudText>
+                        <MudButton Variant="Variant.Outlined"
+                                   Color="Color.Default"
+                                   StartIcon="@Icons.Material.Filled.Sync"
+                                   Disabled="@_syncing"
+                                   OnClick="SyncNowAsync"
+                                   Class="mt-2">
+                            @(_syncing ? "Synchronizing..." : "Sync now")
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-1">
+                            This host has no device queue, so it does not synchronize.
+                        </MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+
+            @if (_conflicts.Count > 0)
+            {
+                <MudCard Class="mt-2">
+                    <MudCardContent>
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                            <MudText Typo="Typo.h6">Conflicts</MudText>
+                            <MudChip T="string" Size="Size.Small" Color="Color.Error">@_conflicts.Count</MudChip>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="mt-1">
+                            The server changed a record that a pending local sale uses. Nothing was overwritten:
+                            choose which value wins.
+                        </MudText>
+                        <MudList T="string" Class="mt-1">
+                            @foreach (var conflict in _conflicts)
+                            {
+                                <MudListItem T="string">
+                                    <div class="d-flex justify-space-between align-center">
+                                        <div>
+                                            <MudText Typo="Typo.body2">@conflict.EntityType @conflict.EntityId</MudText>
+                                            <MudText Typo="Typo.caption">@conflict.Reason</MudText>
+                                        </div>
+                                        <div class="d-flex align-center">
+                                            <MudButton Size="Size.Small"
+                                                       Variant="Variant.Text"
+                                                       Disabled="@_busy"
+                                                       OnClick="@(() => ResolveConflictAsync(conflict, SyncConflictResolution.UseServer))">
+                                                Use server
+                                            </MudButton>
+                                            <MudButton Size="Size.Small"
+                                                       Variant="Variant.Text"
+                                                       Disabled="@_busy"
+                                                       OnClick="@(() => ResolveConflictAsync(conflict, SyncConflictResolution.KeepLocal))">
+                                                Keep local
+                                            </MudButton>
+                                        </div>
+                                    </div>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    </MudCardContent>
+                </MudCard>
+            }
+
+            <MudCard Class="mt-2">
+                <MudCardContent>
                     <MudText Typo="Typo.h6">Pending queue</MudText>
                     <MudText Typo="Typo.caption">
                         Captured on this device and waiting for the server. A provisional reference is not a

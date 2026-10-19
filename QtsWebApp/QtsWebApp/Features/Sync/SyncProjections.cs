@@ -1,3 +1,4 @@
+using Microsoft.EntityFrameworkCore;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 
@@ -10,13 +11,23 @@ namespace QtsWebApp.Features.Sync;
 public static class SyncProjections
 {
     /// <summary>The product with its sellable variants (the price snapshot the device caches).</summary>
-    public static Task ProductAsync(
+    public static async Task ProductAsync(
         BillingDbContext db,
         Guid businessId,
         Product product,
         IReadOnlyList<ProductVariant> variants,
         CancellationToken cancellationToken = default)
-        => SyncChangeWriter.AppendAsync(
+    {
+        // The device needs the tax rate itself (not only its id) to cache a sellable price snapshot.
+        var taxRate = product.TaxRateId is { } taxRateId
+            ? await db.TaxRates.AsNoTracking()
+                .Where(rate => rate.Id == taxRateId)
+                .Select(rate => rate.Rate)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false)
+            : 0m;
+
+        await SyncChangeWriter.AppendAsync(
             db,
             businessId,
             "product",
@@ -30,6 +41,7 @@ public static class SyncProjections
                 isActive = product.IsActive,
                 trackStock = product.TrackStock,
                 taxRateId = product.TaxRateId,
+                taxRate,
                 taxType = product.TaxType.ToString(),
                 version = product.Version,
                 variants = variants
@@ -46,7 +58,8 @@ public static class SyncProjections
                     .ToArray(),
             }),
             DateTimeOffset.UtcNow,
-            cancellationToken);
+            cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>The customer projection. A deactivation is a tombstone, so a device drops the record.</summary>
     public static Task CustomerAsync(

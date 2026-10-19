@@ -2,6 +2,7 @@
 using MudBlazor.Services;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Pos;
+using QtsBilling.Contracts.Sync;
 using QtsBilling.Maui.Services;
 using QtsBilling.Persistence.Sqlite;
 using QtsBilling.Persistence.Sqlite.Pos;
@@ -49,6 +50,11 @@ public static class MauiProgram
         builder.Services.AddScoped<ILocalPosService, DeviceLocalPosService>();
         builder.Services.AddSingleton<QtsBilling.Ui.Layout.INavContributor, MauiNavContributor>();
 
+        // Device synchronization (QB-22): the push/pull loop, the conflict queue and the background timer.
+        builder.Services.AddScoped<ISyncCoordinator, DeviceSyncCoordinator>();
+        builder.Services.AddScoped<ISyncConflictService, DeviceSyncConflictService>();
+        builder.Services.AddHostedService<DeviceSyncTimer>();
+
         // The browser never talks to a database; the desktop app uses the same typed API clients.
         builder.Services
             .AddHttpClient<ICustomerApiClient, DeviceCustomerApiClient>((services, client) =>
@@ -87,6 +93,14 @@ public static class MauiProgram
             {
                 client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
                 client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Sync.ISyncApiClient, QtsBilling.Contracts.Sync.SyncApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(60);
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
