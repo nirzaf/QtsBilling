@@ -67,13 +67,11 @@ public partial class Customers
         finally
         {
             _busy = false;
-        }
-    }
 
-    private async Task SearchCustomersOnInput(string searchText)
-    {
-        SearchText = searchText;
-        await LoadAsync();
+            // The load usually starts in OnAfterRenderAsync, where Blazor does not re-render on its own:
+            // without this the table would keep showing the pre-load state (and a permanently busy button).
+            StateHasChanged();
+        }
     }
 
     private async Task ToggleEdit(MouseEventArgs args, CustomerRow row)

@@ -1,0 +1,64 @@
+﻿<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+    <PropertyGroup>
+        <!-- Windows desktop only: Android/iOS/macOS are explicit non-goals of QB-18. -->
+        <TargetFrameworks>net10.0-windows10.0.19041.0</TargetFrameworks>
+
+        <OutputType>Exe</OutputType>
+        <RootNamespace>QtsBilling.Maui</RootNamespace>
+        <UseMaui>true</UseMaui>
+        <SingleProject>true</SingleProject>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <EnableDefaultCssItems>false</EnableDefaultCssItems>
+        <Nullable>enable</Nullable>
+        <LangVersion>14.0</LangVersion>
+
+        <!-- Display name -->
+        <ApplicationTitle>QTS Billing</ApplicationTitle>
+
+        <!-- App Identifier -->
+        <ApplicationId>com.qtsbilling.desktop</ApplicationId>
+
+        <!-- Versions -->
+        <ApplicationDisplayVersion>1.0</ApplicationDisplayVersion>
+        <ApplicationVersion>1</ApplicationVersion>
+
+        <!-- The MSIX manifest (Platforms/Windows/Package.appxmanifest) is the packaging configuration.
+             The local build runs unpackaged so the desktop app can be smoke-run on a developer machine;
+             MSIX packaging/signing is completed under QB-27. -->
+        <WindowsPackageType>None</WindowsPackageType>
+
+        <SupportedOSPlatformVersion>10.0.17763.0</SupportedOSPlatformVersion>
+        <TargetPlatformMinVersion>10.0.17763.0</TargetPlatformMinVersion>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <!-- App Icon -->
+        <MauiIcon Include="Resources\AppIcon\appicon.svg" ForegroundFile="Resources\AppIcon\appiconfg.svg" Color="#512BD4" />
+
+        <!-- Splash Screen -->
+        <MauiSplashScreen Include="Resources\Splash\splash.svg" Color="#512BD4" BaseSize="128,128" />
+
+        <!-- Images -->
+        <MauiImage Include="Resources\Images\*" />
+
+        <!-- Custom Fonts -->
+        <MauiFont Include="Resources\Fonts\*" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="Microsoft.Maui.Controls" Version="$(MauiVersion)" />
+        <PackageReference Include="Microsoft.AspNetCore.Components.WebView.Maui" Version="$(MauiVersion)" />
+        <PackageReference Include="Microsoft.Extensions.Logging.Debug" Version="10.0.0" />
+        <PackageReference Include="Microsoft.Extensions.Http" Version="10.0.0" />
+        <PackageReference Include="MudBlazor" Version="9.11.0" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Shared presentation (QB-16), the wire contracts and the device-local store (QB-17). -->
+        <ProjectReference Include="..\QtsBilling.Ui\QtsBilling.Ui.csproj" />
+        <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
+        <ProjectReference Include="..\QtsBilling.Persistence.Sqlite\QtsBilling.Persistence.Sqlite.csproj" />
+    </ItemGroup>
+
+</Project>

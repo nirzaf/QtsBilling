@@ -1,0 +1,11 @@
+﻿@using System.Reflection
+@using QtsBilling.Ui.Pages
+
+<Router AppAssembly="@typeof(MauiProgram).Assembly"
+        AdditionalAssemblies="@(new[] { typeof(Customers).Assembly })"
+        NotFoundPage="typeof(Pages.NotFound)">
+    <Found Context="routeData">
+        <RouteView RouteData="@routeData" DefaultLayout="@typeof(QtsBilling.Ui.Layout.MainLayout)" />
+        <FocusOnNavigate RouteData="@routeData" Selector="h1" />
+    </Found>
+</Router>

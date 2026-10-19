@@ -1,0 +1,60 @@
+﻿@page "/"
+@inject IDeviceIdentity Device
+@inject IServerSettings Settings
+@inject IDeviceConnectivity Connectivity
+@inject NavigationManager Navigation
+
+<PageTitle>QTS Billing</PageTitle>
+
+<MudText Typo="Typo.h3">QTS Billing</MudText>
+<MudText Typo="Typo.body1" Class="mt-2">
+    Windows desktop client. The customer screen is the shared component from <code>QtsBilling.Ui</code>;
+    the shell, the device identity and the local store are owned by this host.
+</MudText>
+
+<MudGrid Class="mt-4">
+    <MudItem xs="12" md="6">
+        <MudCard>
+            <MudCardContent>
+                <MudText Typo="Typo.h6">This device</MudText>
+                <MudText Typo="Typo.body2" Class="mt-1">Device id: <code>@Device.DeviceId</code></MudText>
+                <MudText Typo="Typo.body2">Name: @Device.DeviceName</MudText>
+                <MudText Typo="Typo.body2">App version: @Settings.AppVersion</MudText>
+                <MudText Typo="Typo.body2">Server: @Settings.ServerBaseUrl</MudText>
+                <MudText Typo="Typo.body2">
+                    Connection:
+                    @if (Connectivity.IsOnline)
+                    {
+                        <MudChip T="string" Color="Color.Success" Size="Size.Small">Online</MudChip>
+                    }
+                    else
+                    {
+                        <MudChip T="string" Color="Color.Warning" Size="Size.Small">Offline</MudChip>
+                    }
+                </MudText>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12" md="6">
+        <MudCard>
+            <MudCardContent>
+                <MudText Typo="Typo.h6">Where to go</MudText>
+                <MudButton Href="customers"
+                           Variant="Variant.Filled"
+                           Color="Color.Primary"
+                           StartIcon="@Icons.Material.Filled.People"
+                           Class="mt-2">
+                    Customers (shared component)
+                </MudButton>
+                <MudButton Href="login"
+                           Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.Login"
+                           Class="mt-2 ml-2">
+                    Sign in
+                </MudButton>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+</MudGrid>

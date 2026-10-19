@@ -1,0 +1,65 @@
+@page "/login"
+@inject IAccountApiClient Accounts
+@inject NavigationManager Navigation
+
+<PageTitle>Sign in - QTS Billing</PageTitle>
+
+<MudText Typo="Typo.h3">Sign in</MudText>
+<MudText Typo="Typo.body2" Class="mt-2 mb-4">
+    The desktop client never embeds a credential: the session is established against the server and the
+    resulting session is kept in the Windows secure store.
+</MudText>
+
+<MudCard Class="ma-4" Style="max-width: 420px;">
+    <MudCardContent>
+        <MudTextField @bind-Value="_email"
+                      Label="E-mail"
+                      InputType="InputType.Email"
+                      autocomplete="username"
+                      Class="mt-2" />
+        <MudTextField @bind-Value="_password"
+                      Label="Password"
+                      InputType="InputType.Password"
+                      autocomplete="current-password"
+                      Class="mt-2" />
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Dense="true" Class="mt-3">@_error</MudAlert>
+        }
+        <MudButton Variant="Variant.Filled"
+                   Color="Color.Primary"
+                   FullWidth="true"
+                   Class="mt-3"
+                   Disabled="@_busy"
+                   OnClick="SignInAsync">
+            @(_busy ? "Signing in..." : "Sign in")
+        </MudButton>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    private string _email = string.Empty;
+    private string _password = string.Empty;
+    private string? _error;
+    private bool _busy;
+
+    private async Task SignInAsync()
+    {
+        _busy = true;
+        _error = null;
+
+        try
+        {
+            await Accounts.LoginAsync(new LoginRequest(_email.Trim(), _password));
+            Navigation.NavigateTo("customers");
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
+    }
+}

@@ -23,6 +23,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QtsBilling.Persistence.Sqli
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QtsBilling.Persistence.Sqlite.Tests", "QtsBilling.Persistence.Sqlite.Tests\QtsBilling.Persistence.Sqlite.Tests.csproj", "{A5B605AC-FE61-45BD-9E11-740072FBC34B}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "QtsBilling.Maui", "QtsBilling.Maui\QtsBilling.Maui.csproj", "{4C63B892-08C4-4402-B609-AF5F75ABD1FC}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -153,6 +155,18 @@ Global
 		{A5B605AC-FE61-45BD-9E11-740072FBC34B}.Release|x64.Build.0 = Release|Any CPU
 		{A5B605AC-FE61-45BD-9E11-740072FBC34B}.Release|x86.ActiveCfg = Release|Any CPU
 		{A5B605AC-FE61-45BD-9E11-740072FBC34B}.Release|x86.Build.0 = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|x64.Build.0 = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Debug|x86.Build.0 = Debug|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|x64.ActiveCfg = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|x64.Build.0 = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|x86.ActiveCfg = Release|Any CPU
+		{4C63B892-08C4-4402-B609-AF5F75ABD1FC}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

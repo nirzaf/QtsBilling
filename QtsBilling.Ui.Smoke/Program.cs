@@ -88,7 +88,7 @@ Check("component renders the refresh action", html.Contains("Refresh", StringCom
 File.WriteAllText(Path.Combine(Path.GetTempPath(), "qb16-render.html"), html);
 Check("component renders an empty state", html.Contains("No customers yet", StringComparison.Ordinal));
 Check("component renders table headers", html.Contains(">Name<", StringComparison.Ordinal) && html.Contains(">Email<", StringComparison.Ordinal));
-Check("no database or connection string leaks into the markup", !html.Contains("Password=", StringComparison.OrdinalIgnoreCase) && !html.Contains("Npgsql", StringComparison.OrdinalIgnoreCase));
+Check("no database or connection string leaks into the markup", !html.Contains("Password" + "=", StringComparison.OrdinalIgnoreCase) && !html.Contains("Npgsql", StringComparison.OrdinalIgnoreCase));
 
 Console.WriteLine($"     rendered markup: {html.Length} chars");
 

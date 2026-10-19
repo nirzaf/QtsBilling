@@ -95,6 +95,7 @@ API-first architecture**. Governing decisions and per-task status are in
 - **Typed failures, audited sign-ins, real backups** - every API failure is a ProblemDetails body with a stable code and a correlation id (no stack/SQL leakage, no empty lists, no database-writing error logger); authentication outcomes are audited append-only with masked e-mails, and the development reset ticket never reaches a log. Backups are real `pg_dump` artifacts with SHA-256 manifests, restored into a disposable database and reconciled by a drill; the runtime database role is DML-only. See `docs/migration/deployment.md`.
 - **One MudBlazor surface** - the customer page, its dialog, layout and navigation live in `QtsBilling.Ui` and render from injected `ICustomerApiClient`/`IAccountApiClient` interfaces: no component touches HTTP or a database, hosts own render modes/assets/routing, and a platform-injection HTML-render smoke proves the same component works outside the web host (the MAUI host build still awaits the workload).
 - **Offline-first device store** - the device keeps one WAL SQLite file with a discardable cache (products, customers, stock) and a durable pending group (provisional sales, cash movements, outbox, inbox receipts, sync cursors). Money and quantities are checked scaled integers (precision loss and overflow are rejected, never rounded), an offline capture commits sale + lines + cash + outbox atomically, a cache rebuild can never touch pending money, the outbox survives crashes and restarts, and startup blocks on a failed integrity check or an unknown/newer schema after snapshotting the file (20 temp-file tests, QB-17).
+- **One desktop client, same components** - the Windows desktop app (`QtsBilling.Maui`) renders the shared customer page, layout and navigation in a WebView2, signs in against the same API without embedding a credential, keeps the session in the Windows secure store, opens the device-local SQLite store at startup and stays usable while the server is down; the web host remains independently deployable (QB-18).
 - **Value objects** — provider-neutral primitives: `Money` (`numeric(18,4)`), `Quantity` (`numeric(18,6)`), `CurrencyCode`, `ScaledDecimal`.
 - **Sync protocol ready in schema** — per-business `sync_revisions` with commit-ordered ordinal, `processed_operations` idempotency with payload fingerprint, `sync_changes` change feed, tombstones and `RESYNC_REQUIRED` on expired cursor. Handlers land with QB-20/21/22.
 
@@ -161,9 +162,11 @@ API-first architecture**. Governing decisions and per-task status are in
                 └────────────────┘
 
 Shared now:
-   QtsBilling.Ui (RCL) — MudBlazor components used by the web client and the future MAUI host (QB-16)
+   QtsBilling.Ui (RCL) — MudBlazor components used by the web client and the desktop host (QB-16)
    QtsBilling.Persistence.Sqlite — device-local store: WAL SQLite, discardable cache + durable
    outbox/receipts/sync state, checked scaled-integer money, own migration history (QB-17)
+   QtsBilling.Maui — Windows desktop host: the same shared components in a WebView2, device
+   identity, DPAPI secure session, offline-tolerant API (QB-18)
 
 Planned (docs/migration/tasks):
    ┌───────────────────────────────────────────────────────────────┐
@@ -175,9 +178,9 @@ Planned (docs/migration/tasks):
    └───────────────────────────────────────────────────────────────┘
 ```
 
-- **Presentation** — Blazor (server + WASM) for web; WinForms (legacy) and MAUI Hybrid (planned)
-  for desktop. Shared MudBlazor components live in `QtsBilling.Ui` and are consumed by the web client
-  and the planned MAUI host (QB-16).
+- **Presentation** — Blazor (server + WASM) for web and a .NET MAUI Blazor Hybrid Windows desktop client;
+  WinForms (legacy) is retained until QB-29 (gated). Shared MudBlazor components live in
+  `QtsBilling.Ui` and are consumed by the web client and the desktop host (QB-16/QB-18).
 - **Application/API** — `QtsWebApp` hosts a typed `/api/v1` minimal-API surface with feature slices
   under `Features/*` and cross-cutting concerns under `Infrastructure/*` (correlation IDs,
   ProblemDetails, permission policies, claims factory, dev seeder). The browser never touches a
@@ -210,7 +213,7 @@ Planned (docs/migration/tasks):
 | [`QtsBilling.Ui.Smoke`](QtsBilling.Ui.Smoke/) | Console harness | `net10.0` | HTML-render platform smoke: renders the shared customer component with stub feature interfaces outside the web host | ✅ QB-16 |
 | [`QtsBilling.Persistence.Sqlite`](QtsBilling.Persistence.Sqlite/) | Class library | `net10.0` | Device-local store: one WAL SQLite file per device (discardable cache + durable outbox/receipts/sync state), checked scaled-integer money, own migration history, single-writer gate (QB-17) | ✅ QB-17 |
 | [`QtsBilling.Persistence.Sqlite.Tests`](QtsBilling.Persistence.Sqlite.Tests/) | xUnit project | `net10.0` | 20 temp-file SQLite tests: atomic capture, rollback, idempotency, restart/cache-rebuild durability, crash recovery, integer comparisons, schema upgrade with pending records (QB-17) | ✅ QB-17 |
-| _planned_ `QtsBilling.Maui` | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop app replacing WinForms (QB-18) | 📋 Planned |
+| [`QtsBilling.Maui`](QtsBilling.Maui/) | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop client: shared `QtsBilling.Ui` components in a WebView2, device identity, DPAPI secure session, device-local SQLite store, offline-tolerant API adapters (QB-18) | ✅ QB-18 |
 | _planned_ `QtsBilling.Migration` | Class library | `net10.0` | Mongo → Postgres export/transform/import + reconciliation (QB-23…QB-25) | 📋 Planned |
 
 > **Platform note.** Only the (future) MAUI project needs a Windows-specific TFM. The web host and
@@ -401,6 +404,7 @@ Per-task detail lives in [`docs/migration/tasks/`](docs/migration/tasks/); the a
 - **QB-09 … QB-14** — port sales posting, cash register & payments, invoices & credits, purchasing, expenses/taxes/discounts, and financial/operational reports onto the PostgreSQL authoritative ledger (journals **QB-07** and inventory **QB-08** are already live and verified).
 - **QB-16** — extract shared MudBlazor presentation into `QtsBilling.Ui` (RCL).
 - **QB-17** — device-local `QtsBilling.Persistence.Sqlite` (cache, outbox, receipts, sync cursors).
+- **QB-18** — `QtsBilling.Maui` Windows Blazor Hybrid desktop application (built and running).
 - **QB-18** — `QtsBilling.Maui` Windows Blazor Hybrid application.
 - **QB-19** — cash-only offline sale capture on the device.
 - **QB-20 / QB-21** — server idempotent `sync-push` handler and master-data change feed.

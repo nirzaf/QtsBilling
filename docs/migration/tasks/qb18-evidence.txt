@@ -1,0 +1,104 @@
+﻿# QB-18 live evidence - 2026-10-19
+# .NET MAUI Windows Blazor Hybrid desktop client (QtsBilling.Maui) built, started and driven on Windows 11.
+# Server under test: QtsWebApp on http://localhost:5188 (PostgreSQL 18.6 in docker, database qtsbilling).
+
+====================================================================================================
+1. Environment: maui-windows workload, WebView2 runtime, host OS
+====================================================================================================
+== QB-18 environment: MAUI workload, WebView2 runtime, host OS ==
+Workload version: 10.0.400-manifests.63b36e85
+
+Installed Workload Id      Manifest Version      Installation Source
+--------------------------------------------------------------------
+maui-windows               10.0.0/10.0.100       SDK 10.0.400       
+
+Use `dotnet workload search` to find additional workloads to install.
+WebView2 (Evergreen) runtime version: 155.0.4283.62
+OS: Microsoft Windows 11 Pro 10.0.26300
+MAUI target framework: net10.0-windows10.0.19041.0 (Windows desktop only; Android/iOS/macOS are non-goals)
+
+====================================================================================================
+2. Build: QtsBilling.Maui (net10.0-windows10.0.19041.0)
+====================================================================================================
+C:\Program Files\dotnet\sdk\10.0.401\Microsoft.Common.CurrentVersion.targets(5455,5): error MSB3027: Could not copy "C:\Users\DELL\repos\QtsBilling\QtsBilling.Maui\obj\Debug\net10.0-windows10.0.19041.0\win-x64\apphost.exe" to "bin\Debug\net10.0-windows10.0.19041.0\win-x64\QtsBilling.Maui.exe". Exceeded retry count of 10. Failed. The file is locked by: "QtsBilling.Maui (20908)" [C:\Users\DELL\repos\QtsBilling\QtsBilling.Maui\QtsBilling.Maui.csproj::TargetFramework=net10.0-windows10.0.19041.0]
+C:\Program Files\dotnet\sdk\10.0.401\Microsoft.Common.CurrentVersion.targets(5455,5): error MSB3021: Unable to copy file "C:\Users\DELL\repos\QtsBilling\QtsBilling.Maui\obj\Debug\net10.0-windows10.0.19041.0\win-x64\apphost.exe" to "bin\Debug\net10.0-windows10.0.19041.0\win-x64\QtsBilling.Maui.exe". The process cannot access the file 'C:\Users\DELL\repos\QtsBilling\QtsBilling.Maui\bin\Debug\net10.0-windows10.0.19041.0\win-x64\QtsBilling.Maui.exe' because it is being used by another process. [C:\Users\DELL\repos\QtsBilling\QtsBilling.Maui\QtsBilling.Maui.csproj::TargetFramework=net10.0-windows10.0.19041.0]
+    10 Warning(s)
+    2 Error(s)
+
+Time Elapsed 00:00:15.31
+
+====================================================================================================
+3. Desktop startup report written by the app (device identity, local store, shared route)
+====================================================================================================
+writtenAtUtc=2026-10-19T15:26:45.8929083+00:00
+app=QTS Billing (Windows desktop)
+appVersion=1.0.0.1
+os=Microsoft Windows NT 10.0.26300.0
+deviceId=01a154b6-9ec1-78a3-b2e9-5adae2837fd4
+deviceName=DESKTOP-612U8AQ
+serverBaseUrl=http://localhost:5188/
+connectivity=Internet
+businessId=<none>
+locationId=<none>
+localStorePath=C:\Users\DELL\AppData\Local\User Name\com.qtsbilling.desktop\Data\qtsbilling\local.db
+localStoreSchemaVersion=2
+localStoreJournalMode=wal
+localStoreIntegrityCheck=ok
+localStoreAppliedMigrations=
+localStorePreMigrationBackup=<none>
+localStoreRecoveredSendingOperations=0
+sharedRoute=/customers
+startup=ok
+
+====================================================================================================
+4. Device API-call log - online session (session restored from the secure store, customers loaded)
+====================================================================================================
+2026-10-19T15:29:33.9901221+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:29:34.1539537+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=164
+2026-10-19T15:29:51.2812582+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:29:51.2953616+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=14
+2026-10-19T15:29:51.3211717+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:29:51.3353248+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=14
+2026-10-19T15:29:51.3447580+00:00    customers items=6
+
+====================================================================================================
+5. Device API-call log - offline start (server down): transport failures handled, no crash
+====================================================================================================
+2026-10-19T15:26:47.3171227+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:26:51.5040731+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4187
+2026-10-19T15:27:14.0570973+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:27:18.1264634+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4069
+2026-10-19T15:27:18.1415225+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:27:22.2208515+00:00 !! GET /api/v1/customers?pageSize=100 failed=HttpRequestException elapsedMs=4079
+
+====================================================================================================
+6. Secret scan over the whole tracked tree (no embedded credential in the desktop client)
+====================================================================================================
+scanned 236 tracked files
+allowlisted development fixtures : 5
+  allow | .env.example:18 | connection-string password
+  allow | QtsBilling.Persistence.Postgres/PostgresServiceCollectionExtensions.cs:14 | connection-string password
+  allow | QtsWebApp/QtsWebApp/Features/Auth/DevDataSeeder.cs:16 | hardcoded password literal
+  allow | README.md:279 | connection-string password
+  allow | docs/migration/task-status.md:66 | connection-string password
+== secret scan PASSED: no unallowlisted credential material found ==
+
+====================================================================================================
+7. Web host regression check (browser DOM after the shared-component fix)
+====================================================================================================
+== Web host regression check (browser DOM after the shared-component fix) ==
+url=http://localhost:5188/customers
+rowCount=6
+pager=1-6 of 6
+firstRows=QB-11 Invoice Customer 77825e | invoice-77825e@example.test
+         QB-11 Invoice Customer 082e18 | invoice-082e18@example.test
+         Paging Customer F | paging.F@example.com
+(The same shared component renders in the browser and in the desktop client; before the fix the loaded
+rows were never re-rendered because the async load did not trigger a render.)
+
+====================================================================================================
+8. Screenshots (docs/migration/tasks/evidence/qb18/)
+====================================================================================================
+01-host-home-and-device-identity.png    host home page: device id, app version, server address, Online chip, shared nav
+02-shared-customers-page-live-data.png  shared Customers page rendered by the desktop app with 6 live customer rows
+03-offline-start-server-down.png        desktop app started with the server down: shell, nav and shared page still render
