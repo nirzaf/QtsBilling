@@ -49,3 +49,57 @@ public enum PaymentStatus
     Refunded,
     Voided,
 }
+
+/// <summary>Lifecycle of a posted sale; PostgreSQL sales are authoritative (never provisional).</summary>
+public enum SaleState
+{
+    Posted,
+    Reversed,
+    NeedsReview,
+}
+
+/// <summary>Posted sale returned by the POS read endpoints: an immutable snapshot, never recomputed from the catalog.</summary>
+public sealed record PostedSaleDto(
+    Guid Id,
+    string SaleNumber,
+    SaleState Status,
+    Guid LocationId,
+    Guid? CustomerId,
+    string Currency,
+    decimal SubtotalAmount,
+    decimal DiscountAmount,
+    decimal TaxAmount,
+    decimal TotalAmount,
+    PaymentStatus PaymentStatus,
+    bool Provisional,
+    string? Note,
+    DateTimeOffset PostedAtUtc,
+    Guid? PostedByUserId,
+    Guid? ReversalOfSaleId,
+    IReadOnlyList<PostedSaleLineDto> Lines,
+    IReadOnlyList<PostedPaymentDto> Payments);
+
+public sealed record PostedSaleLineDto(
+    Guid Id,
+    int LineNo,
+    Guid VariantId,
+    string ProductNameSnapshot,
+    string? SkuSnapshot,
+    decimal Quantity,
+    decimal UnitPrice,
+    decimal DiscountAmount,
+    decimal TaxRate,
+    decimal TaxAmount,
+    decimal LineTotal,
+    decimal UnitCostSnapshot);
+
+public sealed record PostedPaymentDto(
+    Guid Id,
+    string Method,
+    PaymentStatus Status,
+    decimal Amount,
+    string Currency,
+    decimal? CashReceived,
+    string? Reference,
+    string? PspReference,
+    DateTimeOffset ReceivedAtUtc);

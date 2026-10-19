@@ -370,7 +370,7 @@ public static class InventoryEndpoints
                     movement.Memo,
                     movement.CreatedAtUtc));
         }
-        catch (InventoryException exception)
+        catch (DomainRuleException exception)
         {
             return exception.ToResult();
         }
@@ -399,57 +399,21 @@ public static class InventoryEndpoints
 
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-            var balance = await db.InventoryBalances
-                .FromSql($"SELECT * FROM inventory_balances WHERE business_id = {businessId} AND location_id = {request.LocationId} AND variant_id = {request.VariantId} FOR UPDATE")
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            var now = DateTimeOffset.UtcNow;
-
-            if (balance is null)
-            {
-                balance = new InventoryBalance
-                {
-                    BusinessId = businessId,
-                    LocationId = request.LocationId,
-                    VariantId = request.VariantId,
-                    OnHand = 0,
-                    LastMovementAtUtc = now,
-                };
-
-                db.InventoryBalances.Add(balance);
-            }
-
-            var resulting = balance.OnHand + quantity;
-
-            if (resulting < 0 && !request.AllowNegative)
-            {
-                throw new InventoryException(
-                    StatusCodes.Status409Conflict,
-                    ApiErrorCodes.InsufficientStock,
-                    "Not enough stock on hand.",
-                    $"On hand is {balance.OnHand} at this location; the requested change is {quantity}.");
-            }
-
-            balance.OnHand = resulting;
-            balance.LastMovementAtUtc = now;
-
-            var movement = new InventoryMovement
-            {
-                BusinessId = businessId,
-                LocationId = request.LocationId,
-                VariantId = request.VariantId,
-                MovementType = movementType,
-                QuantityDelta = quantity,
-                UnitCost = request.UnitCost,
-                ReferenceType = referenceType,
-                ReferenceId = request.ReferenceId,
-                OccurredAtUtc = now,
-                CreatedByUserId = userId,
-                Memo = string.IsNullOrWhiteSpace(request.Memo) ? null : request.Memo.Trim(),
-            };
-
-            db.InventoryMovements.Add(movement);
+            var movement = await InventoryLedger.ApplyAsync(
+                db,
+                businessId,
+                userId,
+                request.LocationId,
+                request.VariantId,
+                movementType,
+                quantity,
+                request.UnitCost,
+                referenceType,
+                request.ReferenceId,
+                request.Memo,
+                DateTimeOffset.UtcNow,
+                request.AllowNegative,
+                cancellationToken).ConfigureAwait(false);
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -566,16 +530,5 @@ public static class InventoryEndpoints
         public decimal OnHand { get; set; }
 
         public decimal MovementSum { get; set; }
-    }
-
-    private sealed class InventoryException(int statusCode, string code, string title, string detail) : Exception(detail)
-    {
-        public int StatusCode { get; } = statusCode;
-
-        public string Code { get; } = code;
-
-        public string Title { get; } = title;
-
-        public IResult ToResult() => ApiResults.Problem(StatusCode, Code, Title, Message);
     }
 }

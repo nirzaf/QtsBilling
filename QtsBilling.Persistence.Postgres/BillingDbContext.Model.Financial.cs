@@ -29,6 +29,12 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.SaleNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.PostedAtUtc });
             b.HasIndex(e => new { e.BusinessId, e.CustomerId });
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_sales_business_idempotency_key");
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_sales_amounts_non_negative",
                 "subtotal_amount >= 0 AND discount_amount >= 0 AND tax_amount >= 0 AND total_amount >= 0"));

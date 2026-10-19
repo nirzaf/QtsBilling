@@ -11,6 +11,7 @@ using QtsWebApp.Features.Catalog;
 using QtsWebApp.Features.Customers;
 using QtsWebApp.Features.Health;
 using QtsWebApp.Features.Inventory;
+using QtsWebApp.Features.Sales;
 using QtsWebApp.Infrastructure;
 using static MudBlazor.Defaults.Classes.Position;
 
@@ -138,6 +139,7 @@ app.MapCustomerEndpoints();
 app.MapProductEndpoints();
 app.MapAccountingEndpoints();
 app.MapInventoryEndpoints();
+app.MapSaleEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

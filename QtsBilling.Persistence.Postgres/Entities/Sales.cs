@@ -34,6 +34,12 @@ public sealed class Sale : TenantEntity
     public Guid? PostedByUserId { get; set; }
 
     public Guid? ReversalOfSaleId { get; set; }
+
+    /// <summary>Client idempotency key of the posting request; unique per business when present.</summary>
+    public string? IdempotencyKey { get; set; }
+
+    /// <summary>Canonical fingerprint of the original payload: a changed payload under the same key is rejected (QB-09).</summary>
+    public string? PayloadHash { get; set; }
 }
 
 /// <summary>Sale line with full product/price/tax snapshot at posting time (spec §3.1).</summary>

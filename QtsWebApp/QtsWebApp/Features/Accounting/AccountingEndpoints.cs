@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
@@ -24,8 +23,6 @@ public static class AccountingEndpoints
     private const int MaxNameLength = 200;
     private const int MaxMemoLength = 2_000;
     private const int MoneyScale = 4;
-    private const string JournalSequenceName = "journal";
-    private const string JournalSequencePrefix = "JE-";
 
     public static IEndpointRouteBuilder MapAccountingEndpoints(this IEndpointRouteBuilder app)
     {
@@ -594,7 +591,7 @@ public static class AccountingEndpoints
 
             return Results.Created($"/api/v1/journal-entries/{entry.Id}", await ToDetailDtoAsync(db, entry, cancellationToken).ConfigureAwait(false));
         }
-        catch (LedgerException exception)
+        catch (DomainRuleException exception)
         {
             return exception.ToResult();
         }
@@ -676,7 +673,7 @@ public static class AccountingEndpoints
                 $"/api/v1/journal-entries/{reversal.Id}",
                 await ToDetailDtoAsync(db, reversal, cancellationToken).ConfigureAwait(false));
         }
-        catch (LedgerException exception)
+        catch (DomainRuleException exception)
         {
             return exception.ToResult();
         }
@@ -781,42 +778,6 @@ public static class AccountingEndpoints
         IReadOnlyList<JournalLineRequest> lines,
         CancellationToken cancellationToken)
     {
-        if (sourceId is { } reference)
-        {
-            var existing = await db.JournalEntries.AsNoTracking()
-                .Where(entry => entry.BusinessId == businessId && entry.SourceType == sourceType && entry.SourceId == reference)
-                .Select(entry => entry.EntryNumber)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (existing is not null)
-            {
-                throw new LedgerException(
-                    StatusCodes.Status409Conflict,
-                    ApiErrorCodes.IdempotencyKeyReused,
-                    "The source reference was already posted.",
-                    $"Business effect for this source already exists as {existing}; a retried delivery must not post twice.");
-            }
-        }
-
-        var period = await db.AccountingPeriods.AsNoTracking()
-            .Where(candidate => candidate.BusinessId == businessId
-                && candidate.StartDate <= entryDate
-                && candidate.EndDate >= entryDate)
-            .OrderByDescending(candidate => candidate.StartDate)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (period is { Status: not AccountingPeriodStatus.Open })
-        {
-            throw new LedgerException(
-                StatusCodes.Status409Conflict,
-                ApiErrorCodes.AccountingPeriodClosed,
-                "The accounting period is closed.",
-                $"'{period.Name}' ({period.StartDate:yyyy-MM-dd}..{period.EndDate:yyyy-MM-dd}) is {period.Status.ToString().ToLowerInvariant()}; reopen the period before posting.");
-        }
-
-        var totals = Totals(lines);
         var strategy = db.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>
@@ -826,46 +787,18 @@ public static class AccountingEndpoints
 
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-            var entryNumber = await AllocateEntryNumberAsync(db, businessId, entryDate.Year, cancellationToken).ConfigureAwait(false);
-            var now = DateTimeOffset.UtcNow;
-
-            var entry = new JournalEntry
-            {
-                BusinessId = businessId,
-                EntryNumber = entryNumber,
-                EntryDate = entryDate,
-                AccountingPeriodId = period?.Id,
-                Memo = string.IsNullOrWhiteSpace(memo) ? null : memo.Trim(),
-                SourceType = sourceType,
-                SourceId = sourceId,
-                Status = EntryStatus.Posted,
-                Currency = currency,
-                TotalDebit = totals.Debit,
-                TotalCredit = totals.Credit,
-                PostedAtUtc = now,
-                PostedByUserId = userId,
-                ReversalOfEntryId = reversalOfEntryId,
-            };
-
-            db.JournalEntries.Add(entry);
-
-            var lineNo = 1;
-
-            foreach (var line in lines)
-            {
-                db.JournalLines.Add(new JournalLine
-                {
-                    BusinessId = businessId,
-                    JournalEntryId = entry.Id,
-                    LineNo = lineNo++,
-                    AccountId = line.AccountId,
-                    DebitAmount = Round(line.Debit),
-                    CreditAmount = Round(line.Credit),
-                    Currency = currency,
-                    Description = string.IsNullOrWhiteSpace(line.Description) ? null : line.Description.Trim(),
-                    LocationId = line.LocationId,
-                });
-            }
+            var entry = await LedgerWriter.PostWithinTransactionAsync(
+                db,
+                businessId,
+                userId,
+                currency,
+                entryDate,
+                memo,
+                sourceType,
+                sourceId,
+                reversalOfEntryId,
+                lines,
+                cancellationToken).ConfigureAwait(false);
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
@@ -875,34 +808,6 @@ public static class AccountingEndpoints
     }
 
     /// <summary>
-    /// Transactional per-business/per-year series using the invoice sequence table with a row lock, so
-    /// concurrent posting cannot produce duplicate or gap-riddled entry numbers (QB-11 reuses this table).
-    /// </summary>
-    private static async Task<string> AllocateEntryNumberAsync(
-        BillingDbContext db,
-        Guid businessId,
-        int fiscalYear,
-        CancellationToken cancellationToken)
-    {
-        await db.Database.ExecuteSqlAsync(
-            $"""
-            INSERT INTO invoice_sequences (id, business_id, name, prefix, fiscal_year, next_number, padding, version, created_at_utc, updated_at_utc)
-            VALUES ({Guid.CreateVersion7()}, {businessId}, {JournalSequenceName}, {JournalSequencePrefix}, {fiscalYear}, 1, 5, 1, now(), now())
-            ON CONFLICT (business_id, name, fiscal_year) DO NOTHING
-            """,
-            cancellationToken).ConfigureAwait(false);
-
-        var sequence = await db.InvoiceSequences
-            .FromSql($"SELECT * FROM invoice_sequences WHERE business_id = {businessId} AND name = {JournalSequenceName} AND fiscal_year = {fiscalYear} FOR UPDATE")
-            .FirstAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var number = sequence.NextNumber;
-        sequence.NextNumber = number + 1;
-
-        return $"{sequence.Prefix}{fiscalYear}-{number.ToString("D" + sequence.Padding.ToString(CultureInfo.InvariantCulture), CultureInfo.InvariantCulture)}";
-    }
-
     // ---------------------------------------------------------------- validation helpers
 
     private static async Task<(string Currency, IResult? Error)> ResolveCurrencyAsync(
@@ -1142,16 +1047,4 @@ public static class AccountingEndpoints
         string? Memo,
         DateTimeOffset? PostedAtUtc,
         DateTimeOffset CreatedAtUtc);
-
-    /// <summary>Domain rejection carrying a stable error code so every handler answers with the same contract.</summary>
-    private sealed class LedgerException(int statusCode, string code, string title, string detail) : Exception(detail)
-    {
-        public int StatusCode { get; } = statusCode;
-
-        public string Code { get; } = code;
-
-        public string Title { get; } = title;
-
-        public IResult ToResult() => ApiResults.Problem(StatusCode, Code, Title, Message);
-    }
 }

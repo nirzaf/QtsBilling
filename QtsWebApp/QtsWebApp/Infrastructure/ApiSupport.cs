@@ -82,6 +82,34 @@ public static class EnumBridge
         => Enum.Parse<TTarget>(value.ToString());
 }
 
+/// <summary>Domain rejection carrying a stable error code so every handler answers with the same contract.</summary>
+public sealed class DomainRuleException(int statusCode, string code, string title, string detail) : Exception(detail)
+{
+    public int StatusCode { get; } = statusCode;
+
+    public string Code { get; } = code;
+
+    public string Title { get; } = title;
+
+    public IResult ToResult() => ApiResults.Problem(StatusCode, Code, Title, Message);
+}
+
+/// <summary>
+/// Canonical fingerprint of a request payload (spec §4.4): identical retried payloads produce the same
+/// fingerprint, so a duplicate submission can return the original result while a changed payload is rejected.
+/// </summary>
+public static class RequestFingerprint
+{
+    public static string Compute<T>(T payload)
+    {
+        var document = System.Text.Json.JsonSerializer.SerializeToDocument(
+            payload,
+            QtsBilling.Contracts.Serialization.ContractJson.FingerprintOptions);
+
+        return QtsBilling.Contracts.Serialization.CanonicalJson.ComputeFingerprint(document.RootElement);
+    }
+}
+
 /// <summary>
 /// Opaque keyset cursors. Identifiers are UUIDv7 (time-ordered), so id-order is a stable, unique page key
 /// and a page can never repeat or skip a row when data changes between requests (specification §3.3/§7.1).
