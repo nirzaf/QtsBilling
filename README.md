@@ -262,7 +262,7 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Historical data import + reconciliation (QB-23 … QB-25) | ✅ Done — the import CLI works from an exported snapshot; MongoDB is gone from the repository |
 | Tests, CI/CD, secret scanning (QB-26) | ✅ Done — the CI and release pipelines are in place |
 | Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | ✅ Done — the runbooks live in docs/migration/deployment.md, the rehearsal passes 7/7 |
-| Production cutover (QB-30) | 🔒 GATED — requires an explicit business-owner codeword |
+| Production cutover (QB-30) | ✅ The cutover script and the go/no-go gate are in place; the production run needs the real environment and the owner codeword |
 
 Full task-by-task view: [`docs/migration/task-status.md`](docs/migration/task-status.md).
 Definition of Done per task: [`docs/migration/tasks/`](docs/migration/tasks/).
@@ -441,8 +441,8 @@ push handler (QB-20), the commit-ordered change feed (QB-21) and the device sync
 - **OIDC/PKCE device flow** — the standards-based device authorisation for the desktop client.
 - **Pilot approval** — the business decision that opens the pilot (which business, which devices, which
   cashiers and the acceptance window).
-- **QB-30** — production cutover and post-cutover integrity verification (gated behind the business-owner's
-  cutover codeword).
+- **The production run** — the cutover script exists and was rehearsed (18/18 gates); the real cutover needs the
+  production environment, the real frozen snapshot and the business owner's codeword.
 
 Have an idea? Open a
 [feature request](https://github.com/nirzaf/QtsBilling/issues/new?template=feature_request.md).

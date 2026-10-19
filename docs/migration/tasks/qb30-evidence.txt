@@ -1,0 +1,75 @@
+﻿# QB-30 live evidence - 2026-10-19
+# The cutover rehearsal: scripts/qb30-cutover.ps1 (18 gates, 0 failed).
+# The cutover never starts without the business owner's codeword and never deletes anything.
+
+====================================================================================================
+Cutover run (go/no-go checklist, stop/fix-forward plan)
+====================================================================================================
+== QtsBilling cutover ==
+
+codeword: the business owner's cutover codeword            PASS
+    accepted
+backup: a fresh dump with its SHA-256 manifest             PASS
+    sha256          : C498C01BDC2D2F329A56320C185C3B1FC0BCED598F3883C929A24E97775F3E17
+ | manifest        : C:\Users\DELL\repos\QtsBilling\backups\qtsbilling-20261019-222605.dump.json
+server: the health endpoint                                PASS
+    http://localhost:5188
+schema: no pending PostgreSQL migration                    PASS
+    0 pending
+import: the final frozen import (idempotent)               PASS
+    accounts                 rows=2 updated=2
+ | identifier map rows: 0; quarantined: 1
+reconciliation: the report is signed                       PASS
+    hash f42099aa5f6fb5bb signature 9257b89f03b48a99
+reconciliation: no unresolved exception                    PASS
+    0 unresolved of 5 exception(s) - each one blocks the go-live until it is decided
+identities: the reset flow is available                    PASS
+    POST /api/v1/auth/password-reset/request -> 202
+devices: the desktop device is enrolled                    PASS
+    device 0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b
+smoke: the sign-in and the session                         PASS
+    login -> 200
+smoke: the balance sheet reads from the authoritative ledger PASS
+    GET /api/v1/reports/balance-sheet
+smoke: the read-only master data                           PASS
+    GET /api/v1/customers
+integrity: the posted ledger balances (debits = credits)   PASS
+    difference 0.0000
+integrity: the stock movements tie to the balances         PASS
+    0 mismatch(es)
+integrity: no unowned business rows                        PASS
+    0 row(s) without a business
+integrity: the invoice numbers are unique per business     PASS
+    0 duplicate(s)
+integrity: the posted sales equal the confirmed payments   PASS
+    difference 0.0000
+cutover: no live dependency on the legacy client or services PASS
+    0 tracked legacy project file(s)
+
+== go/no-go ==
+  [x] codeword: the business owner's cutover codeword
+  [x] backup: a fresh dump with its SHA-256 manifest
+  [x] server: the health endpoint
+  [x] schema: no pending PostgreSQL migration
+  [x] import: the final frozen import (idempotent)
+  [x] reconciliation: the report is signed
+  [x] reconciliation: no unresolved exception
+  [x] identities: the reset flow is available
+  [x] devices: the desktop device is enrolled
+  [x] smoke: the sign-in and the session
+  [x] smoke: the balance sheet reads from the authoritative ledger
+  [x] smoke: the read-only master data
+  [x] integrity: the posted ledger balances (debits = credits)
+  [x] integrity: the stock movements tie to the balances
+  [x] integrity: no unowned business rows
+  [x] integrity: the invoice numbers are unique per business
+  [x] integrity: the posted sales equal the confirmed payments
+  [x] cutover: no live dependency on the legacy client or services
+
+stop/fix-forward plan:
+  stop    : if a gate fails, keep the legacy system read-only, do not open the new system for writes
+            and do not delete anything; the import is idempotent and can be re-run.
+  forward : fix the failing gate, re-run the import (it updates the same rows), re-run this script.
+  never   : a blind rollback to the legacy database, and a destructive purge of the legacy backups.
+
+cutover: 18 gate(s), 0 failed
