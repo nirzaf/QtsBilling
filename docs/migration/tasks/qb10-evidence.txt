@@ -1,0 +1,43 @@
+﻿# QB-10 live smoke output - host http://localhost:5188 on PostgreSQL 18.6 (docker container qtsbilling-pg, port 5433)
+# run: powershell -File qb10-smoke.ps1
+------------------------------------------------------------------------
+== QB-10 live smoke: cash register, receipts, refunds ==
+login | HTTP 200 | code=-
+fixture | sku=SMOKE-QB10-d94432 product=01a1542c-11ac-712a-b86f-33e01eb9d827 variant=01a1542c-11ac-75f8-835c-073174d21fec location=Main
+opening +10 | HTTP 201 | code=-
+register created | id=01a1542c-1247-715a-b3c8-9f88f99a7931 name=Front Counter 50c5
+sale without open session | HTTP 409 | code=CASH_REGISTER_NOT_OPEN
+open session | HTTP 201 | code=-
+session | id=01a1542c-12bc-7069-b056-96c143ddb5bf status=open openingFloat=100 expected=100
+card payment | HTTP 409 | code=PAYMENT_METHOD_DISABLED
+cash sale (register) | HTTP 201 | code=-
+sale | number=S-2026-00013 total=51.0000
+drawer after sale | expected=151.0000 breakdown(saleCash=51.0000)
+cashIn 20 | HTTP 201 | code=-
+cashOut 10 | HTTP 201 | code=-
+drawer arithmetic | opening=100.0000 sales=51.0000 in=20.0000 out=10.0000 refunds=0 expected=161.0000 provisional=0.0
+receipt | number=S-2026-00013 state=Posted register=Front Counter 50c5 cashier=Development Owner linePrice=25.5000 total=51.0000
+receipt html | bytes=2372 finalBadge=True provisionalBanner=False
+catalog price change | HTTP 200 | code=-
+receipt snapshot | price before=25.5000 after catalog rename=25.5000 (must stay 25.5)
+refund | HTTP 201 | code=-
+refund | number=R-2026-00005 amount=51.0000 method=Cash journal=JE-2026-00021 lines=1
+refund replay | HTTP 200 sameId=True
+refund again (new key) | HTTP 409 | code=ALREADY_REFUNDED
+reversal entry | number=JE-2026-00021 lines=4 debit=87 credit=87
+stock after refund | onHand=10.000000 (opening 10 - sold 2 + returned 2)
+drawer after refund | refunds=51.0000 expected=110.0000
+sale after refund | status=reversed paymentStatus=refunded
+journal | reversalEntries=6
+close session | HTTP 200 | code=-
+closed | status=closed expected=110.0000 counted=110 variance=0.0000
+current after close | HTTP 404 | code=CASH_REGISTER_NOT_OPEN
+session history | sessions=1 lastVariance=0.0000
+stale price after catalog change | HTTP 409 | code=INVALID_PRICE
+cash sale without register | HTTP 201 | code=-
+reconciliation | mismatches=0 totalOnHand=47.000000 totalMovementSum=47.000000
+secret scan | mentions=2 fieldDeclarations=0
+  secret scan | SaleCaptureDtos.cs:28: /// <summary>Cash-only payment capture. Card fields (PAN/CVV) are structurally impossible here.</summary>
+  secret scan | Sales.cs:77: /// Payment record. Card PAN/CVV are structurally absent (F-07); card payments may only store a
+== smoke complete ==
+
