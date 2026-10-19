@@ -101,5 +101,8 @@ public sealed class ExpenseCategory : TenantEntity
 {
     public string Name { get; set; } = string.Empty;
 
+    /// <summary>Optional ledger account this category posts to; otherwise the standard expense account is used.</summary>
+    public Guid? AccountId { get; set; }
+
     public bool IsActive { get; set; } = true;
 }

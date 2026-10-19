@@ -38,6 +38,7 @@ public static class RolePermissions
                 Permissions.AccountingPost,
                 Permissions.InvoicesIssue, Permissions.InvoicesManage, Permissions.PurchasingManage,
                 Permissions.ExpensesManage, Permissions.ReportsView,
+                Permissions.TaxesManage, Permissions.DiscountsManage,
                 Permissions.DevicesManage,
             ],
             [MembershipRole.Cashier] =

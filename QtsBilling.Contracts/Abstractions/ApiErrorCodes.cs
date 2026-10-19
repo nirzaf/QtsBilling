@@ -34,12 +34,17 @@ public static class ApiErrorCodes
     public const string CashRegisterNotOpen = "CASH_REGISTER_NOT_OPEN";
     public const string AlreadyRefunded = "ALREADY_REFUNDED";
     public const string RefundNotSupported = "REFUND_NOT_SUPPORTED";
+    public const string AlreadyReversed = "ALREADY_REVERSED";
+    public const string PurchaseOrderNotDraft = "PURCHASE_ORDER_NOT_DRAFT";
+    public const string PurchaseOrderNotOpen = "PURCHASE_ORDER_NOT_OPEN";
+    public const string OverReceipt = "OVER_RECEIPT";
     public const string PermissionDenied = "PERMISSION_DENIED";
     public const string NeedsReview = "NEEDS_REVIEW";
     public const string AccountingPeriodClosed = "ACCOUNTING_PERIOD_CLOSED";
     public const string UnbalancedJournal = "UNBALANCED_JOURNAL";
     public const string DuplicatePhone = "DUPLICATE_PHONE";
     public const string DuplicateSku = "DUPLICATE_SKU";
+    public const string DuplicateName = "DUPLICATE_NAME";
     public const string DuplicateInvoiceNumber = "DUPLICATE_INVOICE_NUMBER";
     public const string InvoiceNotDraft = "INVOICE_NOT_DRAFT";
     public const string InvoiceNotIssued = "INVOICE_NOT_ISSUED";

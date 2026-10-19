@@ -113,6 +113,13 @@ public enum DiscountType
     Percentage,
 }
 
+/// <summary>Receipt kind: goods received (+stock) or returned to the supplier (-stock) (QB-12).</summary>
+public enum PurchaseReceiptKind
+{
+    Receipt,
+    Return,
+}
+
 public enum DiscountAppliesTo
 {
     All,

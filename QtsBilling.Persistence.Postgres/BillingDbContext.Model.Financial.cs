@@ -397,7 +397,7 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.VariantId });
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_purchase_order_lines_quantities",
-                "quantity_ordered > 0 AND quantity_received >= 0 AND unit_cost >= 0"));
+                "quantity_ordered > 0 AND quantity_received >= 0 AND quantity_received <= quantity_ordered AND unit_cost >= 0"));
         });
 
         modelBuilder.Entity<Expense>(b =>
@@ -408,12 +408,101 @@ public partial class BillingDbContext
             b.Property(e => e.Description).HasColumnType("text").IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Reference).HasMaxLength(128);
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
             b.HasOne<ExpenseCategory>().WithMany().HasForeignKey(e => e.ExpenseCategoryId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Supplier>().WithMany().HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.OccurredOn });
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_expenses_business_idempotency_key");
             b.ToTable(t => t.HasCheckConstraint("ck_expenses_amount_positive", "amount > 0"));
+        });
+
+        modelBuilder.Entity<ExpenseReversal>(b =>
+        {
+            b.ToTable("expense_reversals");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Reason).HasColumnType("text").IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<Expense>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ExpenseId, e.BusinessId })
+                .HasPrincipalKey(e => new { e.Id, e.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ReversedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.ExpenseId })
+                .IsUnique()
+                .HasDatabaseName("ux_expense_reversals_business_expense");
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_expense_reversals_business_idempotency_key");
+        });
+
+        modelBuilder.Entity<PurchaseReceipt>(b =>
+        {
+            b.ToTable("purchase_receipts");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.ReceiptNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<PurchaseOrder>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PurchaseOrderId, e.BusinessId })
+                .HasPrincipalKey(p => new { p.Id, p.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ReceivedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.ReceiptNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.PurchaseOrderId });
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_purchase_receipts_business_idempotency_key");
+        });
+
+        modelBuilder.Entity<PurchaseReceiptLine>(b =>
+        {
+            b.ToTable("purchase_receipt_lines");
+            HasBusinessFk(b);
+            b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
+            b.Property(e => e.SkuSnapshot).HasMaxLength(64);
+            b.Property(e => e.Quantity).HasPrecision(18, 6);
+            b.Property(e => e.UnitCost).HasPrecision(18, 6);
+            b.HasOne<PurchaseReceipt>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PurchaseReceiptId, e.BusinessId })
+                .HasPrincipalKey(r => new { r.Id, r.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PurchaseOrderLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PurchaseOrderLineId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductVariant>()
+                .WithMany()
+                .HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(v => new { v.Id, v.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.PurchaseReceiptId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.VariantId });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_purchase_receipt_lines_quantities",
+                "quantity > 0 AND unit_cost >= 0"));
         });
     }
 

@@ -12,6 +12,9 @@ using QtsWebApp.Features.Customers;
 using QtsWebApp.Features.Health;
 using QtsWebApp.Features.Inventory;
 using QtsWebApp.Features.Invoices;
+using QtsWebApp.Features.Expenses;
+using QtsWebApp.Features.Pricing;
+using QtsWebApp.Features.Purchasing;
 using QtsWebApp.Features.Sales;
 using QtsWebApp.Infrastructure;
 using static MudBlazor.Defaults.Classes.Position;
@@ -144,6 +147,9 @@ app.MapSaleEndpoints();
 app.MapCashRegisterEndpoints();
 app.MapRefundEndpoints();
 app.MapInvoiceEndpoints();
+app.MapPurchasingEndpoints();
+app.MapExpenseEndpoints();
+app.MapPricingEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

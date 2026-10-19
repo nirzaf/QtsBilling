@@ -79,4 +79,79 @@ public sealed class Expense : TenantEntity
     public string? Reference { get; set; }
 
     public Guid? CreatedByUserId { get; set; }
+
+    /// <summary>Idempotency receipt for the expense write (QB-12); unique per business when set.</summary>
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>
+/// Goods received note or return against purchase order lines; one document per delivery event, so a
+/// retried receipt can return the stored document instead of increasing stock twice (QB-12).
+/// </summary>
+public sealed class PurchaseReceipt : TenantEntity
+{
+    public Guid PurchaseOrderId { get; set; }
+
+    public Guid LocationId { get; set; }
+
+    public string ReceiptNumber { get; set; } = string.Empty;
+
+    public PurchaseReceiptKind Kind { get; set; } = PurchaseReceiptKind.Receipt;
+
+    public DateTimeOffset ReceivedAtUtc { get; set; }
+
+    public Guid ReceivedByUserId { get; set; }
+
+    public string? Note { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>Quantity and cost snapshot of one received/returned purchase order line (append-only).</summary>
+public sealed class PurchaseReceiptLine : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid PurchaseReceiptId { get; set; }
+
+    public int LineNo { get; set; }
+
+    public Guid PurchaseOrderLineId { get; set; }
+
+    public Guid VariantId { get; set; }
+
+    public string ProductNameSnapshot { get; set; } = string.Empty;
+
+    public string? SkuSnapshot { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    public decimal UnitCost { get; set; }
+}
+
+/// <summary>
+/// One-time reversal of a posted expense; append-only so a double reversal request is refused with
+/// <c>ALREADY_REVERSED</c> and a retried request replays the stored outcome (QB-12).
+/// </summary>
+public sealed class ExpenseReversal : TenantEntity
+{
+    public Guid ExpenseId { get; set; }
+
+    public string Reason { get; set; } = string.Empty;
+
+    public string? Note { get; set; }
+
+    public Guid JournalEntryId { get; set; }
+
+    public DateTimeOffset ReversedAtUtc { get; set; }
+
+    public Guid ReversedByUserId { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
 }

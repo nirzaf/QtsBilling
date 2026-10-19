@@ -1,0 +1,56 @@
+﻿# QB-12 live smoke output - host http://localhost:5188 on PostgreSQL 18.6 (docker container qtsbilling-pg, port 5433)
+# run: powershell -File qb12-smoke.ps1
+------------------------------------------------------------------------
+== QB-12 live smoke: purchasing, receipts, expenses, tax and discount integrity ==
+login | HTTP 200 | code=-
+create tax rate 0.14 (default) | HTTP 201 | code=-
+create tax rate 0.15 | HTTP 201 | code=-
+tax rates | 0.14 stored as 0.14 (exact decimal) | 0.15 stored as 0.15
+tax rate out of range (1.5) | HTTP 400 | code=VALIDATION_FAILED
+duplicate tax rate name | HTTP 409 | code=DUPLICATE_NAME
+make 0.15 the single default | HTTP 200 | code=-
+defaults after switch | count=1 code=0.150000
+discount 10% (allowed) | HTTP 201 | code=-
+discount 150% (disallowed) | HTTP 400 | code=VALIDATION_FAILED
+fixed discount -5 (disallowed) | HTTP 400 | code=VALIDATION_FAILED
+discount window ends before it starts | HTTP 400 | code=VALIDATION_FAILED
+fixture | supplier=01a1544d-8063-79b0-81b1-9a21bfe61883 variant=01a1544d-809c-785c-b194-c6aabf2c5a20 location=Main category=01a1544d-813d-7162-8bdd-d7e402232284 account5000=01a153fb-63ba-712e-8518-d1725e23b2d5
+create purchase order | HTTP 201 | code=-
+purchase order | number=PO-2026-00007 status=draft subtotal=200 discount=5 tax=27.30 total=222.30
+stock after creating the order | onHand=0 (must stay 0 - an order alone never moves stock)
+place the order | HTTP 200 | code=-
+edit an ordered order (refused) | HTTP 409 | code=PURCHASE_ORDER_NOT_DRAFT
+receive 6 of 10 | HTTP 201 | code=-
+receipt | number=GRN-2026-00003 kind=Receipt lines=1 qty=6.000000
+after first receipt | stock=6 (was 0) orderStatus=partiallyReceived received=6.0000/10.0000
+receipt replay | HTTP 200 sameId=True stock=6 (each receipt increases exactly once)
+over-receipt (5 of remaining 4) | HTTP 409 | code=OVER_RECEIPT
+receive remaining 4 | HTTP 201 | code=-
+after full receipt | stock=10 orderStatus=received received=10.0000/10.0000
+return more than received (11 of 10) | HTTP 409 | code=OVER_RECEIPT
+return 2 of 10 | HTTP 201 | code=-
+return | number=PR-2026-00002 stock=8 orderStatus=partiallyReceived received=8.0000/10.0000
+  movement | purchaseReceipt delta=6.000000 cost=20.0000 ref=purchase_receipt memo='GRN-2026-00003 / PO-2026-00007'
+  movement | purchaseReceipt delta=4.000000 cost=20.0000 ref=purchase_receipt memo='GRN-2026-00004 / PO-2026-00007'
+  movement | purchaseReturn delta=-2.000000 cost=20.0000 ref=purchase_return memo='PR-2026-00002 / PO-2026-00007'
+delivery against a draft order | HTTP 409 | code=PURCHASE_ORDER_NOT_OPEN
+cancel the draft order | HTTP 200 | code=-
+cancel again (refused) | HTTP 409 | code=CONFLICT
+delete a draft order | HTTP 204 | code=-
+create expense (cash 120.50) | HTTP 201 | code=-
+expense | id=01a1544d-84eb-7a9f-942c-b9eaa37b0429 amount=120.5 paidVia=Cash journal=JE-2026-00039 category=QB-12 Office 8f6cc6
+  expense journal line | account=5000 debit=120.5000 credit=0.0000
+  expense journal line | account=1000 debit=0.0000 credit=120.5000
+expense replay | HTTP 200 sameId=True
+same key, changed payload | HTTP 409 | code=SAME_KEY_DIFFERENT_PAYLOAD
+expense paid by customer credit (refused) | HTTP 400 | code=VALIDATION_FAILED
+reverse the expense | HTTP 200 | code=-
+expense reversed | reversedAt=True reversalEntry=JE-2026-00040
+reversal replay | HTTP 200
+reverse again with a new key (refused) | HTTP 409 | code=ALREADY_REVERSED
+  trial balance | 1000 Cash on Hand debit=2527.0000 credit=716.5000 balance=1810.5000
+  trial balance | 1010 Bank debit=148.0000 credit=0.0000 balance=148.0000
+  trial balance | 5000 Cost of Goods Sold debit=1675.5000 credit=541.5000 balance=1134.0000
+purchase order list | partiallyReceived=2 first=PO-2026-00007
+== smoke complete ==
+

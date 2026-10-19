@@ -179,6 +179,7 @@ public partial class BillingDbContext
             RequireTenantKey(b);
             HasBusinessFk(b);
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            b.HasOne<Account>().WithMany().HasForeignKey(e => e.AccountId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
         });
     }
