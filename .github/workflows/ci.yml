@@ -30,11 +30,8 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Restore
-        run: dotnet restore QtsBilling.sln
-
-      - name: Build web host + WASM client + libraries
-        run: dotnet build QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release --no-restore
+      - name: Build web host + WASM client + libraries (MAUI excluded on Linux)
+        run: dotnet build QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release
 
       - name: Test domain + contracts (no external services)
         run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
