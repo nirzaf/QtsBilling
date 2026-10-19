@@ -1,0 +1,54 @@
+﻿# QB-16 live evidence - 2026-10-19
+# Shared MudBlazor Razor Class Library extracted from the web client and rendered outside the web host.
+# Web host: http://localhost:5188 (Development, PostgreSQL qtsbilling on port 5433).
+# Smoke: dotnet run --project QtsBilling.Ui.Smoke -c Debug --no-build
+
+====================================================================================================
+1. Platform-injection smoke - the shared customer component rendered with stubbed feature interfaces, no HTTP and no host (QtsBilling.Ui.Smoke)
+====================================================================================================
+== QB-16 platform-injection smoke: shared MudBlazor component outside the web host ==
+PASS | shared assembly has no data-access/host references | QtsBilling.Ui
+     references: MudBlazor, QtsBilling.Contracts
+PASS | customer page carries its own route | /customers
+PASS | component renders a Customers heading
+PASS | component renders the search field
+PASS | component renders the add action
+PASS | component renders the refresh action
+PASS | component renders an empty state
+PASS | component renders table headers
+PASS | no database or connection string leaks into the markup
+     rendered markup: 7947 chars
+== smoke PASSED: the same customer component builds and renders with injected feature interfaces ==
+
+====================================================================================================
+2. Web host render - the same component served at /customers with MudBlazor assets and shared scoped CSS
+====================================================================================================
+owner login | HTTP 200
+customers page | HTTP 200
+PASS | web renders shared heading
+PASS | web renders search field
+PASS | web renders add action
+PASS | web renders refresh action
+PASS | web renders empty state
+PASS | web renders mudblazor css link
+PASS | web renders shared ui css link
+PASS | web renders mudblazor js in shell
+---- shared scoped CSS served by the web host
+HTTP 200 | bytes 5887
+PASS | css contains moved MainLayout selector
+PASS | css contains moved NavMenu selector
+---- home page still renders
+home | HTTP 200
+== QB-16 web render PASSED ==
+
+====================================================================================================
+3. Static platform checks - dependency boundary, no render-mode directives, browser bundle stays data-access-free
+====================================================================================================
+== QB-16 static platform checks: dependency boundary, host-agnostic shared UI, browser bundle ==
+PASS | browser bundle contains 0 persistence/EF/Npgsql/Mongo assemblies
+       shared UI artifacts in browser bundle: 4
+       contracts artifacts in browser bundle: 4
+PASS | shared UI has no @rendermode directive and no server/data-access type reference
+       QtsBilling.Ui assembly references: Microsoft.AspNetCore.Components, Microsoft.AspNetCore.Components.Web, MudBlazor, QtsBilling.Contracts
+       shared components: Customers page (+code-behind), AddCustomerDialog, MainLayout, NavMenu, CustomerModels
+       dialog validation: name Required=true; Save Disabled when name is blank (MudBlazor keyboard-operable controls)

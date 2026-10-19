@@ -1,5 +1,4 @@
 @page "/customers"
-@using QtsWebApp.Client.Models
 
 <MudText Typo="Typo.h3">Customers</MudText>
 
@@ -84,6 +83,9 @@
             <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="@((args) => DeleteCustomerConfirmation(args, context))" StartIcon="@Icons.Material.Filled.Delete" Disabled="@_busy">Deactivate</MudButton>
         </MudTd>
     </RowTemplate>
+    <NoRecordsContent>
+        <MudText Typo="Typo.body2" Class="pa-4">No customers yet. Add a customer or adjust the search.</MudText>
+    </NoRecordsContent>
     <PagerContent>
         <MudTablePager />
     </PagerContent>

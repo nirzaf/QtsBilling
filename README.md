@@ -93,6 +93,7 @@ API-first architecture**. Governing decisions and per-task status are in
 - **Purchasing and expense integrity** - a purchase order is a commitment: stock moves only through receipts, which carry quantity/cost snapshots, `GRN-`/`PR-` numbers and `Idempotency-Key` replay safety so a retried delivery never doubles stock. Expenses post one balanced ledger entry each and reverse exactly once; tax rates are exact bounded decimals with a single default, and disallowed discount definitions are refused before they reach the database.
 - **Statements from authoritative facts** - the balance sheet, P&L, cash, stock and sales reports are computed per request from posted journal lines and inventory movements: no stored or mutable balances, no materialized snapshots, provisional offline money excluded by construction, and every response echoes the business it was computed for (verified tie-outs: sheet balanced, P&L = current earnings, cash = trial balance, stock = inventory balances).
 - **Typed failures, audited sign-ins, real backups** - every API failure is a ProblemDetails body with a stable code and a correlation id (no stack/SQL leakage, no empty lists, no database-writing error logger); authentication outcomes are audited append-only with masked e-mails, and the development reset ticket never reaches a log. Backups are real `pg_dump` artifacts with SHA-256 manifests, restored into a disposable database and reconciled by a drill; the runtime database role is DML-only. See `docs/migration/deployment.md`.
+- **One MudBlazor surface** - the customer page, its dialog, layout and navigation live in `QtsBilling.Ui` and render from injected `ICustomerApiClient`/`IAccountApiClient` interfaces: no component touches HTTP or a database, hosts own render modes/assets/routing, and a platform-injection HTML-render smoke proves the same component works outside the web host (the MAUI host build still awaits the workload).
 - **Value objects** — provider-neutral primitives: `Money` (`numeric(18,4)`), `Quantity` (`numeric(18,6)`), `CurrencyCode`, `ScaledDecimal`.
 - **Sync protocol ready in schema** — per-business `sync_revisions` with commit-ordered ordinal, `processed_operations` idempotency with payload fingerprint, `sync_changes` change feed, tombstones and `RESYNC_REQUIRED` on expired cursor. Handlers land with QB-20/21/22.
 
@@ -158,6 +159,9 @@ API-first architecture**. Governing decisions and per-task status are in
                 │  authoritative │
                 └────────────────┘
 
+Shared now:
+   QtsBilling.Ui (RCL) — MudBlazor components used by the web client and the future MAUI host (QB-16)
+
 Planned (docs/migration/tasks):
    ┌───────────────────────────────────────────────────────────────┐
    │ QtsBilling.Maui (Windows hybrid)  ⇄  QtsBilling.Ui (RCL)      │
@@ -169,7 +173,8 @@ Planned (docs/migration/tasks):
 ```
 
 - **Presentation** — Blazor (server + WASM) for web; WinForms (legacy) and MAUI Hybrid (planned)
-  for desktop. Shared MudBlazor components move to an RCL (QB-16).
+  for desktop. Shared MudBlazor components live in `QtsBilling.Ui` and are consumed by the web client
+  and the planned MAUI host (QB-16).
 - **Application/API** — `QtsWebApp` hosts a typed `/api/v1` minimal-API surface with feature slices
   under `Features/*` and cross-cutting concerns under `Infrastructure/*` (correlation IDs,
   ProblemDetails, permission policies, claims factory, dev seeder). The browser never touches a
@@ -194,11 +199,12 @@ Planned (docs/migration/tasks):
 | [`QtsBilling.Contracts`](QtsBilling.Contracts/) | Class library | `net10.0` | Wire DTOs, canonical-JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`), `ApiException`, error codes, paging | ✅ QB-02 |
 | [`QtsBilling.Persistence.Postgres`](QtsBilling.Persistence.Postgres/) | Class library | `net10.0` | EF Core 10 + Npgsql `BillingDbContext` (Identity-enabled), 38-table schema, migrations, snake_case naming, append-only + financial invariants, optimistic concurrency | ✅ QB-03 / QB-04 |
 | [`QtsWebApp`](QtsWebApp/QtsWebApp/) | ASP.NET Core host | `net10.0` | Blazor Server UI + `/api/v1` (auth, customers, products, accounting, inventory, health); Identity cookie auth + permission policies; correlation IDs; ProblemDetails; OpenAPI in Dev | ✅ QB-05 / QB-06 |
-| [`QtsWebApp.Client`](QtsWebApp/QtsWebApp.Client/) | Blazor WebAssembly | `net10.0` | Browser UI — references **only** Contracts; **no database or credential material** ships in the bundle | ✅ QB-15 (current surface) |
+| [`QtsWebApp.Client`](QtsWebApp/QtsWebApp.Client/) | Blazor WebAssembly | `net10.0` | Browser UI + shared components — references Contracts and `QtsBilling.Ui`; **no database or credential material** ships in the bundle | ✅ QB-15 / QB-16 |
 | [`QtsServices`](QtsServices/) | Class library | `net10.0` | Legacy 17 service classes over MongoDB.Driver (still used by the WinForms desktop app) | ♻️ Legacy — retiring per QB-07…QB-14 |
 | [`QtsBilling`](QtsBilling/) | WinForms app | `net10.0-windows` | Legacy desktop client | ♻️ Retained until QB-29 (gated) |
 | [`TestQtsBilling`](TestQtsBilling/) | xUnit project | `net10.0` | Focused tests for value objects and contracts (41 pass) **and** legacy service integration tests (93, need a live MongoDB) | ✅ Active |
-| _planned_ `QtsBilling.Ui` | Razor Class Library | `net10.0` | Shared MudBlazor components (QB-16) | 📋 Planned |
+| [`QtsBilling.Ui`](QtsBilling.Ui/) | Razor Class Library | `net10.0` | Shared MudBlazor components (customer page/dialog, layout, nav) — Contracts + MudBlazor only, feature-interface injection, no render modes | ✅ QB-16 |
+| [`QtsBilling.Ui.Smoke`](QtsBilling.Ui.Smoke/) | Console harness | `net10.0` | HTML-render platform smoke: renders the shared customer component with stub feature interfaces outside the web host | ✅ QB-16 |
 | _planned_ `QtsBilling.Persistence.Sqlite` | Class library | `net10.0` | Device-local cache, outbox, sync cursors (QB-17) | 📋 Planned |
 | _planned_ `QtsBilling.Maui` | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop app replacing WinForms (QB-18) | 📋 Planned |
 | _planned_ `QtsBilling.Migration` | Class library | `net10.0` | Mongo → Postgres export/transform/import + reconciliation (QB-23…QB-25) | 📋 Planned |

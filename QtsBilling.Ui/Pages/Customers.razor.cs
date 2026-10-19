@@ -4,9 +4,9 @@ using MudBlazor;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
-using QtsWebApp.Client.Models;
+using QtsBilling.Ui.Models;
 
-namespace QtsWebApp.Client.Pages;
+namespace QtsBilling.Ui.Pages;
 
 public partial class Customers
 {

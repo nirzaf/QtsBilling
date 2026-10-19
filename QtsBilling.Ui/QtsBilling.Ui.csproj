@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.Razor">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <LangVersion>14.0</LangVersion>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MudBlazor" Version="9.11.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Shared UI talks to feature interfaces only: no persistence, EF, Npgsql or Mongo reference may
+         reach this project or the bundles that consume it (QB-15/QB-16). -->
+    <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
+  </ItemGroup>
+
+</Project>

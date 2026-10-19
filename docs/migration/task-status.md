@@ -24,7 +24,7 @@
 | QB-13 | Financial and operational reports from authoritative facts | **DONE (verified live on PostgreSQL 18.6)** | Balance sheet, P&L, cash, stock and sales statements derived per request from posted journal lines and inventory movements; no mutable balance CRUD; business-scoped responses with base-currency-only filters and provisional money excluded; 400/401/404 negative controls; tie-outs against ledger, inventory balances and the balance-sheet identity. |
 | QB-14 | Security, structured audit and real backup/restore | **DONE (verified live on PostgreSQL 18.6)** | Typed ProblemDetails failures (400/401/403/500 with stable codes, `traceId`, no stack/SQL leakage); no database-writing error logger; redaction before logging/persistence; masked, correlated authentication audit in append-only `audit_events` plus a scoped `audit.view` feed; Data Protection key-ring path; real `pg_dump` backup/restore scripts with a disposable-database restore drill (18/18 reconciled); DML-only PostgreSQL application role (DDL refused); static secret scan clean. |
 | QB-15 | Remove web client database dependencies | **DONE (current surface)** | Browser bundle contains no Mongo/Npgsql/EF/QtsServices assets; CI bundle check still TODO (QB-26). |
-| QB-16 | Extract shared MudBlazor Razor components | TODO | |
+| QB-16 | Extract shared MudBlazor Razor components | **DONE (web + platform smoke)** | `QtsBilling.Ui` RCL holds the customer page/dialog/layout/nav with feature-interface injection only; `/customers` renders in the web host with shared scoped CSS, and an HTML-render smoke proves the same component works outside the web host with stub services. Actual MAUI rendering remains blocked by the missing `maui-windows` workload (QB-18). |
 | QB-17 | Implement device-local SQLite persistence | TODO | Scaled-decimal helpers exist (QB-02). |
 | QB-18 | Create MAUI Windows Blazor Hybrid application | TODO | Requires `dotnet workload install maui-windows` approval. |
 | QB-19 | Implement offline cash-only sale capture | TODO | |
@@ -40,7 +40,7 @@
 | QB-29 | Remove WinForms completely | **GATED** | Requires the user's deletion codeword; nothing removed. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 
-## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14)
+## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14 / QB-16)
 
 - `QtsModels` — legacy BSON entities retained **plus** new provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
 - `QtsBilling.Contracts` — wire DTOs (paging, customers, catalog, accounting, inventory, sales capture, sync envelopes, identity), canonical JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`) and `ApiException`.
@@ -53,6 +53,7 @@
 - **Reports from authoritative facts (QB-13).** Balance sheet, P&L, cash, stock and sales statements are computed per request from posted journal lines and inventory movements: no stored balances, base-currency-only, business-scoped responses (echoed ids), provisional offline money excluded by construction, and live tie-outs (sheet balanced, P&L = current earnings, cash = trial balance, stock = inventory balances).
 - **Security, audit and recovery (QB-14).** API failures are typed ProblemDetails with stable codes and a correlation id (domain rules, 400/401/403/500; no stack/SQL leakage) and there is no database-writing error logger. Authentication outcomes are audited append-only with masked e-mails and request correlation, readable through the tenant-scoped `audit-events` feed (`audit.view`, Owner). Reset tickets are never logged; Data Protection keys can persist via `QTS_DATAPROTECTION_PATH`. Real `pg_dump` backups carry SHA-256 manifests, restore into a disposable database and reconcile (scripts + drill); the app role is DML-only and the static secret scan is clean.
 - `QtsWebApp.Client` — browser talks to the API only; **no** database assemblies or credentials in the bundle (QB-15).
+- `QtsBilling.Ui` — shared MudBlazor Razor Class Library (customer page + dialog, layout, nav) used by the web client and by the future MAUI host. It references only `QtsBilling.Contracts` + MudBlazor, consumes `ICustomerApiClient`/`IAccountApiClient`, declares no render modes and owns no assets; hosts register the RCL assembly for SSR/client routing and load MudBlazor + shared scoped CSS. QB-16 verified the live `/customers` render and an HTML-render smoke with stub interfaces (MAUI host build still blocked by the missing workload).
 - `QtsServices` / `QtsBilling` (WinForms) — unchanged legacy MongoDB paths; WinForms removal is gated (QB-29). Cash register, invoices, purchasing, expenses and reporting still live there until QB-10…QB-14.
 - No dual writes exist: the PostgreSQL path serves its own (new) surface; legacy Mongo data has not been imported (QB-23/24 pending a reachable source).
 

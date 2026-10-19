@@ -194,6 +194,6 @@ app.MapHealthEndpoints();
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()
     .AddInteractiveWebAssemblyRenderMode()
-    .AddAdditionalAssemblies(typeof(QtsWebApp.Client._Imports).Assembly);
+    .AddAdditionalAssemblies(typeof(QtsWebApp.Client._Imports).Assembly, typeof(QtsBilling.Ui.Pages.Customers).Assembly);
 
 app.Run();

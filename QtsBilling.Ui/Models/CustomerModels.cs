@@ -1,6 +1,6 @@
 using QtsBilling.Contracts.Customers;
 
-namespace QtsWebApp.Client.Models;
+namespace QtsBilling.Ui.Models;
 
 /// <summary>Mutable add/edit model bound by the customer dialog.</summary>
 public sealed class CustomerEditModel
