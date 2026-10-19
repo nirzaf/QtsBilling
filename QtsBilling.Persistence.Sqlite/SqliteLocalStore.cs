@@ -145,6 +145,41 @@ public sealed class SqliteLocalStore
         }
     }
 
+    /// <summary>
+    /// The locally captured sales with their fixed-price lines. Pending money rows are never removed
+    /// automatically, so this is the device's pending/review list (QB-19).
+    /// </summary>
+    public async Task<IReadOnlyList<LocalSaleDraftWithLines>> GetSaleDraftsAsync(
+        CancellationToken cancellationToken = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+
+        var drafts = await db.LocalSaleDrafts
+            .AsNoTracking()
+            .OrderByDescending(draft => draft.CreatedAtUtc)
+            .ToListAsync(cancellationToken);
+
+        if (drafts.Count == 0)
+        {
+            return [];
+        }
+
+        var operationIds = drafts.Select(draft => draft.OperationId).ToArray();
+
+        var lines = await db.LocalSaleLines
+            .AsNoTracking()
+            .Where(line => operationIds.Contains(line.OperationId))
+            .OrderBy(line => line.Ordinal)
+            .ToListAsync(cancellationToken);
+
+        return
+        [
+            .. drafts.Select(draft => new LocalSaleDraftWithLines(
+                draft,
+                [.. lines.Where(line => line.OperationId == draft.OperationId)]))
+        ];
+    }
+
     /// <summary>Sets suspended/in-flight operations back to Pending after a crash or restart.</summary>
     public async Task<int> RecoverInterruptedSendsAsync(CancellationToken cancellationToken = default)
     {
@@ -594,6 +629,23 @@ public sealed class SqliteLocalStore
             .OrderBy(product => product.Price)
             .ThenBy(product => product.ProductId)
             .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>The cached catalog rows (the sellable variants) for the local POS.</summary>
+    public async Task<IReadOnlyList<CachedProduct>> GetCachedProductsAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+        return await db.CachedProducts
+            .AsNoTracking()
+            .OrderBy(product => product.Name)
+            .ToListAsync(cancellationToken);
+    }
+
+    /// <summary>The cached stock rows for the local POS.</summary>
+    public async Task<IReadOnlyList<CachedStock>> GetCachedStockAsync(CancellationToken cancellationToken = default)
+    {
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+        return await db.CachedStock.AsNoTracking().ToListAsync(cancellationToken);
     }
 
     public async Task<int> GetCachedProductCountAsync(CancellationToken cancellationToken = default)

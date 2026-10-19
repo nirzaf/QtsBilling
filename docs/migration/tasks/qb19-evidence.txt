@@ -1,0 +1,240 @@
+﻿# QB-19 live evidence - 2026-10-19
+# Offline cash-only sale capture on the Windows desktop client (QtsBilling.Maui) against the device-local store.
+# The server was stopped for the second capture and for the restart check: the captures are genuinely offline.
+
+====================================================================================================
+1. Temp-file test suite (28 tests: QB-17 store plus the QB-19 capture rules)
+====================================================================================================
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  QtsModels -> C:\Users\DELL\repos\QtsBilling\QtsModels\bin\Debug\net10.0\QtsModels.dll
+  QtsBilling.Contracts -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Contracts\bin\Debug\net10.0\QtsBilling.Contracts.dll
+  QtsBilling.Persistence.Sqlite -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.dll
+  QtsBilling.Persistence.Sqlite.Tests -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll
+Test run for C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.Tests.dll (.NETCoreApp,Version=v10.0)
+A total of 1 test files matched the specified pattern.
+
+Passed!  - Failed:     0, Passed:    28, Skipped:     0, Total:    28, Duration: 6 s - QtsBilling.Persistence.Sqlite.Tests.dll (net10.0)
+
+====================================================================================================
+2. Desktop startup report (local store schema, shared routes)
+====================================================================================================
+writtenAtUtc=2026-10-19T16:10:04.2051880+00:00
+app=QTS Billing (Windows desktop)
+appVersion=1.0.0.0
+os=Microsoft Windows NT 10.0.26300.0
+deviceId=01a154d5-1915-77ac-9161-3cf0f97ba12e
+deviceName=DESKTOP-612U8AQ
+serverBaseUrl=http://localhost:5188/
+connectivity=Internet
+businessId=01a153e4-9c15-7bcd-8fbc-4a7de04e267a
+locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+localStorePath=C:\Users\DELL\AppData\Local\QTS Billing\com.qtsbilling.desktop\Data\qtsbilling\local.db
+localStoreSchemaVersion=2
+localStoreJournalMode=wal
+localStoreIntegrityCheck=ok
+localStoreAppliedMigrations=
+localStorePreMigrationBackup=<none>
+localStoreRecoveredSendingOperations=0
+sharedRoute=/customers
+sharedRoute=/pos
+startup=ok
+
+====================================================================================================
+3. Device-local database after two offline captures (read straight from the SQLite file)
+====================================================================================================
+drafts                     2
+lines                      2
+cash_movements             2
+outbox                     2
+inbox_receipts             0
+cached_products            16
+cached_stock               11
+draft.state                Pending
+draft.state                Pending
+draft.provisional_reference PROV-01a154e55c7b70ef95c697cdc5d1d7f1
+draft.provisional_reference PROV-01a154eca35973b681457c85a9c8fe34
+draft.amount_scaled        500000
+draft.amount_scaled        500000
+cash.amount_scaled         500000
+cash.amount_scaled         500000
+line.variant_qty_price     01A15428-31DD-7F6B-AED5-651D92734B97|1000000|300000
+line.variant_qty_price     01A15428-31DD-7F6B-AED5-651D92734B97|1000000|300000
+outbox.state               Pending
+outbox.state               Pending
+outbox.type                pos.sale.capture.v1
+outbox.type                pos.sale.capture.v1
+outbox.attempts            0
+outbox.attempts            0
+outbox.payload             {"businessId":"01a153e4-9c15-7bcd-8fbc-4a7de04e267a","cashReceived":50,"deviceId":"01a154d5-1915-77ac-9161-3cf0f97ba12e","lines":[{"discount":0,"expectedCatalogRevision":2,"ordinal":0,"quantity":1,"tax":0,"unitPrice":30,"variantId":"01a15428-31dd-7f6b-aed5-651d92734b97"}],"locationId":"01a153e4-9d05-7da8-a65e-be7a8d03b97d","operationId":"01a154e5-5c7b-70ef-95c6-97cdc5d1d7f1","paymentMethod":"cash","registerId":"01a1542b-4728-7585-9457-d97af9d26575","total":30,"type":"pos.sale.capture.v1","userId":"01a153e4-9ea7-772b-b734-1d560de2b6a8","version":1}
+outbox.payload             {"businessId":"01a153e4-9c15-7bcd-8fbc-4a7de04e267a","cashReceived":50,"deviceId":"01a154d5-1915-77ac-9161-3cf0f97ba12e","lines":[{"discount":0,"expectedCatalogRevision":2,"ordinal":0,"quantity":1,"tax":0,"unitPrice":30,"variantId":"01a15428-31dd-7f6b-aed5-651d92734b97"}],"locationId":"01a153e4-9d05-7da8-a65e-be7a8d03b97d","operationId":"01a154ec-a359-73b6-8145-7c85a9c8fe34","paymentMethod":"cash","registerId":"01a1542b-4728-7585-9457-d97af9d26575","total":30,"type":"pos.sale.capture.v1","userId":"01a153e4-9ea7-772b-b734-1d560de2b6a8","version":1}
+outbox.fingerprint         a1fdce255bf3d943a9ef253c0f37e6f42e5616b642b2c865837d423f9ecd24fc
+outbox.fingerprint         df13e557b9c473b9170454e7738c4f7112af81a286fcec32d51529358992ac30
+
+====================================================================================================
+4. Device API-call log - the server is unreachable, the captures still succeed
+====================================================================================================
+2026-10-19T15:48:56.9279630+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:48:57.2086063+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=281
+2026-10-19T15:49:25.9185890+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:49:25.9439938+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=25
+2026-10-19T15:49:25.9546253+00:00 -> GET /api/v1/pos/registers
+2026-10-19T15:49:26.1101061+00:00 <- GET /api/v1/pos/registers status=200 elapsedMs=155
+2026-10-19T15:49:26.1466475+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:49:26.2174178+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=70
+2026-10-19T15:49:26.2288730+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:49:26.3029856+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=74
+2026-10-19T15:49:26.3071400+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:49:26.3662435+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=59
+2026-10-19T15:49:26.3730167+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:49:26.3856944+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=12
+2026-10-19T15:49:26.3868350+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:49:26.3945232+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=7
+2026-10-19T15:49:26.3952937+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:49:26.4024055+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=7
+2026-10-19T15:49:26.4033951+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:49:26.4106210+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=7
+2026-10-19T15:49:26.4114548+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:49:26.4213722+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=9
+2026-10-19T15:49:26.4225212+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:49:26.4305244+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=8
+2026-10-19T15:49:26.4313036+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:49:26.4383583+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=7
+2026-10-19T15:49:26.4391568+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:49:26.4478882+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=8
+2026-10-19T15:49:26.4486863+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:49:26.4570773+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=8
+2026-10-19T15:49:26.4580181+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:49:26.4656060+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=7
+2026-10-19T15:49:26.4663630+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:49:26.4734887+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=7
+2026-10-19T15:49:26.4744446+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:49:26.4843007+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=9
+2026-10-19T15:49:26.4850982+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:49:26.4929407+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=7
+2026-10-19T15:49:26.4937532+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:49:26.5009387+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=7
+2026-10-19T15:49:26.5017045+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:49:26.5112889+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=9
+2026-10-19T15:49:52.0211179+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:49:52.0343836+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=13
+2026-10-19T15:49:52.0555416+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:49:52.1164129+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=60
+2026-10-19T15:49:52.1222721+00:00    customers items=6
+2026-10-19T15:50:00.0413460+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:00.0534643+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=12
+2026-10-19T15:50:00.0570620+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:00.0626709+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=5
+2026-10-19T15:50:00.0634913+00:00    customers items=6
+2026-10-19T15:50:17.3520608+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:17.3665209+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=14
+2026-10-19T15:50:17.3692263+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:50:17.3789408+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=9
+2026-10-19T15:50:17.3804734+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:50:17.3909688+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=10
+2026-10-19T15:50:17.3919074+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:50:17.3999438+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=8
+2026-10-19T15:50:17.4008553+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:50:17.4086606+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=7
+2026-10-19T15:50:17.4097161+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:50:17.4212243+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=11
+2026-10-19T15:50:17.4223526+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:50:17.4310202+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=8
+2026-10-19T15:50:17.4319446+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:50:17.4403871+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=8
+2026-10-19T15:50:17.4415878+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:50:17.4553576+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=13
+2026-10-19T15:50:17.4563049+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:50:17.4667627+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=10
+2026-10-19T15:50:17.4678193+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:50:17.4796643+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=11
+2026-10-19T15:50:17.4811544+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:50:17.4926052+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=11
+2026-10-19T15:50:17.4935577+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:50:17.5029895+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=9
+2026-10-19T15:50:17.5039824+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:50:17.5158228+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=11
+2026-10-19T15:50:17.5167700+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:50:17.5251901+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=8
+2026-10-19T15:50:17.5260760+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:50:17.5353879+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=9
+2026-10-19T15:50:17.5371189+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:50:17.5472285+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=10
+2026-10-19T15:50:17.5480881+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:50:17.5572950+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=9
+2026-10-19T15:50:17.5581950+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:50:17.5672098+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=9
+2026-10-19T15:50:21.7004911+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:21.7104396+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T15:50:21.7127375+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:21.7174684+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=4
+2026-10-19T15:50:21.7181582+00:00    customers items=6
+2026-10-19T15:50:23.2590467+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:50:23.2681858+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=9
+2026-10-19T15:50:23.2708562+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:50:23.2766285+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=5
+2026-10-19T15:50:23.2773275+00:00    customers items=6
+2026-10-19T15:54:10.9500207+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:54:31.6699005+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=20721
+2026-10-19T15:56:42.3150098+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:57:03.3866462+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=21071
+2026-10-19T15:58:07.4998433+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:58:07.9957998+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=495
+2026-10-19T15:58:08.1881630+00:00 -> GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d
+2026-10-19T15:58:08.3468459+00:00 <- GET /api/v1/inventory/balances?pageSize=200&locationId=01a153e4-9d05-7da8-a65e-be7a8d03b97d status=200 elapsedMs=158
+2026-10-19T15:58:08.4472091+00:00 -> GET /api/v1/products?pageSize=25&includeInactive=false
+2026-10-19T15:58:08.5230040+00:00 <- GET /api/v1/products?pageSize=25&includeInactive=false status=200 elapsedMs=75
+2026-10-19T15:58:08.5511735+00:00 -> GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8
+2026-10-19T15:58:08.5852900+00:00 <- GET /api/v1/products/01a1544d-809c-788b-aacc-d78e7b8759b8 status=200 elapsedMs=34
+2026-10-19T15:58:08.6221627+00:00 -> GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645
+2026-10-19T15:58:08.6423252+00:00 <- GET /api/v1/products/01a1544c-1410-7f9c-a086-0f4950752645 status=200 elapsedMs=20
+2026-10-19T15:58:08.6459181+00:00 -> GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40
+2026-10-19T15:58:08.6665442+00:00 <- GET /api/v1/products/01a15449-b6a5-789c-972b-622b7fdd9b40 status=200 elapsedMs=20
+2026-10-19T15:58:08.6693984+00:00 -> GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba
+2026-10-19T15:58:08.6873484+00:00 <- GET /api/v1/products/01a1543d-3edf-7532-b04f-9752e3123fba status=200 elapsedMs=17
+2026-10-19T15:58:08.6902366+00:00 -> GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021
+2026-10-19T15:58:08.7098002+00:00 <- GET /api/v1/products/01a15439-b9ac-7812-ad43-eea181809021 status=200 elapsedMs=19
+2026-10-19T15:58:08.7124938+00:00 -> GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827
+2026-10-19T15:58:08.7325799+00:00 <- GET /api/v1/products/01a1542c-11ac-712a-b86f-33e01eb9d827 status=200 elapsedMs=20
+2026-10-19T15:58:08.7349729+00:00 -> GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad
+2026-10-19T15:58:08.7623400+00:00 <- GET /api/v1/products/01a1542b-4698-7da2-ae9d-5db0abd3c3ad status=200 elapsedMs=27
+2026-10-19T15:58:08.7676000+00:00 -> GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd
+2026-10-19T15:58:08.7903730+00:00 <- GET /api/v1/products/01a1542a-f45d-7107-8dab-f6710a788acd status=200 elapsedMs=22
+2026-10-19T15:58:08.7932112+00:00 -> GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197
+2026-10-19T15:58:08.8454095+00:00 <- GET /api/v1/products/01a1542a-b1f4-70c5-9597-effb9deda197 status=200 elapsedMs=52
+2026-10-19T15:58:08.8483625+00:00 -> GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041
+2026-10-19T15:58:08.8925070+00:00 <- GET /api/v1/products/01a15428-31dc-7e23-b1ae-e6bff93e4041 status=200 elapsedMs=44
+2026-10-19T15:58:08.8953566+00:00 -> GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167
+2026-10-19T15:58:08.9463708+00:00 <- GET /api/v1/products/01a1541b-833b-79de-a510-0fd13b1c3167 status=200 elapsedMs=51
+2026-10-19T15:58:08.9496159+00:00 -> GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c
+2026-10-19T15:58:08.9795240+00:00 <- GET /api/v1/products/01a15410-e48c-7910-bc66-45a47ea3620c status=200 elapsedMs=29
+2026-10-19T15:58:08.9824231+00:00 -> GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e
+2026-10-19T15:58:09.0349401+00:00 <- GET /api/v1/products/01a1540f-f42b-7e78-bf5d-70c58918618e status=200 elapsedMs=52
+2026-10-19T15:58:09.0379041+00:00 -> GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf
+2026-10-19T15:58:09.0846400+00:00 <- GET /api/v1/products/01a15401-c237-70db-bf6a-8e2f8cfa92bf status=200 elapsedMs=46
+2026-10-19T15:58:09.0877709+00:00 -> GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748
+2026-10-19T15:58:09.1178286+00:00 <- GET /api/v1/products/01a153ff-7520-7cd1-9915-ac88a1e08748 status=200 elapsedMs=30
+2026-10-19T15:58:09.1208028+00:00 -> GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4
+2026-10-19T15:58:09.1657566+00:00 <- GET /api/v1/products/01a153fc-72e3-7fd7-bc8b-ab3fbbed83c4 status=200 elapsedMs=44
+2026-10-19T15:58:12.7541280+00:00 -> GET /api/v1/auth/session
+2026-10-19T15:58:12.8117235+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=57
+2026-10-19T15:58:12.8951403+00:00 -> GET /api/v1/customers?pageSize=100
+2026-10-19T15:58:12.9340943+00:00 <- GET /api/v1/customers?pageSize=100 status=200 elapsedMs=38
+2026-10-19T15:58:12.9632905+00:00    customers items=6
+2026-10-19T16:01:20.0702742+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:01:20.4499743+00:00 <- GET /api/v1/auth/session status=200 elapsedMs=379
+2026-10-19T16:04:17.9823562+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:04:39.1404855+00:00 <- GET /api/v1/auth/session status=500 elapsedMs=21158
+2026-10-19T16:08:36.5971621+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:08:41.5424706+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4950
+2026-10-19T16:09:16.8928678+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:09:20.9621653+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4069
+2026-10-19T16:10:07.5238400+00:00 -> GET /api/v1/auth/session
+2026-10-19T16:10:12.4294245+00:00 !! GET /api/v1/auth/session failed=HttpRequestException elapsedMs=4907
+
+====================================================================================================
+5. Screenshots (docs/migration/tasks/evidence/qb19/)
+====================================================================================================
+01-provisional-receipt-and-pending-queue.png  provisional receipt (PROVISIONAL chip, no invoice number) + pending queue with 'Pending sync'
+02-offline-pending-queue-after-restart.png  after a restart with the server still down: both captured sales are listed as 'Pending sync'
+03-cached-catalog.png                 the cached catalog (17 items) pulled while the device was online

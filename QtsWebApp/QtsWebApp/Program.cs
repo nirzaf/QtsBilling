@@ -133,6 +133,10 @@ builder.Services.ConfigureHttpJsonOptions(options => QtsBilling.Contracts.Serial
 builder.Services.AddOpenApi();
 builder.Services.AddTransient<LocalApiHandler>();
 
+// The browser host never captures sales offline (QB-19): the shared point-of-sale component asks this
+// service, so it shows an honest "desktop only" state instead of a fake capture.
+builder.Services.AddScoped<QtsBilling.Contracts.Pos.ILocalPosService, QtsWebApp.Features.Pos.WebLocalPosService>();
+
 // Key-ring persistence (QB-14): set QTS_DATAPROTECTION_PATH in production so session-cookie and ticket
 // keys survive restarts and rotation is a deliberate, reviewed operation. Unset (development) keeps an
 // ephemeral ring; no key material is ever committed or written next to the database.

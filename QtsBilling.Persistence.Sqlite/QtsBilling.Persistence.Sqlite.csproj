@@ -21,6 +21,9 @@
         <!-- QtsModels now only contains provider-neutral value objects (Money/Quantity/ScaledDecimal);
              no MongoDB, Npgsql or legacy entity type is referenced. -->
         <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
+
+        <!-- The device-local point-of-sale surface speaks the shared wire contracts (no data access). -->
+        <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
     </ItemGroup>
 
 </Project>

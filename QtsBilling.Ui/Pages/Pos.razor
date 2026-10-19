@@ -1,0 +1,196 @@
+﻿@page "/pos"
+@using QtsBilling.Contracts.Pos
+
+<PageTitle>Point of sale - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+    <MudText Typo="Typo.h3">Point of sale</MudText>
+    @if (PosService is not null && PosService.IsOfflineCaptureSupported)
+    {
+        <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Filled">OFFLINE CASH CAPTURE</MudChip>
+    }
+</MudStack>
+
+@if (PosService is null)
+{
+    <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true">
+        This host does not provide a device-local point of sale.
+    </MudAlert>
+}
+else if (!PosService.IsOfflineCaptureSupported)
+{
+    <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true">
+        Offline cash capture is a desktop-client feature. The browser posts sales to the server directly.
+    </MudAlert>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" Dense="true">@_error</MudAlert>
+    }
+
+    <MudGrid Class="mt-2">
+        <MudItem xs="12" md="5">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Catalog (cached)</MudText>
+                    <MudTextField @bind-Value="_search"
+                                  @bind-Value:after="FilterAsync"
+                                  Label="Search catalog"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true"
+                                  DebounceInterval="400"
+                                  Class="mt-2" />
+                    <MudButton Variant="Variant.Outlined"
+                               Color="Color.Default"
+                               StartIcon="@Icons.Material.Filled.CloudDownload"
+                               Disabled="@_busy"
+                               OnClick="RefreshCatalogAsync"
+                               Class="mt-2">
+                        Refresh catalog (online)
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+
+            <MudList T="string" Class="mt-2">
+                @foreach (var item in Filtered)
+                {
+                    <MudListItem T="string" OnClick="@(() => AddLine(item))" Class="cursor-pointer">
+                        <div class="d-flex justify-space-between align-center">
+                            <div>
+                                <MudText Typo="Typo.body1">@item.Name</MudText>
+                                <MudText Typo="Typo.caption">@item.Sku</MudText>
+                            </div>
+                            <div class="text-right">
+                                <MudText Typo="Typo.body1">@item.UnitPrice.ToString("0.00")</MudText>
+                                @if (item.OnHand is { } onHand)
+                                {
+                                    <MudText Typo="Typo.caption">on hand @onHand.ToString("0.##")</MudText>
+                                }
+                            </div>
+                        </div>
+                    </MudListItem>
+                }
+                @if (Filtered.Count == 0)
+                {
+                    <MudListItem T="string">
+                        <MudText Typo="Typo.body2" Class="pa-2">
+                            No cached products. Download the catalog while the device is online.
+                        </MudText>
+                    </MudListItem>
+                }
+            </MudList>
+        </MudItem>
+
+        <MudItem xs="12" md="7">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Current sale</MudText>
+
+                    <MudTable Items="@_lines" Dense="true" Hover="true" Class="mt-2">
+                        <HeaderContent>
+                            <MudTh>Item</MudTh>
+                            <MudTh>Qty</MudTh>
+                            <MudTh>Unit price</MudTh>
+                            <MudTh>Total</MudTh>
+                            <MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Item">@context.Name</MudTd>
+                            <MudTd DataLabel="Qty">@context.Quantity.ToString("0.##")</MudTd>
+                            <MudTd DataLabel="Unit price">@context.UnitPrice.ToString("0.00")</MudTd>
+                            <MudTd DataLabel="Total">@LineTotal(context).ToString("0.00")</MudTd>
+                            <MudTd>
+                                <MudIconButton Icon="@Icons.Material.Filled.Delete"
+                                               Size="Size.Small"
+                                               Color="Color.Error"
+                                               Disabled="@_busy"
+                                               OnClick="@(() => RemoveLine(context))" />
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudText Typo="Typo.body2" Class="pa-4">No items yet. Pick them from the cached catalog.</MudText>
+                        </NoRecordsContent>
+                    </MudTable>
+
+                    <MudNumericField T="decimal?"
+                                     @bind-Value="_cashReceived"
+                                     Label="Cash received"
+                                     Min="0m"
+                                     Step="0.5m"
+                                     Class="mt-2"
+                                     Disabled="@_busy" />
+
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-2">
+                        <MudText Typo="Typo.body1">Total</MudText>
+                        <MudText Typo="Typo.body1">@Total.ToString("0.00")</MudText>
+                    </MudStack>
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <MudText Typo="Typo.body1">Change</MudText>
+                        <MudText Typo="Typo.body1">@Change.ToString("0.00")</MudText>
+                    </MudStack>
+
+                    <MudButton Variant="Variant.Filled"
+                               Color="Color.Primary"
+                               StartIcon="@Icons.Material.Filled.PointOfSale"
+                               FullWidth="true"
+                               Class="mt-3"
+                               Disabled="@(_busy || _lines.Count == 0)"
+                               OnClick="CaptureAsync">
+                        @(_busy ? "Capturing..." : "Capture cash sale (offline)")
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+
+            @if (_receipt is not null)
+            {
+                <QtsBilling.Ui.Components.ProvisionalReceipt Sale="@_receipt" Names="@_names" />
+            }
+
+            <MudCard Class="mt-2">
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Pending queue</MudText>
+                    <MudText Typo="Typo.caption">
+                        Captured on this device and waiting for the server. A provisional reference is not a
+                        sale number.
+                    </MudText>
+                    <MudList T="string" Class="mt-2">
+                        @foreach (var pending in _pending)
+                        {
+                            <MudListItem T="string">
+                                <div class="d-flex justify-space-between align-center">
+                                    <div>
+                                        <MudText Typo="Typo.body2"><code>@pending.ProvisionalReference</code></MudText>
+                                        <MudText Typo="Typo.caption">
+                                            @pending.CreatedAtUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss") UTC Â·
+                                            @pending.Amount.ToString("0.00")
+                                        </MudText>
+                                        @if (!string.IsNullOrWhiteSpace(pending.LastError))
+                                        {
+                                            <MudText Typo="Typo.caption" Color="Color.Error">@pending.LastError</MudText>
+                                        }
+                                    </div>
+                                    <MudChip T="string"
+                                             Size="Size.Small"
+                                             Variant="Variant.Filled"
+                                             Color="@(pending.State == "Rejected" ? Color.Error : Color.Warning)">
+                                        @(pending.State == "Rejected" ? "Rejected" : "Pending sync")
+                                    </MudChip>
+                                </div>
+                            </MudListItem>
+                        }
+                        @if (_pending.Count == 0)
+                        {
+                            <MudListItem T="string">
+                                <MudText Typo="Typo.body2" Class="pa-2">Nothing is waiting to be sent.</MudText>
+                            </MudListItem>
+                        }
+                    </MudList>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+

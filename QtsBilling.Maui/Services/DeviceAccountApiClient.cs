@@ -40,13 +40,16 @@ public sealed class DeviceAccountApiClient : IAccountApiClient
 
             return session;
         }
-        catch (ApiException)
-        {
-            throw;
-        }
         catch (Exception exception) when (IsTransportFailure(exception))
         {
             // Offline: the device keeps working with the last known session instead of failing to start.
+            return await _sessionStore.GetSessionAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (ApiException)
+        {
+            // The server answered but could not produce a session (it is up but broken). The device keeps
+            // the last known session: the server re-checks the enrolment and the permissions for every
+            // operation it accepts, so a stale session can never grant more than it did before.
             return await _sessionStore.GetSessionAsync(cancellationToken).ConfigureAwait(false);
         }
     }

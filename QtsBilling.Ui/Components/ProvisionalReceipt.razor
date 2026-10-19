@@ -1,0 +1,68 @@
+@using QtsBilling.Contracts.Pos
+
+@* A locally captured sale. It is explicitly provisional: the final sale number is assigned by the
+   server when the operation is pushed, so no invoice or receipt number is ever fabricated here. *@
+
+<MudCard Class="ma-2" Outlined="true">
+    <MudCardHeader>
+        <CardHeaderContent>
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+                <MudText Typo="Typo.h6">Provisional receipt</MudText>
+                <MudChip T="string" Color="Color.Warning" Size="Size.Small" Variant="Variant.Filled">PROVISIONAL</MudChip>
+            </MudStack>
+            <MudText Typo="Typo.caption" Class="mt-1">
+                Not a final receipt. The server assigns the sale number when this operation is pushed;
+                no invoice number exists yet.
+            </MudText>
+        </CardHeaderContent>
+    </MudCardHeader>
+    <MudCardContent>
+        <MudSimpleTable Dense="true" Hover="false" Striped="false">
+            <tbody>
+                <tr>
+                    <td>Provisional reference</td>
+                    <td><code>@Sale.ProvisionalReference</code></td>
+                </tr>
+                <tr>
+                    <td>Captured at (UTC)</td>
+                    <td>@Sale.CreatedAtUtc.UtcDateTime.ToString("yyyy-MM-dd HH:mm:ss")</td>
+                </tr>
+                @foreach (var line in Sale.Lines)
+                {
+                    <tr>
+                        <td>@line.Quantity.ToString("0.##") × @line.UnitPrice.ToString("0.00") — @LineName(line)</td>
+                        <td class="text-right">@LineTotal(line).ToString("0.00")</td>
+                    </tr>
+                }
+                <tr>
+                    <td><strong>Total</strong></td>
+                    <td class="text-right"><strong>@Total.ToString("0.00")</strong></td>
+                </tr>
+                <tr>
+                    <td>Cash received</td>
+                    <td class="text-right">@Sale.Amount.ToString("0.00")</td>
+                </tr>
+                <tr>
+                    <td>Change</td>
+                    <td class="text-right">@Change.ToString("0.00")</td>
+                </tr>
+            </tbody>
+        </MudSimpleTable>
+    </MudCardContent>
+</MudCard>
+
+@code {
+    [Parameter, EditorRequired] public LocalPendingSale Sale { get; set; } = default!;
+
+    [Parameter, EditorRequired] public IReadOnlyDictionary<Guid, string> Names { get; set; } = default!;
+
+    private decimal Total => Sale.Lines.Sum(line => LineTotal(line));
+
+    private decimal Change => Sale.Amount - Total;
+
+    private string LineName(LocalSaleLineDraft line)
+        => Names.TryGetValue(line.VariantId, out var name) ? name : line.VariantId.ToString("D");
+
+    private static decimal LineTotal(LocalSaleLineDraft line)
+        => (line.Quantity * line.UnitPrice) - line.Discount + line.Tax;
+}

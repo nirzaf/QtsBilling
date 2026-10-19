@@ -88,7 +88,11 @@ public static class ProductEndpoints
                 product.UnitId,
                 product.IsActive,
                 product.TrackStock,
-                product.Version))
+                product.Version,
+                product.TaxRateId == null
+                    ? 0m
+                    : db.TaxRates.Where(rate => rate.Id == product.TaxRateId).Select(rate => rate.Rate).FirstOrDefault(),
+                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive"))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -369,6 +373,14 @@ public static class ProductEndpoints
         Product product,
         CancellationToken cancellationToken)
     {
+        var taxRate = product.TaxRateId is { } taxRateId
+            ? await db.TaxRates.AsNoTracking()
+                .Where(rate => rate.Id == taxRateId)
+                .Select(rate => rate.Rate)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false)
+            : 0m;
+
         var variants = await db.ProductVariants.AsNoTracking()
             .Where(variant => variant.BusinessId == product.BusinessId && variant.ProductId == product.Id)
             .OrderByDescending(variant => variant.IsDefault)
@@ -396,7 +408,9 @@ public static class ProductEndpoints
                 product.UnitId,
                 product.IsActive,
                 product.TrackStock,
-                product.Version),
+                product.Version,
+                taxRate,
+                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive"),
             variants);
     }
 

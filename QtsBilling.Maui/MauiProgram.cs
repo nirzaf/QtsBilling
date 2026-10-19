@@ -1,8 +1,10 @@
 ﻿using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
 using QtsBilling.Contracts.Clients;
+using QtsBilling.Contracts.Pos;
 using QtsBilling.Maui.Services;
 using QtsBilling.Persistence.Sqlite;
+using QtsBilling.Persistence.Sqlite.Pos;
 
 namespace QtsBilling.Maui;
 
@@ -40,6 +42,13 @@ public static class MauiProgram
             DatabasePath = localStorePath,
         });
 
+        // Device point of sale (QB-19): the local store owns the money, the host owns the permissions
+        // and the catalog pull.
+        builder.Services.AddScoped<LocalPosStore>();
+        builder.Services.AddScoped<DeviceCatalogSync>();
+        builder.Services.AddScoped<ILocalPosService, DeviceLocalPosService>();
+        builder.Services.AddSingleton<QtsBilling.Ui.Layout.INavContributor, MauiNavContributor>();
+
         // The browser never talks to a database; the desktop app uses the same typed API clients.
         builder.Services
             .AddHttpClient<ICustomerApiClient, DeviceCustomerApiClient>((services, client) =>
@@ -51,6 +60,30 @@ public static class MauiProgram
 
         builder.Services
             .AddHttpClient<IAccountApiClient, DeviceAccountApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Catalog.IProductApiClient, QtsBilling.Contracts.Catalog.ProductApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Inventory.IInventoryApiClient, QtsBilling.Contracts.Inventory.InventoryApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Sales.ICashRegisterApiClient, QtsBilling.Contracts.Sales.CashRegisterApiClient>((services, client) =>
             {
                 client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
                 client.Timeout = TimeSpan.FromSeconds(30);

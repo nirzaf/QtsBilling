@@ -1,5 +1,6 @@
 using System.Security.Cryptography;
 using System.Text;
+using QtsBilling.Persistence.Sqlite.Entities;
 
 namespace QtsBilling.Persistence.Sqlite;
 
@@ -57,6 +58,9 @@ public sealed record CacheRebuildResult(int Products, int Customers, int Stock, 
 {
     public int Total => Products + Customers + Stock + Tombstones;
 }
+
+/// <summary>A locally captured sale together with its fixed-price lines.</summary>
+public sealed record LocalSaleDraftWithLines(LocalSaleDraft Draft, IReadOnlyList<LocalSaleLine> Lines);
 
 /// <summary>Canonical SHA-256 fingerprint used for same-key/different-body detection.</summary>
 public static class SqlitePayloadHash

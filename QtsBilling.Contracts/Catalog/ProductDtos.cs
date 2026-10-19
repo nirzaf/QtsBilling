@@ -3,7 +3,8 @@ namespace QtsBilling.Contracts.Catalog;
 /// <summary>
 /// Product catalog entry as exposed to web and the MAUI offline cache.
 /// Catalog records never carry stock: authoritative stock lives in inventory balances
-/// (specification §3.5, F-12).
+/// (specification §3.5, F-12). The tax rate and tax type travel with the product so a device can
+/// cache the exact sellable price snapshot the server will re-validate when an offline sale is pushed.
 /// </summary>
 public sealed record ProductDto(
     Guid Id,
@@ -13,7 +14,9 @@ public sealed record ProductDto(
     Guid? UnitId,
     bool IsActive,
     bool TrackStock,
-    long Version);
+    long Version,
+    decimal TaxRate = 0m,
+    string TaxType = "Exclusive");
 
 /// <summary>
 /// Price and tax snapshot for a variant at a known catalog revision. Offline sales record the

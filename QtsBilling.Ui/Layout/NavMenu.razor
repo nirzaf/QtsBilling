@@ -1,4 +1,10 @@
-﻿<MudNavMenu>
+﻿@inject IEnumerable<QtsBilling.Ui.Layout.INavContributor> Contributors
+
+<MudNavMenu>
     <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
     <MudNavLink Href="customers" Icon="@Icons.Material.Filled.People">Customers</MudNavLink>
+    @foreach (var item in Contributors.SelectMany(contributor => contributor.Items))
+    {
+        <MudNavLink Href="@item.Href" Icon="@item.Icon">@item.Title</MudNavLink>
+    }
 </MudNavMenu>
