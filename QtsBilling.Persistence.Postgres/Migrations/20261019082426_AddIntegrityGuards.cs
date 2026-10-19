@@ -30,8 +30,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                          "inventory_movements",
                          "journal_lines",
                          "sale_lines",
-                         "invoice_lines",
-                         "purchase_order_lines",
                          "cash_register_movements",
                          "audit_events",
                          "processed_operations",
@@ -214,12 +212,79 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     DEFERRABLE INITIALLY DEFERRED
                     FOR EACH ROW EXECUTE FUNCTION qts_inventory_movement_guard();
                 """);
+
+            // 4. Draft documents may be edited; once issued/ordered their lines become immutable (§3.7).
+            migrationBuilder.Sql("""
+                CREATE OR REPLACE FUNCTION qts_invoice_lines_draft_guard() RETURNS trigger AS $$
+                DECLARE
+                    v_status     text;
+                    v_invoice_id uuid;
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        v_invoice_id := OLD.invoice_id;
+                    ELSE
+                        v_invoice_id := NEW.invoice_id;
+                    END IF;
+
+                    SELECT status INTO v_status FROM invoices WHERE id = v_invoice_id;
+
+                    IF v_status IS DISTINCT FROM 'Draft' THEN
+                        RAISE EXCEPTION 'Invoice lines are immutable once the invoice leaves draft (current status: %).',
+                            COALESCE(v_status, 'missing')
+                            USING ERRCODE = 'check_violation';
+                    END IF;
+
+                    IF TG_OP = 'DELETE' THEN
+                        RETURN OLD;
+                    END IF;
+
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE OR REPLACE FUNCTION qts_purchase_order_lines_draft_guard() RETURNS trigger AS $$
+                DECLARE
+                    v_status text;
+                    v_po_id  uuid;
+                BEGIN
+                    IF TG_OP = 'DELETE' THEN
+                        v_po_id := OLD.purchase_order_id;
+                    ELSE
+                        v_po_id := NEW.purchase_order_id;
+                    END IF;
+
+                    SELECT status INTO v_status FROM purchase_orders WHERE id = v_po_id;
+
+                    IF v_status IS DISTINCT FROM 'Draft' THEN
+                        RAISE EXCEPTION 'Purchase-order lines are immutable once the order leaves draft (current status: %).',
+                            COALESCE(v_status, 'missing')
+                            USING ERRCODE = 'check_violation';
+                    END IF;
+
+                    IF TG_OP = 'DELETE' THEN
+                        RETURN OLD;
+                    END IF;
+
+                    RETURN NEW;
+                END;
+                $$ LANGUAGE plpgsql;
+
+                CREATE TRIGGER trg_invoice_lines_draft_only
+                    BEFORE UPDATE OR DELETE ON invoice_lines
+                    FOR EACH ROW EXECUTE FUNCTION qts_invoice_lines_draft_guard();
+
+                CREATE TRIGGER trg_purchase_order_lines_draft_only
+                    BEFORE UPDATE OR DELETE ON purchase_order_lines
+                    FOR EACH ROW EXECUTE FUNCTION qts_purchase_order_lines_draft_guard();
+                """);
         }
 
         /// <inheritdoc />
         protected override void Down(MigrationBuilder migrationBuilder)
         {
             migrationBuilder.Sql("""
+                DROP TRIGGER IF EXISTS trg_purchase_order_lines_draft_only ON purchase_order_lines;
+                DROP TRIGGER IF EXISTS trg_invoice_lines_draft_only ON invoice_lines;
                 DROP TRIGGER IF EXISTS trg_inventory_movements_applied ON inventory_movements;
                 DROP TRIGGER IF EXISTS trg_inventory_balances_derived ON inventory_balances;
                 DROP TRIGGER IF EXISTS trg_journal_entries_balanced ON journal_entries;
@@ -227,6 +292,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                 DROP FUNCTION IF EXISTS qts_inventory_movement_guard();
                 DROP FUNCTION IF EXISTS qts_inventory_balance_guard();
                 DROP FUNCTION IF EXISTS qts_check_inventory_movement_sum(uuid, uuid, uuid);
+                DROP FUNCTION IF EXISTS qts_purchase_order_lines_draft_guard();
+                DROP FUNCTION IF EXISTS qts_invoice_lines_draft_guard();
                 DROP FUNCTION IF EXISTS qts_journal_entries_balance_guard();
                 DROP FUNCTION IF EXISTS qts_journal_lines_balance_guard();
                 DROP FUNCTION IF EXISTS qts_check_journal_entry_balanced(uuid);
@@ -238,8 +305,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                          "inventory_movements",
                          "journal_lines",
                          "sale_lines",
-                         "invoice_lines",
-                         "purchase_order_lines",
                          "cash_register_movements",
                          "audit_events",
                          "processed_operations",
