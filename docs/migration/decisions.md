@@ -36,8 +36,12 @@
 | D-21 | Card data: `CardNumber`/`CardSecurity` are never migrated, logged, serialized to sync or persisted; only PSP reference + brand/last-four may exist. Offline card payments are disabled; `HandlePayment` false-success is removed. | Spec §5.3, F-07/F-09. |
 | D-22 | `Application`-level encryption: retire the static-IV AES-CBC helper; use a single reviewed AEAD (AES-GCM, fresh nonce, keyed identifier) only where genuinely required. | Spec §5.4, F-08. |
 | D-23 | Tenant isolation: every business-owned row carries `business_id`; compound FKs prevent cross-business linkage; server authorization + DB constraints both enforced (RLS only if authorization is demonstrably correct). | Spec §3.1/§3.3, F-22. |
-| D-24 | Local PostgreSQL for development/CI: **not yet available** (Docker engine stopped; no host install). Implementation proceeds with EF migrations + unit tests; PG integration tests will run once an instance is provided (start Docker Desktop or install PostgreSQL 18). | Environment constraint, recorded for QB-26. |
+| D-24 | Local PostgreSQL for development/CI: **resolved** — PostgreSQL 18.6 runs in the Docker container `qtsbilling-pg` (host port 5433) and all migrations are applied and verified there (including the integrity guards, exercised with real transactions). | Environment now available; QB-26 integration tests can target it. |
 | D-25 | MAUI workload (`maui-windows`) is not installed; QB-18 will require `dotnet workload install maui-windows` approval (large download) before the Windows shell can build. | Environment constraint. |
+| D-26 | Identity = ASP.NET Core Identity on PostgreSQL (Guid keys) with **cookie** sessions for the web app; permission claims are resolved server-side from the membership role at sign-in and re-checked by policy on every request. OpenIddict OIDC/PKCE is reserved for the MAUI public client (QB-22). | OPEN-7 default; no external IdP needed, and the browser never handles tokens or credentials. |
+| D-27 | CSRF stance for the cookie-authenticated API: `SameSite=Strict` session cookie, no cross-origin CORS, state changes only through the typed clients over the same origin. Antiforgery tokens remain available for future HTML form posts. | Cross-site requests cannot carry the session cookie; verified by design + 401/403 behaviour. |
+| D-28 | Every account (including the development owner) starts with `PasswordResetRequired = true`: sign-in is refused until a one-time reset/invitation ticket is completed. Tickets are returned in the API response **in Development only**; Production delivers them out of band. | Implements the QB-04 "no usable credential until safe enrolment" rule; no default password is ever usable. |
+| D-29 | `DELETE /api/v1/customers/{id}` deactivates instead of erasing master data (soft delete); `includeInactive=true` exposes deactivated rows for audit. | Historical invoices/sales keep resolving the customer (specification §3.7, no silent data loss). |
 
 ## Part C — OPEN decisions required from the business (spec §13)
 
@@ -64,5 +68,10 @@
 | 2026-10-19 | QB-01 boundary correction (web host `net10.0`, WinForms reference removed; WASM `net10.0`) | see `Definition of Done` in `docs/migration/tasks/QB-01.md` |
 | 2026-10-19 | QB-02 contracts/domain value objects | `docs/migration/tasks/QB-02.md` |
 | 2026-10-19 | QB-03 PostgreSQL EF Core foundation | `docs/migration/tasks/QB-03.md` |
+| 2026-10-19 | QB-03 verified live on PostgreSQL 18.6 (migrations applied; unbalanced-journal, movement/balance, append-only, cross-tenant FK and draft-vs-issued guards exercised with real SQL) | `docs/migration/tasks/QB-03.md` (live verification table) |
+| 2026-10-19 | QB-04 identity, membership, permissions and enrolment gate | `docs/migration/tasks/QB-04.md` |
+| 2026-10-19 | QB-05 typed authenticated API (`/api/v1` auth, customers, health) | `docs/migration/tasks/QB-05.md` |
+| 2026-10-19 | QB-06 customers vertical slice on PostgreSQL (API + UI) | `docs/migration/tasks/QB-06.md` |
+| 2026-10-19 | QB-15 browser off the database (Mongo/Npgsql/EF absent from the WebAssembly bundle) | `docs/migration/tasks/QB-15.md` |
 
 > Remaining tasks QB-04 … QB-30 are tracked in `docs/migration/task-status.md`.

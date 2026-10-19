@@ -1,0 +1,122 @@
+using System.Security.Claims;
+using System.Text;
+using QtsBilling.Contracts.Abstractions;
+
+namespace QtsWebApp.Infrastructure;
+
+/// <summary>ProblemDetails helpers that always attach the stable <see cref="ApiErrorCodes"/> value.</summary>
+public static class ApiResults
+{
+    public static IResult Problem(int statusCode, string code, string title, string? detail = null)
+        => Results.Problem(
+            detail: detail,
+            statusCode: statusCode,
+            title: title,
+            extensions: new Dictionary<string, object?> { ["code"] = code });
+
+    public static IResult ValidationProblem(string detail, IDictionary<string, string[]> errors)
+        => Results.ValidationProblem(
+            errors,
+            detail: detail,
+            statusCode: StatusCodes.Status400BadRequest,
+            title: "The request payload is invalid.",
+            extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.ValidationFailed });
+}
+
+/// <summary>Tenant resolution from the authenticated principal.</summary>
+public static class BusinessScope
+{
+    public static bool TryGetBusinessId(this ClaimsPrincipal principal, out Guid businessId)
+    {
+        businessId = Guid.Empty;
+
+        return principal.FindFirst(QtsClaims.BusinessId)?.Value is { Length: > 0 } value
+            && Guid.TryParse(value, out businessId);
+    }
+
+    public static IResult MissingMembership()
+        => ApiResults.Problem(
+            StatusCodes.Status403Forbidden,
+            ApiErrorCodes.Forbidden,
+            "The signed-in user is not an active member of a business.");
+}
+
+/// <summary>Digits-only phone normalization used for the per-business uniqueness rule (F-14).</summary>
+public static class PhoneNormalizer
+{
+    private const int MaxDigits = 20;
+
+    public static string? Normalize(string? phone)
+    {
+        if (string.IsNullOrWhiteSpace(phone))
+        {
+            return null;
+        }
+
+        var digits = new string(phone.Where(char.IsDigit).ToArray());
+
+        if (digits.Length == 0)
+        {
+            return null;
+        }
+
+        return digits.Length <= MaxDigits ? digits : digits[^MaxDigits..];
+    }
+}
+
+/// <summary>Like-pattern escaping for user-supplied search text.</summary>
+public static class LikePattern
+{
+    public static string Contains(string value)
+        => $"%{value.Replace("\\", "\\\\", StringComparison.Ordinal).Replace("%", "\\%", StringComparison.Ordinal).Replace("_", "\\_", StringComparison.Ordinal)}%";
+}
+
+/// <summary>Correlates every request/response pair so support can trace a report to server logs.</summary>
+public sealed class CorrelationIdMiddleware(RequestDelegate next)
+{
+    public const string HeaderName = "X-Correlation-Id";
+
+    public async Task InvokeAsync(HttpContext context)
+    {
+        var correlationId = context.Request.Headers.TryGetValue(HeaderName, out var supplied) && !string.IsNullOrWhiteSpace(supplied.ToString())
+            ? supplied.ToString()
+            : Guid.NewGuid().ToString("N");
+
+        context.TraceIdentifier = correlationId;
+        context.Response.Headers[HeaderName] = correlationId;
+
+        await next(context).ConfigureAwait(false);
+    }
+}
+
+/// <summary>
+/// Server-side prerender calls its own API. This handler rewrites relative paths to the current request's
+/// origin and forwards the session cookie so prerendered markup matches what the browser will load.
+/// </summary>
+public sealed class LocalApiHandler : DelegatingHandler
+{
+    private readonly IHttpContextAccessor _httpContextAccessor;
+
+    public LocalApiHandler(IHttpContextAccessor httpContextAccessor)
+    {
+        _httpContextAccessor = httpContextAccessor;
+    }
+
+    protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        var context = _httpContextAccessor.HttpContext;
+
+        if (context is not null && request.RequestUri is not null && request.RequestUri.IsAbsoluteUri)
+        {
+            var origin = $"{context.Request.Scheme}://{context.Request.Host}{context.Request.PathBase}";
+            request.RequestUri = new Uri($"{origin}{request.RequestUri.PathAndQuery}");
+
+            if (context.Request.Headers.Cookie.Count > 0)
+            {
+                request.Headers.TryAddWithoutValidation("Cookie", context.Request.Headers.Cookie.ToArray());
+            }
+        }
+
+        return base.SendAsync(request, cancellationToken);
+    }
+}

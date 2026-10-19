@@ -1,139 +1,158 @@
 using Microsoft.AspNetCore.Components;
 using Microsoft.AspNetCore.Components.Web;
 using MudBlazor;
-using QtsModels;
-using QtsServices;
+using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Clients;
+using QtsBilling.Contracts.Customers;
+using QtsWebApp.Client.Models;
 
 namespace QtsWebApp.Client.Pages;
 
-public partial class Customers : IDisposable
+public partial class Customers
 {
-    [Inject] private CustomerService CustomerService { get; set; } = new();
+    [Inject] private ICustomerApiClient CustomerApi { get; set; } = default!;
+    [Inject] private IAccountApiClient Accounts { get; set; } = default!;
     [Inject] private IDialogService DialogService { get; set; } = default!;
+    [Inject] private ISnackbar Snackbar { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
 
-    private List<Customer> _pagedCustomers = [];
+    private const int PageSize = 100;
+
+    private List<CustomerRow> _rows = [];
+    private bool _initialized;
+    private bool _busy;
     private string _searchText = string.Empty;
-    private int CurrentPage { get; set; } = 1;
-    private int PageSize { get; set; } = 10;
 
     public string SearchText
     {
         get => _searchText;
-        set
-        {
-            if (_searchText != value)
-            {
-                _searchText = value;
-                SearchCustomersOnInput(_searchText).ConfigureAwait(false);
-            }
-        }
+        set => _searchText = value;
     }
 
-    protected override async Task OnInitializedAsync()
+    // Runs after the first interactive render, never during static prerender (no session cookie yet).
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        _pagedCustomers = await CustomerService.PagedCustomersAsync(CurrentPage, PageSize);
+        if (!firstRender || _initialized)
+        {
+            return;
+        }
+
+        _initialized = true;
+
+        var session = await Accounts.GetSessionAsync();
+
+        if (session is null || session.BusinessId is null)
+        {
+            Navigation.NavigateTo("login", replace: true);
+            return;
+        }
+
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        StateHasChanged();
+
+        try
+        {
+            var page = await CustomerApi.GetCustomersAsync(SearchText, pageSize: PageSize);
+            _rows = [.. page.Items.Select(item => new CustomerRow(item))];
+        }
+        catch (ApiException exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task SearchCustomersOnInput(string searchText)
     {
-        if (string.IsNullOrEmpty(SearchText) || string.IsNullOrWhiteSpace(SearchText))
-        {
-            _pagedCustomers = await CustomerService.GetCustomersAsync();
-        }
-        else
-        {
-            SearchText = searchText;
-            _pagedCustomers = await CustomerService.SearchCustomersAsync(SearchText);
-        }
+        SearchText = searchText;
+        await LoadAsync();
     }
 
-    private async Task ToggleEdit(MouseEventArgs args, Customer customer)
+    private async Task ToggleEdit(MouseEventArgs args, CustomerRow row)
     {
-        if (customer.IsEditing)
+        if (!row.IsEditing)
         {
-            await UpdateCustomer(customer);
+            row.IsEditing = true;
+            return;
         }
-        customer.IsEditing = !customer.IsEditing;
+
+        await SaveEditAsync(row);
     }
 
-    private async Task DeleteCustomerConfirmation(MouseEventArgs args, Customer customer)
+    private async Task SaveEditAsync(CustomerRow row)
     {
-        bool? result = await DialogService.ShowMessageBoxAsync(
-            "Warning",
-            "Deleting can not be undone!",
-            yesText: "Delete!", cancelText: "Cancel");
-
-        if (result == true)
+        try
         {
-           bool response = await DeleteCustomer(customer.Id);
-           if (response)
-           {
-               _pagedCustomers = await CustomerService.GetCustomersAsync();
-               StateHasChanged();
-           }
+            var updated = await CustomerApi.UpdateCustomerAsync(row.Id, row.ToRequest(), row.Dto.Version);
+            row.Apply(updated);
+            Snackbar.Add("Customer saved.", Severity.Success);
+        }
+        catch (ApiException exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+
+            if (exception.IsConflict)
+            {
+                await LoadAsync();
+            }
         }
     }
 
-    private async Task<bool> AddCustomer(Customer customer)
+    private async Task DeleteCustomerConfirmation(MouseEventArgs args, CustomerRow row)
     {
-       bool response = await CustomerService.AddCustomerAsync(customer);
-       return response;
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Deactivate customer",
+            "Historical invoices and sales keep resolving this customer, so the record is deactivated instead of erased.",
+            yesText: "Deactivate",
+            cancelText: "Cancel");
+
+        if (confirmed != true)
+        {
+            return;
+        }
+
+        try
+        {
+            await CustomerApi.DeactivateCustomerAsync(row.Id);
+            Snackbar.Add("Customer deactivated.", Severity.Success);
+            await LoadAsync();
+        }
+        catch (ApiException exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
     }
 
-    private async Task UpdateCustomer(Customer customer)
-    {
-       await CustomerService.UpdateCustomerAsync(customer, customer.Id);
-    }
-
-    private async Task<bool> DeleteCustomer(string? id)
-    {
-       bool response = await CustomerService.DeleteCustomerAsync(id);
-       return response;
-    }
-    
-    private bool _addCustomerDialogVisible;
-    private readonly Customer _newCustomer = new() { Id = Guid.NewGuid().ToString() };
     private async Task AddCustomer()
     {
-        var parameters = new DialogParameters { { "NewCustomer", new Customer { Id = Guid.NewGuid().ToString() } } };
-
+        var parameters = new DialogParameters { ["Model"] = new CustomerEditModel() };
         var dialog = await DialogService.ShowAsync<AddCustomerDialog>("Add New Customer", parameters);
         var result = await dialog.Result;
 
-        if (result is { Canceled: false })
+        if (result is null || result.Canceled)
         {
-            var newCustomer = (Customer)result.Data!;
-            bool response = await CustomerService.AddCustomerAsync(newCustomer);
-            if (response)
-            {
-                _pagedCustomers = await CustomerService.GetCustomersAsync();
-                StateHasChanged();
-            }
-            _addCustomerDialogVisible = false;
-            StateHasChanged();
+            return;
         }
-    }
-    private void CancelAddCustomer()
-    {
-        _addCustomerDialogVisible = false;
-    }
 
-    private async Task<bool> SubmitAddCustomer()
-    {
-        bool response = await AddCustomer(_newCustomer);
-        if (response)
+        var model = (CustomerEditModel)result.Data!;
+
+        try
         {
-            _pagedCustomers = await CustomerService.GetCustomersAsync();
-            StateHasChanged();
+            await CustomerApi.CreateCustomerAsync(model.ToRequest());
+            Snackbar.Add("Customer added.", Severity.Success);
+            await LoadAsync();
         }
-        _addCustomerDialogVisible = false;
-        StateHasChanged();
-        return response;
-    }
-
-
-    public void Dispose()
-    {
-        // Dispose of any resources here.
+        catch (ApiException exception)
+        {
+            Snackbar.Add(exception.Message, Severity.Error);
+        }
     }
 }

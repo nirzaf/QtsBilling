@@ -18,7 +18,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\QtsServices\QtsServices.csproj" />
+    <!-- The browser talks to the server API only; no data-access or Mongo assemblies may reach the bundle (QB-15/F-19). -->
+    <ProjectReference Include="..\..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
   </ItemGroup>
-  
+
 </Project>

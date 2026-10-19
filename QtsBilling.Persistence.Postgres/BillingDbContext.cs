@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.ChangeTracking;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -8,8 +10,9 @@ namespace QtsBilling.Persistence.Postgres;
 /// Authoritative PostgreSQL context (PostgreSQL 18, EF Core 10, Npgsql). One schema serves all
 /// businesses; tenant isolation is enforced by explicit <c>business_id</c> columns, composite
 /// foreign keys and server-side authorization (specification §3.1/§3.3, F-22).
+/// Identity tables are mapped into the same schema (QB-04).
 /// </summary>
-public partial class BillingDbContext : DbContext
+public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Guid>, Guid>
 {
     /// <summary>Tables that are append-only: modifications and deletes are rejected by the context itself.</summary>
     private static readonly HashSet<Type> AppendOnlyTypes =
@@ -34,8 +37,6 @@ public partial class BillingDbContext : DbContext
     public DbSet<Business> Businesses => Set<Business>();
 
     public DbSet<BusinessLocation> BusinessLocations => Set<BusinessLocation>();
-
-    public DbSet<User> Users => Set<User>();
 
     public DbSet<BusinessMembership> BusinessMemberships => Set<BusinessMembership>();
 
@@ -123,6 +124,7 @@ public partial class BillingDbContext : DbContext
     {
         base.OnModelCreating(modelBuilder);
 
+        ConfigureIdentityTables(modelBuilder);
         ConfigureCore(modelBuilder);
         ConfigureMasterData(modelBuilder);
         ConfigureCatalog(modelBuilder);

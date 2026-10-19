@@ -1,0 +1,33 @@
+@page "/login"
+
+<MudText Typo="Typo.h3">Sign in</MudText>
+
+<MudCard Class="mt-4" Style="max-width: 32rem;">
+    <MudCardContent>
+        <MudTextField @bind-Value="_email" Label="E-mail" InputType="InputType.Email" Required="true" />
+        <MudTextField @bind-Value="_password" Label="Password" InputType="InputType.Password" Class="mt-2" />
+
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Class="mt-3">@_error</MudAlert>
+        }
+
+        @if (_needsSetup)
+        {
+            <MudAlert Severity="Severity.Info" Class="mt-3">
+                Account setup is required before this account can sign in. Paste the reset ticket and choose a password
+                (in Development the ticket is filled in automatically).
+            </MudAlert>
+            <MudTextField @bind-Value="_token" Label="Reset ticket" Class="mt-2" Lines="3" />
+            <MudTextField @bind-Value="_newPassword" Label="New password" InputType="InputType.Password" Class="mt-2" HelperText="At least 12 characters with upper, lower, digit and symbol." />
+        }
+    </MudCardContent>
+    <MudCardActions>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SignInAsync" Disabled="@_busy">Sign in</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="RequestTicketAsync" Disabled="@_busy">Request setup link</MudButton>
+        @if (_needsSetup)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="CompleteSetupAsync" Disabled="@_busy">Complete setup</MudButton>
+        }
+    </MudCardActions>
+</MudCard>

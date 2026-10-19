@@ -114,6 +114,16 @@ Collections referenced by inspected code, their owning service and connection si
 | F-21 | Confirmed | `Business.AccountingMethod` (fifo/lifo/avco) with no costing implementation in services |
 | F-22 | Confirmed | Tenant boundary present on `User`/`Account`/`Category` only |
 
+### Remediation status (updated 2026-10-19, after QB-06/QB-15)
+
+| Finding | Status | Evidence |
+|---|---|---|
+| F-06 | **Remediated in the web host** — ASP.NET Core Identity (salted hashes, lockout); the raw-password `UserManagementService.Login` is no longer referenced by any host and is removed with the legacy stack (QB-29). | `docs/migration/tasks/QB-04.md` |
+| F-14 | **Remediated** — `customers.phone_normalized` unique per business (database index + API pre-check, `DUPLICATE_PHONE` 409); keyset paging replaces unordered offsets. | `docs/migration/tasks/QB-06.md` |
+| F-19 | **Remediated for the browser surface** — the WebAssembly bundle no longer contains Mongo/Npgsql/EF/QtsServices assets; pages use the typed API client. | `docs/migration/tasks/QB-15.md` |
+| F-22 | **Remediated for the migrated tables** — explicit `business_id` on every row, composite `(id, business_id)` keys/FKs, tenant id taken from the authenticated principal (`404` on foreign ids). | QB-03 live guard table, QB-06 evidence |
+| F-01…F-05, F-07…F-13, F-15…F-18, F-20, F-21 | Open — schema/guards are in place where applicable (QB-03); service and UI remediation lands with QB-07…QB-14. | `docs/migration/task-status.md` |
+
 ## 7. Active UI workflows (code-level)
 
 - Web: `Home` (static), `Customers` (search, paged table, add dialog, delete with confirm), MudBlazor layout/nav. All data access runs in-process against `QtsServices` (`InteractiveAuto` renders server-side first, then WASM).

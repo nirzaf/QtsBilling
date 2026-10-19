@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using QtsBilling.Persistence.Postgres.Entities;
 
@@ -10,6 +11,18 @@ namespace QtsBilling.Persistence.Postgres;
 /// </summary>
 public partial class BillingDbContext
 {
+    /// <summary>Identity tables live in the same schema with snake_case names (QB-04).</summary>
+    private static void ConfigureIdentityTables(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<User>(b => b.ToTable("users"));
+        modelBuilder.Entity<IdentityRole<Guid>>(b => b.ToTable("roles"));
+        modelBuilder.Entity<IdentityUserRole<Guid>>(b => b.ToTable("user_roles"));
+        modelBuilder.Entity<IdentityUserClaim<Guid>>(b => b.ToTable("user_claims"));
+        modelBuilder.Entity<IdentityUserLogin<Guid>>(b => b.ToTable("user_logins"));
+        modelBuilder.Entity<IdentityUserToken<Guid>>(b => b.ToTable("user_tokens"));
+        modelBuilder.Entity<IdentityRoleClaim<Guid>>(b => b.ToTable("role_claims"));
+    }
+
     private void ConfigureCore(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Business>(b =>

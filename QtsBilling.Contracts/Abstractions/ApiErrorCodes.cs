@@ -8,6 +8,8 @@ public static class ApiErrorCodes
 {
     // Generic request handling
     public const string ValidationFailed = "VALIDATION_FAILED";
+    public const string PasswordResetRequired = "PASSWORD_RESET_REQUIRED";
+    public const string InvalidCredentials = "INVALID_CREDENTIALS";
     public const string Unauthenticated = "UNAUTHENTICATED";
     public const string Forbidden = "FORBIDDEN";
     public const string NotFound = "NOT_FOUND";
@@ -36,4 +38,5 @@ public static class ApiErrorCodes
     public const string DuplicateSku = "DUPLICATE_SKU";
     public const string DuplicateInvoiceNumber = "DUPLICATE_INVOICE_NUMBER";
     public const string OptimisticConcurrencyFailure = "CONCURRENCY_CONFLICT";
+    public const string StoreUnavailable = "STORE_UNAVAILABLE";
 }

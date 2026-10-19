@@ -1,7 +1,6 @@
 ﻿@inherits LayoutComponentBase
-@using QtsModels
-@using QtsServices
-@inject CustomerService CustomerService
+@inject IAccountApiClient Accounts
+@inject NavigationManager Navigation
 
 <MudThemeProvider/>
 <MudDialogProvider/>
@@ -13,6 +12,11 @@
         <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer"/>
         <MudText Typo="Typo.h5" Class="ml-3">QTS Billing</MudText>
         <MudSpacer/>
+        @if (_signedIn)
+        {
+            <MudText Typo="Typo.body2" Class="mr-3">@_displayName</MudText>
+            <MudButton Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout" OnClick="SignOutAsync">Sign out</MudButton>
+        }
     </MudAppBar>
 
     <MudDrawer @bind-Open="@_drawerOpen">
@@ -28,6 +32,37 @@
 
 @code {
     private bool _drawerOpen = true;
-    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
-}
+    private bool _signedIn;
+    private string? _displayName;
 
+    private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            var session = await Accounts.GetSessionAsync();
+            _signedIn = session is not null;
+            _displayName = session?.BusinessName is { Length: > 0 } business
+                ? $"{session.DisplayName} · {business}"
+                : session?.DisplayName;
+            StateHasChanged();
+        }
+        catch (Exception exception) when (exception is QtsBilling.Contracts.Abstractions.ApiException)
+        {
+            _signedIn = false;
+        }
+    }
+
+    private async Task SignOutAsync()
+    {
+        await Accounts.LogoutAsync();
+        _signedIn = false;
+        Navigation.NavigateTo("login");
+    }
+}

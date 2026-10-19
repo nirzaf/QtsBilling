@@ -11,10 +11,10 @@
 | QB-00 | Verify baseline and production data inventory | **DONE (partial by design)** | Code-level inventory complete; live-data items marked UNVERIFIED (no reachable MongoDB). |
 | QB-01 | Establish clean solution boundaries without deleting WinForms | **DONE** | Web host `net10.0` and independent of WinForms; WASM client off Windows TFM; WinForms retained. |
 | QB-02 | Canonical IDs, value objects and contracts | **DONE** | `QtsBilling.Contracts` + `QtsModels.ValueObjects`; 41 focused tests pass. |
-| QB-03 | PostgreSQL EF Core foundation and schema | **DONE (applies pending a PostgreSQL 18 instance)** | 38-table schema, migrations + integrity guards; DDL script generated and reviewed. |
-| QB-04 | Secure identity, business membership and OIDC | TODO | Needs identity provider confirmation (OPEN-7) and PostgreSQL running. |
-| QB-05 | Add typed, authenticated API to existing web host | TODO | Depends on QB-04. |
-| QB-06 | Migrate customers, products and supplier masters | TODO | Depends on QB-03/QB-05. |
+| QB-03 | PostgreSQL EF Core foundation and schema | **DONE (verified live on PostgreSQL 18.6)** | 38-table schema, migrations + integrity guards; applied to a live instance and exercised with real transactions. |
+| QB-04 | Secure identity, business membership and OIDC | **DONE (server core)** | Identity on PostgreSQL, permission policies, tenant claims, enrolment gate, reset flow; OIDC/PKCE device grant deferred to QB-22. |
+| QB-05 | Add typed, authenticated API to existing web host | **DONE (first slice)** | `/api/v1` auth/customers/health, ProblemDetails + codes, correlation ids, OpenAPI, typed clients. |
+| QB-06 | Migrate customers, products and supplier masters | **PARTIAL — customers done** | Customers on PostgreSQL behind the API; products/suppliers/units/categories/etc. still Mongo (QB-07+). |
 | QB-07 | Replace journals with balanced, immutable ledger | TODO | DB guards already in place (QB-03). |
 | QB-08 | Transactional authoritative inventory | TODO | DB guards already in place (QB-03). |
 | QB-09 | Atomic idempotent server-side sale posting | TODO | |
@@ -23,7 +23,7 @@
 | QB-12 | Purchasing, expense, tax and discount integrity | TODO | |
 | QB-13 | Financial and operational reports from authoritative facts | TODO | |
 | QB-14 | Security, structured audit and real backup/restore | TODO | Card-data/PAN remediation is P0 (F-07). |
-| QB-15 | Remove web client database dependencies | TODO | Release blocker until done (browser build currently ships DB client assemblies). |
+| QB-15 | Remove web client database dependencies | **DONE (current surface)** | Browser bundle contains no Mongo/Npgsql/EF/QtsServices assets; CI bundle check still TODO (QB-26). |
 | QB-16 | Extract shared MudBlazor Razor components | TODO | |
 | QB-17 | Implement device-local SQLite persistence | TODO | Scaled-decimal helpers exist (QB-02). |
 | QB-18 | Create MAUI Windows Blazor Hybrid application | TODO | Requires `dotnet workload install maui-windows` approval. |
@@ -40,10 +40,28 @@
 | QB-29 | Remove WinForms completely | **GATED** | Requires the user's deletion codeword; nothing removed. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 
-## Current architecture state (after QB-03)
+## Current architecture state (after QB-06 / QB-15)
 
 - `QtsModels` — legacy BSON entities retained **plus** new provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
-- `QtsBilling.Contracts` — wire DTOs: paging, customers, catalog, sales capture, sync envelopes; canonical JSON fingerprinting.
-- `QtsBilling.Persistence.Postgres` — `BillingDbContext`, 38-table schema, `InitialCreate` + `AddIntegrityGuards` migrations.
-- `QtsServices` / `QtsBilling` (WinForms) / `QtsWebApp` — unchanged legacy MongoDB paths; still the running system.
-- No dual writes exist: the new PostgreSQL path is not yet referenced by any runtime host.
+- `QtsBilling.Contracts` — wire DTOs (paging, customers, catalog, sales capture, sync envelopes, identity), canonical JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`) and `ApiException`.
+- `QtsBilling.Persistence.Postgres` — `BillingDbContext` (Identity-enabled), 38-table schema + identity tables, migrations `InitialCreate`, `AddIntegrityGuards`, `AddIdentity`.
+- `QtsWebApp` — ASP.NET Core host on **PostgreSQL**: Blazor app + `/api/v1` (auth, customers, health), cookie sessions with permission policies, ProblemDetails/correlation ids, OpenAPI in Development.
+- `QtsWebApp.Client` — browser talks to the API only; **no** database assemblies or credentials in the bundle (QB-15).
+- `QtsServices` / `QtsBilling` (WinForms) — unchanged legacy MongoDB paths; WinForms removal is gated (QB-29). Sales, inventory, accounting and reporting still live there until QB-07…QB-14.
+- No dual writes exist: the PostgreSQL path serves its own (new) surface; legacy Mongo data has not been imported (QB-23/24 pending a reachable source).
+
+## Local development environment (this machine)
+
+```text
+PostgreSQL 18.6 container: docker run -d --name qtsbilling-pg -p 5433:5432 \
+  -e POSTGRES_USER=qtsbilling -e POSTGRES_PASSWORD=qtsbilling -e POSTGRES_DB=qtsbilling postgres:18.6
+connection string:  QTS_POSTGRES_CONNECTION="Host=localhost;Port=5433;Database=qtsbilling;Username=qtsbilling;Password=qtsbilling"
+run the web host:   dotnet run --project QtsWebApp.csproj --no-launch-profile --urls http://localhost:5188   (workdir QtsWebApp\QtsWebApp)
+migrations:         dotnet ef database update --project QtsBilling.Persistence.Postgres   (from the repository root)
+```
+
+Development bootstrap: the first start applies migrations and creates one **Owner** account
+(`owner@qtsbilling.local`, password from `QtsBilling:DevOwner:Password`, default `QtsBilling!Dev2026`)
+whose setup is deliberately pending. Sign-in is refused with `PASSWORD_RESET_REQUIRED` until the
+setup ticket (logged at startup, or returned by `POST /api/v1/auth/password-reset/request` in
+Development) is completed via `POST /api/v1/auth/password-reset/complete`.

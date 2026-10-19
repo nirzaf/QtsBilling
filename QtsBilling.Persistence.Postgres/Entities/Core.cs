@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Identity;
+
 namespace QtsBilling.Persistence.Postgres.Entities;
 
 /// <summary>
@@ -37,16 +39,12 @@ public sealed class BusinessLocation : TenantEntity
 }
 
 /// <summary>
-/// Application user. Legacy plaintext passwords are never migrated (decision D-20); credentials are
-/// established through the QB-04 identity flow, so <see cref="PasswordResetRequired"/> defaults to true.
+/// Application user (ASP.NET Core Identity, <see cref="Guid"/> key). Legacy plaintext passwords are
+/// never migrated (decision D-20); credentials are established through the reset/invitation flow, so
+/// <see cref="PasswordResetRequired"/> defaults to true.
 /// </summary>
-public sealed class User : Entity, IVersioned
+public sealed class User : IdentityUser<Guid>, IVersioned, ITimestamped
 {
-    public string Email { get; set; } = string.Empty;
-
-    /// <summary>Lower-cased e-mail used for uniqueness and lookups.</summary>
-    public string NormalizedEmail { get; set; } = string.Empty;
-
     public string DisplayName { get; set; } = string.Empty;
 
     public bool IsActive { get; set; } = true;
@@ -54,6 +52,10 @@ public sealed class User : Entity, IVersioned
     public bool PasswordResetRequired { get; set; } = true;
 
     public long Version { get; set; }
+
+    public DateTimeOffset CreatedAtUtc { get; set; }
+
+    public DateTimeOffset UpdatedAtUtc { get; set; }
 }
 
 /// <summary>Business membership and role. A user has at most one membership per business.</summary>
