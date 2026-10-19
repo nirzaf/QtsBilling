@@ -221,7 +221,7 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Change feed (QB-21) | ✅ Done, verified live |
 | Device sync loop + conflict queue (QB-22) | ✅ Done, verified live |
 | OIDC/PKCE device flow | 📋 TODO — the client still uses the session endpoint |
-| Historical data import + reconciliation (QB-23 … QB-25) | 📋 TODO — out-of-band, needs an external source |
+| Historical data import + reconciliation (QB-23 … QB-25) | ⛔ Blocked — needs a reachable legacy source (and the legacy field mapping) |
 | Tests, CI/CD, secret scanning (QB-26) | ✅ Done — the CI and release pipelines are in place |
 | Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | ✅ Done — the runbooks live in docs/migration/deployment.md, the rehearsal passes 7/7 |
 | Production cutover (QB-30) | 🔒 GATED — requires an explicit business-owner codeword |
