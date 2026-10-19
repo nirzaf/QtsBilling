@@ -6,6 +6,7 @@ using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsWebApp.Features.Sync;
 using QtsWebApp.Infrastructure;
 
 namespace QtsWebApp.Features.Catalog;
@@ -13,7 +14,7 @@ namespace QtsWebApp.Features.Catalog;
 /// <summary>
 /// Product and variant master data (QB-06). A product always carries at least one default variant so
 /// transaction lines reference concrete variants, and the master never stores stock: stock is derived from
-/// inventory balances (spec §3.5, F-12).
+/// inventory balances (spec Â§3.5, F-12).
 /// </summary>
 public static class ProductEndpoints
 {
@@ -179,12 +180,21 @@ public static class ProductEndpoints
             IsActive = true,
         };
 
-        db.Products.Add(product);
-        db.ProductVariants.Add(variant);
-
         try
         {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await SyncTransaction.RunAsync(
+                db,
+                async () =>
+                {
+                    db.Products.Add(product);
+                    db.ProductVariants.Add(variant);
+
+                    await SyncProjections.ProductAsync(db, businessId, product, [variant], cancellationToken)
+                        .ConfigureAwait(false);
+
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         catch (PostgresException exception)
         {
@@ -229,11 +239,26 @@ public static class ProductEndpoints
             return DuplicateSku(sku);
         }
 
-        product.Name = name;
-        product.Sku = sku;
-        product.CategoryId = request.CategoryId;
-        product.IsActive = request.IsActive;
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var variants = await db.ProductVariants.AsNoTracking()
+            .Where(variant => variant.BusinessId == businessId && variant.ProductId == product.Id)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        await SyncTransaction.RunAsync(
+            db,
+            async () =>
+            {
+                product.Name = name;
+                product.Sku = sku;
+                product.CategoryId = request.CategoryId;
+                product.IsActive = request.IsActive;
+
+                await SyncProjections.ProductAsync(db, businessId, product, variants, cancellationToken)
+                    .ConfigureAwait(false);
+
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
 
         return Results.Ok(await ToDetailAsync(db, product, cancellationToken).ConfigureAwait(false));
     }
@@ -299,13 +324,37 @@ public static class ProductEndpoints
             }
         }
 
-        variant.Name = name;
-        variant.Sku = string.IsNullOrWhiteSpace(request.Sku) ? variant.Sku : request.Sku.Trim();
-        variant.Barcode = barcode;
-        variant.SellingPrice = decimal.Round(request.SellingPrice, MoneyScale);
-        variant.PurchasePrice = request.PurchasePrice is { } purchase ? decimal.Round(purchase, MoneyScale) : null;
-        variant.IsActive = request.IsActive;
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        var product = await db.Products
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == variant.ProductId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var siblings = product is null
+            ? []
+            : await db.ProductVariants.AsNoTracking()
+                .Where(candidate => candidate.BusinessId == businessId && candidate.ProductId == product.Id)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+        await SyncTransaction.RunAsync(
+            db,
+            async () =>
+            {
+                variant.Name = name;
+                variant.Sku = string.IsNullOrWhiteSpace(request.Sku) ? variant.Sku : request.Sku.Trim();
+                variant.Barcode = barcode;
+                variant.SellingPrice = decimal.Round(request.SellingPrice, MoneyScale);
+                variant.PurchasePrice = request.PurchasePrice is { } purchase ? decimal.Round(purchase, MoneyScale) : null;
+                variant.IsActive = request.IsActive;
+
+                if (product is not null)
+                {
+                    await SyncProjections.ProductAsync(db, businessId, product, siblings, cancellationToken)
+                        .ConfigureAwait(false);
+                }
+
+                return true;
+            },
+            cancellationToken).ConfigureAwait(false);
 
         return Results.Ok(ToDto(variant));
     }

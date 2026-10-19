@@ -7,6 +7,7 @@ using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsWebApp.Features.Sync;
 using QtsWebApp.Infrastructure;
 
 namespace QtsWebApp.Features.Customers;
@@ -139,11 +140,20 @@ public static class CustomerEndpoints
             IsActive = true,
         };
 
-        db.Customers.Add(customer);
-
         try
         {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await SyncTransaction.RunAsync(
+                db,
+                async () =>
+                {
+                    db.Customers.Add(customer);
+
+                    await SyncProjections.CustomerAsync(db, businessId, customer, tombstone: false, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateException exception) when (IsUniqueViolation(exception))
         {
@@ -200,16 +210,25 @@ public static class CustomerEndpoints
             return DuplicatePhone();
         }
 
-        customer.Name = request.Name.Trim();
-        customer.Email = NullIfBlank(request.Email);
-        customer.Phone = NullIfBlank(request.Phone);
-        customer.PhoneNormalized = phoneNormalized;
-        customer.Address = NullIfBlank(request.Address);
-        customer.IsActive = true;
-
         try
         {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await SyncTransaction.RunAsync(
+                db,
+                async () =>
+                {
+                    customer.Name = request.Name.Trim();
+                    customer.Email = NullIfBlank(request.Email);
+                    customer.Phone = NullIfBlank(request.Phone);
+                    customer.PhoneNormalized = phoneNormalized;
+                    customer.Address = NullIfBlank(request.Address);
+                    customer.IsActive = true;
+
+                    await SyncProjections.CustomerAsync(db, businessId, customer, tombstone: false, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
         }
         catch (DbUpdateConcurrencyException)
         {
@@ -225,7 +244,7 @@ public static class CustomerEndpoints
 
     /// <summary>
     /// Master data is deactivated, never erased: historical sales, invoices and journals must keep
-    /// resolving the customer they were issued to (specification §3.7).
+    /// resolving the customer they were issued to (specification Â§3.7).
     /// </summary>
     private static async Task<IResult> DeactivateAsync(
         Guid id,
@@ -249,8 +268,19 @@ public static class CustomerEndpoints
 
         if (customer.IsActive)
         {
-            customer.IsActive = false;
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await SyncTransaction.RunAsync(
+                db,
+                async () =>
+                {
+                    customer.IsActive = false;
+
+                    // A deactivation is a tombstone: the device drops the record instead of keeping a stale one.
+                    await SyncProjections.CustomerAsync(db, businessId, customer, tombstone: true, cancellationToken)
+                        .ConfigureAwait(false);
+
+                    return true;
+                },
+                cancellationToken).ConfigureAwait(false);
         }
 
         return Results.NoContent();

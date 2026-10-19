@@ -195,6 +195,7 @@ app.MapPricingEndpoints();
 app.MapReportEndpoints();
 app.MapAuditEndpoints();
 app.MapSyncOperationEndpoints();
+app.MapSyncChangeEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

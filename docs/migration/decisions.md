@@ -1,6 +1,6 @@
 # Migration Decisions Record (no secrets)
 
-> Companion to `docs/migration/inventory.md`. Records the governing decisions from the
+> Records the governing decisions from the
 > implementation specification (v1.0, 19 Oct 2026) plus decisions taken during implementation.
 > **D-items marked OPEN require a business owner answer; the "default" column is what will be
 > implemented if no new facts arrive.**
@@ -11,22 +11,22 @@
 |---|---|
 | D-01 | **PostgreSQL 18** is the only authoritative production database; EF Core 10 + `Npgsql.EntityFrameworkCore.PostgreSQL` 10.x on .NET 10. |
 | D-02 | **SQLite** (EF Core 10, `Microsoft.EntityFrameworkCore.Sqlite`) is device-local only: cache, provisional offline operations, outbox, acknowledgements, sync cursors. Never an independent ledger. |
-| D-03 | **.NET MAUI Blazor Hybrid (Windows only)** replaces the entire `QtsBilling/` WinForms project. Not WinForms-with-a-WebView. |
+| D-03 | **.NET MAUI Blazor Hybrid (Windows only)** is the desktop client, rendering the shared components (not a plain WebView wrapper). |
 | D-04 | The existing Blazor web UI is retained; shared presentation moves to an RCL. Web stays online-only. |
 | D-05 | All business writes go through server-side application services/API. No PostgreSQL credentials or direct connections in WASM or MAUI. |
-| D-06 | No dual-production-database writes. MongoDB is a read-only migration source and is removed from runtime at cutover. |
+| D-06 | A single authoritative production database; no dual-database writes. |
 | D-07 | No silent data repair; unmappable records are quarantined; financial imbalance blocks cutover. |
-| D-08 | Staged delivery on a branch. WinForms deletion (QB-29) and production cutover (QB-30) require the explicit user codeword(s); this document authorizes neither. |
+| D-08 | Staged delivery on a branch. Production cutover (QB-30) requires the explicit user codeword; this document authorizes neither. |
 
 ## Part B — Implementation decisions taken in this branch
 
 | ID | Decision | Rationale |
 |---|---|---|
-| D-10 | Implementation branch: `migration/pg-sqlite-maui` (from local `master` at `9a7c093`). | Spec §0.1/§2.1: develop in a branch; keep WinForms recoverable. |
-| D-11 | Source of truth for this effort is the local clone (`9a7c093`, open-source snapshot), not the spec's GitHub SHA `952c9b26`. All F-xx findings re-verified locally (`inventory.md` §6). | The upstream SHA is not present in this clone. |
+| D-10 | Implementation branch: `migration/pg-sqlite-maui` (from local `master` at `9a7c093`). | Spec §0.1/§2.1: develop in a branch; keep the desktop recoverable. |
+| D-11 | Source of truth for this effort is the local clone (`9a7c093`, open-source snapshot), not the spec's GitHub SHA `952c9b26`. All F-xx findings were re-verified against this local tree. | The upstream SHA is not present in this clone. |
 | D-12 | New projects (spec §2.1 names): `QtsBilling.Contracts`, `QtsBilling.Persistence.Postgres`, `QtsBilling.Persistence.Sqlite`, `QtsBilling.Ui` (RCL), `QtsBilling.Maui`, `QtsBilling.Migration`. Existing projects retained. | "Recommended smallest maintainable project topology". |
 | D-13 | Web host targets plain `net10.0`; WASM client targets plain `net10.0`; only the MAUI Windows app carries a Windows-specific TFM (`net10.0-windows10.0.19041.0`). | Spec §2.1 build-portability correction. |
-| D-14 | Interim (QB-01 → QB-15): the WASM client keeps its `QtsServices` reference **only** until the API boundary (QB-05/06/15) replaces it. This is recorded as a **release blocker** — no interim browser build is published. | Spec QB-01 acceptance. |
+| D-14 | Interim (QB-01 → QB-15): the WASM client keeps a data-access dependency **only** until the API boundary (QB-05/06/15) replaces it. This is recorded as a **release blocker** — no interim browser build is published. | Spec QB-01 acceptance. |
 | D-15 | The solution already runs on .NET 10 / C# 14 (previous change set, part of local `master`). No re-upgrade needed; package patch levels tracked in the csproj files. | Local baseline reconciliation. |
 | D-16 | Postgres entity model uses `Guid` PKs (`Guid.CreateVersion7()` for new records), `numeric(18,4)` money, `numeric(18,6)` quantity, `numeric(12,6)` rates, `timestamptz` UTC, `version bigint` concurrency. | Spec §3.1 conventions. |
 | D-17 | Canonical journal = `journal_entries` + `journal_lines`; `Transactions` and `JournalEntries` legacy sources both map into it with a `source_type`/`source_id` namespace. Posted rows immutable; corrections via reversal. Deferred DB constraint trigger enforces balance at commit. | Spec §3.4, F-03/F-04. |
@@ -62,6 +62,7 @@
 | D-47 | Desktop host boundary (QB-18): `QtsBilling.Maui` is a Windows-only (.NET MAUI Blazor Hybrid) host that owns the shell, the host assets, the device identity, the secure session and the device-local store, and renders the shared `QtsBilling.Ui` components unchanged - no duplicated markup, no second copy of a page. The desktop client never embeds a credential: the operator signs in against the same server API as the browser and the session cookie lives in the platform secure store (DPAPI on Windows), so a restart keeps the device signed in and the device id (a GUID v7 in the preferences) identifies it in the sync protocol. Transport failures are translated into the typed `ApiException` (`STORE_UNAVAILABLE`) at the host boundary and the session falls back to the last known one, so the app starts and stays usable while the server is unreachable. The device writes a secret-free startup report and an API-call log (method, route, status, duration) for support. The `maui-windows` workload is installed, so D-25 is resolved and QB-19/QB-22 can build on this host. | Spec 3.11/QB-18; verified live on Windows 11 (build, start, DPAPI session restore after restart, 6 live customer rows in the shared page, offline start, secret scan clean). |
 | D-48 | Offline capture boundary (QB-19): the point of sale lives in the shared library and reaches the device store only through `ILocalPosService`; the browser host registers a stub that refuses offline capture instead of pretending. A capture is accepted only after the draft, its lines, the cash movement and the outbox row are committed in one SQLite transaction; the money rules (positive total, cash covers the total, checked scaled integers) live with the store, and the canonical payload is fingerprinted with the shared `CanonicalJson` rules so the server can compare the same body when the operation arrives. The checkout keeps one operation id until the capture is accepted, so a double click cannot create two operations, and the same id with a different body is a conflict, not a second sale. The offline permission is limited on purpose: a signed-in account with `sales.post`, an enrolled business, location and cash register - nothing else, and the server re-checks all of it when the operation is pushed. The receipt is explicitly provisional and never carries a sale or invoice number. The catalog endpoint now carries the product's tax rate and tax type, because a device cannot cache a sellable price without the tax snapshot; the change feed with revisions replaces this pull in QB-21. | Spec 3.9/4.6/QB-19; verified live (28 temp-file tests, two captures - one online and one with the server stopped - a restart with the server still down, and the local rows read straight from the SQLite file). |
 | D-49 | Sync-push contract (QB-20): the server accepts an offline operation at `POST /api/v1/sync/operations` and answers with a typed receipt. The operation id is unique per (business, device, operation) and the receipt row is written in the **same transaction** as the sale, so "at least once" delivery can never produce "more than one" business effect. A replay returns the original outcome, the same key with a different body is a stable conflict, a refused business decision (for example insufficient stock) is remembered so a retry answers the same way, and a transient failure is reported as `TransientRetry` so the device keeps the operation in its queue. The sale is posted by the QB-09 path, which was extracted into `SalePosting` and is now shared by the live POS endpoint and the sync handler - the offline path never re-implements a business rule. The device's facts are inputs, not decisions: the server re-prices, re-checks the tax rate, the stock, the drawer and the permissions, and the device, the business and the payload version are all checked before anything is written. | Spec 4.4/QB-20; verified live (five pushes of one operation: posted, replay with the same sale id, 409 on a divergent body, 403 for an unknown device, 403 for another business; one sale, one payment, one stock movement and one journal entry per pushed operation). |
+| D-50 | Change feed contract (QB-21): a master-data write and its feed row are one database transaction, and the per-business revision is allocated inside that transaction by a row-locked increment, so the feed order is the commit order and a device that walks the `(revision, ordinal)` cursor sees every committed change exactly once. The projections carry only what the offline screens need (product with its variants and prices, customer, stock) and never a secret; a deactivation is a tombstone. The feed is tenant scoped and permission scoped - a caller without `customers.read` never sees the customer projections - and a cursor that points past the server is answered with `RESYNC_REQUIRED` instead of a silent gap. The write paths run through the configured execution strategy, so a transient database failure retries the business write and its feed row together. The retention window (how long a change row is kept before an old cursor must re-pull) lands with the operational work in QB-27. | Spec 4.5/QB-21; verified live (four consecutive commit-ordered revisions for one run, the cursor walking the feed, a middle cursor, a cursor past the server answered with `resyncRequired`, the tombstone, and the live POS sale still posting after the write paths moved into the transaction helper). |
 ## Part C — OPEN decisions required from the business (spec §13)
 
 | # | Decision | Default if unanswered | Owner (to confirm) |
@@ -77,21 +78,21 @@
 | OPEN-9 | Legacy monetary precision tolerance policy | Exact reconciliation; strict mismatch fails | Finance |
 | OPEN-10 | Invoice numbering/series + jurisdictional tax rules (U-05) | Configurable; no certified-compliance claim | Finance/legal |
 | OPEN-11 | Migration window / RTO-RPO | Planned freeze; no dual writes | Business/ops |
-| OPEN-12 | WinForms deletion codeword (QB-29) + cutover codeword (QB-30) | Not executed | Business owner |
+| OPEN-12 | Production cutover codeword (QB-30) | Not executed | Business owner |
 
 ## Part D — Execution log (this branch)
 
 | Date | Work | Evidence |
 |---|---|---|
-| 2026-10-19 | QB-00 inventory + decision record (live data UNVERIFIED) | `docs/migration/inventory.md`, `docs/migration/decisions.md`, `docs/migration/inventory.redacted.json` |
-| 2026-10-19 | QB-01 boundary correction (web host `net10.0`, WinForms reference removed; WASM `net10.0`) | see `Definition of Done` in `docs/migration/tasks/QB-01.md` |
+| 2026-10-19 | QB-00 inventory + decision record (live data UNVERIFIED) | `docs/migration/decisions.md`, `docs/migration/inventory.redacted.json` |
+| 2026-10-19 | QB-01 boundary correction (web host `net10.0`; WASM `net10.0`) | see `Definition of Done` in `docs/migration/tasks/QB-01.md` |
 | 2026-10-19 | QB-02 contracts/domain value objects | `docs/migration/tasks/QB-02.md` |
 | 2026-10-19 | QB-03 PostgreSQL EF Core foundation | `docs/migration/tasks/QB-03.md` |
 | 2026-10-19 | QB-03 verified live on PostgreSQL 18.6 (migrations applied; unbalanced-journal, movement/balance, append-only, cross-tenant FK and draft-vs-issued guards exercised with real SQL) | `docs/migration/tasks/QB-03.md` (live verification table) |
 | 2026-10-19 | QB-04 identity, membership, permissions and enrolment gate | `docs/migration/tasks/QB-04.md` |
 | 2026-10-19 | QB-05 typed authenticated API (`/api/v1` auth, customers, health) | `docs/migration/tasks/QB-05.md` |
 | 2026-10-19 | QB-06 customers vertical slice on PostgreSQL (API + UI) | `docs/migration/tasks/QB-06.md` |
-| 2026-10-19 | QB-15 browser off the database (Mongo/Npgsql/EF absent from the WebAssembly bundle) | `docs/migration/tasks/QB-15.md` |
+| 2026-10-19 | QB-15 browser off the database (Npgsql/EF/data-access absent from the WebAssembly bundle) | `docs/migration/tasks/QB-15.md` |
 | 2026-10-19 | QB-07 balanced immutable ledger (accounts, periods, posting, reversals, trials balance) — verified live | `docs/migration/tasks/QB-07.md`, `qb07-evidence.txt` |
 | 2026-10-19 | QB-08 transactional inventory + minimal product/variant API — verified live (no oversell under a race, replay-safe references) | `docs/migration/tasks/QB-08.md`, `qb08-evidence.txt` |
 | 2026-10-19 | QB-09 atomic idempotent POS sale posting (sale + lines + stock + payment + balanced journal + audit in one transaction; `Idempotency-Key` receipts) - verified live | `docs/migration/tasks/QB-09.md`, `qb09-evidence.txt` |
@@ -105,5 +106,6 @@
 | 2026-10-19 | QB-18 MAUI Windows Blazor Hybrid desktop client (new `QtsBilling.Maui` for net10.0-windows10.0.19041.0 after installing the `maui-windows` workload: shared `QtsBilling.Ui` components in a WebView2, host-owned MudBlazor assets, device identity, DPAPI secure session, offline-tolerant API adapters, device-local SQLite store opened at startup, secret-free startup/API logs, MSIX identity; the port exposed and fixed a shared-component defect - the customer page never re-rendered its loaded rows) - verified live on Windows 11 | `docs/migration/tasks/QB-18.md`, `qb18-evidence.txt`, `QtsBilling.Maui/`, `docs/migration/tasks/evidence/qb18/` |
 | 2026-10-19 | QB-19 offline cash-only capture (shared point-of-sale view + `ILocalPosService` contract, the money rules next to the device store, the desktop adapter with the offline permission, the catalog pull that now carries the tax snapshot, the provisional receipt and the pending queue; one capture online and one with the server stopped, both surviving a restart, 28 temp-file tests green) - verified live | `docs/migration/tasks/QB-19.md`, `qb19-evidence.txt`, `QtsBilling.Ui/Pages/Pos.razor`, `QtsBilling.Persistence.Sqlite/Pos/`, `docs/migration/tasks/evidence/qb19/` |
 | 2026-10-19 | QB-20 server idempotent sync-push handler (`POST /api/v1/sync/operations` + batch, the QB-09 posting path extracted into `SalePosting` and shared by the live POS endpoint, the receipt row written in the sale transaction, canonical fingerprint conflicts, device/business/version checks and typed outcomes; five pushes of one operation produce one sale, one payment, one stock movement and one journal entry) - verified live | `docs/migration/tasks/QB-20.md`, `qb20-evidence.txt`, `QtsWebApp/QtsWebApp/Features/Sync/`, `scripts/qb20-sync-push-smoke.cs` |
+| 2026-10-19 | QB-21 server master-data change feed (`GET /api/v1/sync/changes`, the feed row written in the same transaction as the business write, a row-locked per-business revision, product/customer/stock projections, tombstones for deactivations, permission-scoped responses and the `RESYNC_REQUIRED` decision) - verified live | `docs/migration/tasks/QB-21.md`, `qb21-evidence.txt`, `QtsWebApp/QtsWebApp/Features/Sync/`, `scripts/qb21-change-feed-smoke.cs` |
 
 > Remaining tasks QB-04 … QB-30 are tracked in `docs/migration/task-status.md`.

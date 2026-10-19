@@ -1,0 +1,130 @@
+﻿# QB-21 live evidence - 2026-10-19
+# Server master-data change feed: GET /api/v1/sync/changes, commit-ordered per-business revisions.
+# The script scripts/qb21-change-feed-smoke.cs writes master data and then walks the feed.
+
+====================================================================================================
+1. The feed: the changes of one run, the cursor, a middle cursor and the resync case
+====================================================================================================
+login: 200
+create product: 201 keys=product,variants
+create customer: 201
+deactivate customer: 204
+product detail keys: product,variants
+opening stock: 201
+feed from the beginning:
+feed keys: changes,nextRevision,nextOrdinal,hasMore,schemaVersion,resyncRequired
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=1 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=2 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=3 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=4 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=5 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=6 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=7 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=8 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=9 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=10 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=11 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=12 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=13 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=14 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=15 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=16 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=17 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=18 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=19 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=20 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=21 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=22 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=23 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=24 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=25 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=26 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=27 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=28 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=29 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=30 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=31 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=32 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=33 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=34 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=35 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=36 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=37 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=38 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=39 ordinal=0 type=stock kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=40 ordinal=0 type=product kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=41 ordinal=0 type=customer kind=upsert payload=present
+   keys=revision,ordinal,entityType,entityId,kind,changedAtUtc
+   revision=42 ordinal=0 type=customer kind=tombstone payload=<none>
+   keys=revision,ordinal,entityType,entityId,kind,payload,changedAtUtc
+   revision=43 ordinal=0 type=stock kind=upsert payload=present
+nextCursor: revision=43 ordinal=0 hasMore=False resyncRequired=False
+feed after revision 1: 42 change(s)
+feed with a cursor past the server: resyncRequired=True changes=0
+
+====================================================================================================
+2. Database verification: the changes of the last run are consecutive and commit ordered
+====================================================================================================
+== QB-21 database verification: the feed rows of the last run are consecutive and commit ordered == revision | ordinal | entity_type |   kind    |        changed_at_utc         
+----------+---------+-------------+-----------+-------------------------------
+       43 |       0 | stock       | Upsert    | 2026-10-19 17:03:58.476834+00
+       42 |       0 | customer    | Tombstone | 2026-10-19 17:03:58.434742+00
+       41 |       0 | customer    | Upsert    | 2026-10-19 17:03:58.41905+00
+       40 |       0 | product     | Upsert    | 2026-10-19 17:03:58.388049+00
+       39 |       0 | stock       | Upsert    | 2026-10-19 17:03:43.674057+00
+       38 |       0 | stock       | Upsert    | 2026-10-19 17:03:29.949162+00
+(6 rows)
+
+             business_id              | revision |        updated_at_utc         
+--------------------------------------+----------+-------------------------------
+ 01a154f9-f0aa-7e4c-89c8-f900b2eab2dc |       43 | 2026-10-19 17:03:58.476834+00
+(1 row)
+
+ entity_type | count 
+-------------+-------
+ customer    |    22
+ product     |    11
+ stock       |    10
+(3 rows)
+

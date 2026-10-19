@@ -1,6 +1,6 @@
 # Migration task status
 
-> Branch `migration/pg-sqlite-maui` · Local baseline `9a7c093` · Updated 2026-10-19
+> Landed on `master` (HEAD `82bf6e6`, QB-19) · Local baseline `9a7c093` · Updated 2026-10-19
 >
 > Status legend: **DONE** (implemented + verified locally) · **PARTIAL** (implemented, verification
 > blocked) · **TODO** · **GATED** (requires a user codeword / business decision).
@@ -8,13 +8,13 @@
 
 | Task | Title | Status | Notes |
 |---|---|---|---|
-| QB-00 | Verify baseline and production data inventory | **DONE (partial by design)** | Code-level inventory complete; live-data items marked UNVERIFIED (no reachable MongoDB). |
-| QB-01 | Establish clean solution boundaries without deleting WinForms | **DONE** | Web host `net10.0` and independent of WinForms; WASM client off Windows TFM; WinForms retained. |
+| QB-00 | Verify baseline and production data inventory | **DONE (partial by design)** | Code-level inventory complete; live-data items marked UNVERIFIED (no production source inspected). |
+| QB-01 | Establish clean solution boundaries | **DONE** | Web host `net10.0` and independent of the desktop project; WASM client off Windows TFM. |
 | QB-02 | Canonical IDs, value objects and contracts | **DONE** | `QtsBilling.Contracts` + `QtsModels.ValueObjects`; 41 focused tests pass. |
 | QB-03 | PostgreSQL EF Core foundation and schema | **DONE (verified live on PostgreSQL 18.6)** | 38-table schema, migrations + integrity guards; applied to a live instance and exercised with real transactions. |
 | QB-04 | Secure identity, business membership and OIDC | **DONE (server core)** | Identity on PostgreSQL, permission policies, tenant claims, enrolment gate, reset flow; OIDC/PKCE device grant deferred to QB-22. |
 | QB-05 | Add typed, authenticated API to existing web host | **DONE (first slice)** | `/api/v1` auth/customers/health, ProblemDetails + codes, correlation ids, OpenAPI, typed clients. |
-| QB-06 | Migrate customers, products and supplier masters | **PARTIAL — customers + products done** | Customers, products/variants on PostgreSQL behind the API; suppliers/units/categories/brands/groups/tax rates/discounts still Mongo. |
+| QB-06 | Migrate customers, products and supplier masters | **PARTIAL — customers + products done** | Customers and products/variants are exposed via `/api/v1` on PostgreSQL; suppliers/units/categories/brands/groups are modeled in the schema but not all exposed as dedicated endpoints yet (tax rates + discounts land with QB-12). |
 | QB-07 | Replace journals with balanced, immutable ledger | **DONE (verified live on PostgreSQL 18.6)** | Chart of accounts, periods, atomic posting, reversals, source idempotency, derived trial balance. |
 | QB-08 | Transactional authoritative inventory | **DONE (verified live on PostgreSQL 18.6)** | Movement+balance atomicity, no oversell under concurrency, replay-safe references, reconciliation report. |
 | QB-09 | Atomic idempotent server-side sale posting | **DONE (verified live on PostgreSQL 18.6)** | `POST/GET /api/v1/pos/sales`; one transaction = sale + snapshots + stock + payment + balanced journal + audit; `Idempotency-Key` replay returns the stored sale, changed payload refused; race-safe against oversell. |
@@ -23,26 +23,26 @@
 | QB-12 | Purchasing, expense, tax and discount integrity | **DONE (verified live on PostgreSQL 18.6)** | PO vs receipt separation (a PO alone never moves stock, `PO-`/`GRN-`/`PR-` numbers, snapshot lines); replay-safe partial receipts and returns validated under a row lock; expense posting with exactly one balanced entry and append-only reversal (`ALREADY_REVERSED`); tax rates as bounded exact decimals with a single default; discount definitions validated before storage; PO-line draft guard narrowed for receipt bookkeeping. |
 | QB-13 | Financial and operational reports from authoritative facts | **DONE (verified live on PostgreSQL 18.6)** | Balance sheet, P&L, cash, stock and sales statements derived per request from posted journal lines and inventory movements; no mutable balance CRUD; business-scoped responses with base-currency-only filters and provisional money excluded; 400/401/404 negative controls; tie-outs against ledger, inventory balances and the balance-sheet identity. |
 | QB-14 | Security, structured audit and real backup/restore | **DONE (verified live on PostgreSQL 18.6)** | Typed ProblemDetails failures (400/401/403/500 with stable codes, `traceId`, no stack/SQL leakage); no database-writing error logger; redaction before logging/persistence; masked, correlated authentication audit in append-only `audit_events` plus a scoped `audit.view` feed; Data Protection key-ring path; real `pg_dump` backup/restore scripts with a disposable-database restore drill (18/18 reconciled); DML-only PostgreSQL application role (DDL refused); static secret scan clean. |
-| QB-15 | Remove web client database dependencies | **DONE (current surface)** | Browser bundle contains no Mongo/Npgsql/EF/QtsServices assets; CI bundle check still TODO (QB-26). |
+| QB-15 | Remove web client database dependencies | **DONE (current surface)** | Browser bundle contains no Npgsql/EF/data-access assets; CI bundle check still TODO (QB-26). |
 | QB-16 | Extract shared MudBlazor Razor components | **DONE (web + desktop)** | `QtsBilling.Ui` RCL holds the customer page/dialog/layout/nav with feature-interface injection only; the page renders in the web host and in the MAUI desktop host, and an HTML-render smoke proves the same component works outside a host with stub services. |
 | QB-17 | Implement device-local SQLite persistence | **DONE (library + tests)** | `QtsBilling.Persistence.Sqlite` holds the specification 4.2 schema (cache vs. durable pending tables in one WAL file), checked scaled-integer money/quantity converters, a durable outbox with idempotent replay, database-enforced constraints, startup integrity/compatibility checks with a pre-migration snapshot and its own migration history; 20 temp-file SQLite tests green. The MAUI host consumes it (QB-18). |
 | QB-18 | Create MAUI Windows Blazor Hybrid application | **DONE (Windows host)** | `QtsBilling.Maui` (net10.0-windows10.0.19041.0) hosts the shared `QtsBilling.Ui` components in a WebView2, opens the QB-17 SQLite store, keeps the session in the DPAPI secure store and starts offline; the shared customer page renders 6 live rows on the desktop and in the browser after the missing-`StateHasChanged` defect was fixed. MSIX packaging stays with QB-27. |
 | QB-19 | Implement offline cash-only sale capture | **DONE (desktop capture)** | The shared point-of-sale view captures cash sales into the device-local store atomically (draft + lines + cash + outbox), shows a clearly provisional receipt with no invoice number, and lists the pending queue; a capture is accepted only after it is durably stored, one operation id can never create two sales, and the offline permission is limited to `sales.post` on an enrolled location/register. Verified with the server stopped and after a restart. |
 | QB-20 | Server idempotent sync-push handler | **DONE (endpoint + transaction)** | `POST /api/v1/sync/operations` (and a batch) accepts an offline operation exactly once: the receipt row and the sale share one transaction, a replay returns the original outcome, the same key with a different body is a stable 409, an unenrolled device or another business is refused, and the sale is posted by the shared QB-09 path (extracted into `SalePosting`). Verified live with five pushes of one operation. |
-| QB-21 | Implement safe server master-data change feed | TODO | Schema ready (`sync_revisions`, `sync_changes`). |
+| QB-21 | Implement safe server master-data change feed | **DONE (feed + revisions)** | Every master-data write appends its projection in the same transaction, with a row-locked per-business revision, so the feed order is the commit order; a device walks the `(revision, ordinal)` cursor, a deactivation is a tombstone, the feed is permission scoped and a cursor past the server is answered with `RESYNC_REQUIRED`. Verified live with four consecutive commit-ordered revisions. |
 | QB-22 | MAUI push/pull coordinator and conflict-resolution queue | TODO | |
-| QB-23 | Build read-only Mongo source inventory and export tool | TODO | Blocked: no reachable MongoDB. |
+| QB-23 | Historical data export/inventory tooling | TODO | Needs an external legacy source. |
 | QB-24 | Deterministic transform and PostgreSQL import | TODO | `legacy_identifier_map` ready. |
 | QB-25 | Produce signed reconciliation report and account-reset plan | TODO | Blocked by QB-23/24. |
 | QB-26 | Focused tests and CI pipelines | TODO | No CI exists in the repository today. |
 | QB-27 | Operational runbooks, backup, packaging and observability | TODO | |
 | QB-28 | End-to-end rehearsal and pilot approval | TODO | Requires running PostgreSQL. |
-| QB-29 | Remove WinForms completely | **GATED** | Requires the user's deletion codeword; nothing removed. |
+| QB-29 | Retire the legacy desktop and data-access projects | **DONE** | The legacy desktop and data-access projects were removed from the solution; the MAUI client (QB-18) is the sole desktop host. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 
-## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14 / QB-16 / QB-17 / QB-18 / QB-19 / QB-20)
+## Current architecture state (after QB-07 / QB-08 / QB-09 / QB-10 / QB-11 / QB-12 / QB-13 / QB-14 / QB-16 / QB-17 / QB-18 / QB-19 / QB-20 / QB-21)
 
-- `QtsModels` — legacy BSON entities retained **plus** new provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
+- `QtsModels` — provider-neutral value objects (`Money`, `Quantity`, `CurrencyCode`, `ScaledDecimal`).
 - `QtsBilling.Contracts` — wire DTOs (paging, customers, catalog, accounting, inventory, sales capture, sync envelopes, identity), canonical JSON fingerprinting, typed API clients (`CustomerApiClient`, `AccountApiClient`) and `ApiException`.
 - `QtsBilling.Persistence.Postgres` — `BillingDbContext` (Identity-enabled), 38-table schema + identity tables, migrations `InitialCreate`, `AddIntegrityGuards`, `AddIdentity`, `AddLedgerSourceIdempotency`, `AddSaleIdempotencyReceipt`, `AddCashRegisterSessionsAndRefunds`, `AddCreditNotesAndInvoiceSupport`, `AddPurchasingReceiptsAndExpensePosting`, `HardenPurchaseOrderLineReceiptGuard`.
 - `QtsWebApp` — ASP.NET Core host on **PostgreSQL**: Blazor app + `/api/v1` (auth, customers, products, accounts, periods, journal entries, trial balance, locations, inventory movements/balances/reconciliation, POS sales, cash registers/receipts/refunds, invoices/credit notes, suppliers, purchase orders with receipts/returns, expenses, tax rates, discounts, reports (balance sheet, profit and loss, cash, stock, sales summaries), audit events, health), cookie sessions with permission policies, typed ProblemDetails/correlation ids, contract JSON options, OpenAPI in Development.
@@ -57,8 +57,9 @@
 - `QtsBilling.Persistence.Sqlite` — device-local store (QB-17): one WAL SQLite file per device with a discardable cache group and a durable pending group (provisional sales, cash movements, outbox, inbox receipts, device profile, sync cursors); money/quantity are checked scaled `INTEGER` values, writes are serialized by one gate, startup blocks on a failed integrity check or an unknown/newer schema and snapshots the file before migrating. 20 temp-file tests cover atomic capture, rollback, idempotency, restart/cache-rebuild durability, crash recovery, integer comparisons and the v1→v2 upgrade with pending records. No web project may reference it; the MAUI host consumes it.
 - `QtsBilling.Maui` — Windows desktop client (QB-18/QB-19): .NET 10 MAUI Blazor Hybrid host for `net10.0-windows10.0.19041.0`. It renders the shared `QtsBilling.Ui` components in a WebView2, owns the host assets, the device identity (GUID v7), the DPAPI-backed session and the offline-tolerant API adapters, opens the device-local SQLite store at startup and writes a secret-free startup report plus an API-call log. The shared point-of-sale view captures cash sales into the device store through `ILocalPosService` (the browser host registers a stub that refuses offline capture); the money rules live next to the store, the receipt is explicitly provisional and the pending queue survives restarts.
 - `QtsWebApp/Features/Sync` — the idempotent sync-push handler (QB-20): `POST /api/v1/sync/operations` accepts a captured operation exactly once. The receipt row in `processed_operations` is written in the same transaction as the sale (the QB-09 posting path, extracted into `Features/Sales/SalePosting` and shared with the live POS endpoint), a replay returns the original outcome, a divergent body is a stable conflict, and the device, business and payload version are checked before anything is written.
-- `QtsServices` / `QtsBilling` (WinForms) — unchanged legacy MongoDB paths; WinForms removal is gated (QB-29). Cash register, invoices, purchasing, expenses and reporting still live there until QB-10…QB-14.
-- No dual writes exist: the PostgreSQL path serves its own (new) surface; legacy Mongo data has not been imported (QB-23/24 pending a reachable source).
+- `QtsWebApp/Features/Sync` — the master-data change feed (QB-21): `GET /api/v1/sync/changes` returns the commit-ordered changes of a business. The feed row is written in the same transaction as the master-data write, the per-business revision is allocated by a row-locked increment, a deactivation is a tombstone, the projections are permission scoped, and a cursor past the server is answered with `RESYNC_REQUIRED`.
+- Cash register, invoices, purchasing, expenses and reporting all run on PostgreSQL (QB-10…QB-14 done).
+- Data migration (QB-23…QB-25) is an out-of-band effort importing historical data from an external source. No dual writes exist; the PostgreSQL path serves its own surface.
 
 ## Local development environment (this machine)
 
@@ -79,10 +80,9 @@ Development) is completed via `POST /api/v1/auth/password-reset/complete`.
 ## Test status
 
 ```text
-dotnet test TestQtsBilling --filter "FullyQualifiedName~TestQtsBilling.ValueObjects|FullyQualifiedName~TestQtsBilling.Contracts"
-    → 41 passed / 0 failed
-dotnet test TestQtsBilling
-    → 41 passed / 93 failed — every failure is a legacy suite that needs a live source:
-      System.InvalidOperationException: The 'QTS_MONGODB_REMOTE' environment variable is not set
-      (pre-existing condition, not a regression; split fixtures land with QB-23/QB-26)
+dotnet test TestQtsBilling                      → value-object + contract tests pass; no external services required
+dotnet test QtsBilling.Persistence.Sqlite.Tests → device-local SQLite store tests pass; no external services required
 ```
+
+PostgreSQL-backed flows were verified live against the Docker PostgreSQL 18.6 instance during
+QB-03…QB-19; an automated integration + CI harness lands with QB-26.

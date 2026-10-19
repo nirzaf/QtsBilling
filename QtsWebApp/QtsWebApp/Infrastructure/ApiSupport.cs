@@ -39,6 +39,13 @@ public static class BusinessScope
             StatusCodes.Status403Forbidden,
             ApiErrorCodes.Forbidden,
             "The signed-in user is not an active member of a business.");
+
+    /// <summary>
+    /// True when the signed-in membership holds the permission. The permissions are issued by the identity
+    /// stack at sign-in and re-checked on every request; the client never decides them.
+    /// </summary>
+    public static bool HasPermission(this ClaimsPrincipal principal, string permission)
+        => principal.HasClaim(QtsClaims.Permission, permission);
 }
 
 /// <summary>Digits-only phone normalization used for the per-business uniqueness rule (F-14).</summary>

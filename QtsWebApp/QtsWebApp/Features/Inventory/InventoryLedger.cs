@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsWebApp.Features.Sync;
 using QtsWebApp.Infrastructure;
 
 namespace QtsWebApp.Features.Inventory;
@@ -61,6 +62,11 @@ internal static class InventoryLedger
 
         balance.OnHand = resulting;
         balance.LastMovementAtUtc = now;
+
+        // The stock projection travels in the same transaction as the movement, so a device never sees a
+        // balance that was not committed (QB-21).
+        await SyncProjections.StockAsync(db, businessId, locationId, variantId, resulting, cancellationToken)
+            .ConfigureAwait(false);
 
         var movement = new InventoryMovement
         {
