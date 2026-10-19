@@ -77,25 +77,69 @@ QtsBilling is a **hybrid online/offline, API-first** system. Governing decisions
 
 ## Features
 
-**Platform (live, PostgreSQL-backed)**
+All features below are **live and PostgreSQL-backed**.
 
-- Typed `/api/v1` endpoints implemented as ASP.NET Core minimal-API feature slices with ProblemDetails, error codes, correlation IDs and OpenAPI in Development — **auth**; **customers**; **catalog** (products / variants); **accounting** (accounts, periods, journal entries, trial balance); **inventory** (locations, movements, balances, reconciliation); **health**; **POS sales** (`POST /api/v1/pos/sales`, atomic idempotent posting with stock, payment and balanced journal); **cash registers** (drawer sessions with derived expected cash, counted/variance close, audited movements); **receipts** (snapshot JSON + printable HTML); **refunds** (balanced reversal + stock return + drawer movement); **invoices** (draft/issue/void/full credit note, transactional numbering, payment allocation with idempotency receipts, printable HTML); **suppliers**; **purchase orders** (draft/order/cancel plus idempotent receipts `GRN-` and returns `PR-` that move stock exactly once); **expenses** (one balanced entry per expense, append-only reversal); **tax rates** (bounded exact decimals, single default); **discounts** (validated definitions); **reports** (balance sheet, profit and loss, cash, stock and sales summaries derived from posted journal and inventory facts, base-currency-only, business-scoped); **audit events** (append-only structured feed with masked identifiers, correlation ids and the `audit.view` permission).
+### API surface — typed `/api/v1` feature slices
+
+Each area is an ASP.NET Core minimal-API slice with ProblemDetails, stable error codes, correlation IDs and OpenAPI in Development:
+
+| Area | What it covers |
+| --- | --- |
+| **Auth** | sign-in/out, session, password-reset request & complete |
+| **Customers** | CRUD, search, paging, soft-deactivate |
+| **Catalog** | products and variants |
+| **Accounting** | accounts, periods, journal entries, trial balance |
+| **Inventory** | locations, movements, balances, reconciliation |
+| **POS sales** | atomic idempotent posting — stock, payment and a balanced journal in one transaction |
+| **Cash registers** | drawer sessions, counted/variance close, audited movements |
+| **Receipts & refunds** | snapshot JSON + printable HTML; balanced reversal, stock return and drawer movement |
+| **Invoices** | draft / issue / void / full credit note, transactional numbering, payment allocation |
+| **Suppliers & purchasing** | purchase orders, `GRN-` receipts and `PR-` returns — stock moves exactly once |
+| **Expenses** | one balanced entry per expense, append-only reversal |
+| **Pricing** | tax rates (bounded exact decimals, single default) and validated discounts |
+| **Reports** | balance sheet, P&L, cash, stock & sales — derived from posted facts, business-scoped |
+| **Audit** | append-only feed, masked identifiers, `audit.view` permission |
+| **Sync** | idempotent operation push and the commit-ordered change feed |
+| **Health** | liveness |
+
+### Capabilities
+
+#### Platform & security
+
 - **Authentication** — ASP.NET Core Identity on PostgreSQL (Guid keys), cookie sessions with `SameSite=Strict`, strong password policy, lockout, permission-based claims and policies. Every account starts with `PasswordResetRequired = true`; sign-in is refused until a one-time setup ticket is completed, so **no default password is ever usable**.
 - **Multi-business tenant isolation** — every business-owned row carries `business_id`; composite FKs prevent cross-tenant linkage; enforced server-side *and* by the schema.
+
+#### Financial integrity
+
 - **Canonical, immutable ledger** — `journal_entries` + `journal_lines` with optimistic concurrency (`version`); posted rows are append-only, corrections happen via reversal; deferred triggers enforce balance at commit and reject illegal updates.
 - **Transactional inventory** — `inventory_balances` (unique per business / location / variant, `on_hand >= 0`) + append-only `inventory_movements`. `Product.Quantity` and `Inventory.Quantity` cease to be authorities.
+
+#### Sales, POS & documents
+
 - **Atomic, idempotent sales** — one transaction posts the sale, its line snapshots, the stock movements, the confirmed payment, the balanced journal entry and the audit event. `Idempotency-Key` + payload fingerprint receipts make retries safe (replay returns the original sale; a changed payload under the same key is refused). Concurrent terminals cannot oversell.
-- **Truthful payments and receipts** - card capture is disabled until a verified PSP integration exists; receipts render from the immutable sale snapshots (JSON + printable HTML) with a visually distinct provisional template for offline capture; refunds reverse the sale, return the stock and keep the drawer arithmetic accounted.
-- **Immutable invoices** - drafts stay editable with server-computed totals; issuing allocates unique scoped numbers inside the posting transaction and freezes the line snapshots (catalog renames never change a historical invoice). Posted invoices are never edited: corrections are a void (unpaid) or a full credit note that references the original and reverses its entry; payments allocate against the open balance with `Idempotency-Key` receipts.
-- **Purchasing and expense integrity** - a purchase order is a commitment: stock moves only through receipts, which carry quantity/cost snapshots, `GRN-`/`PR-` numbers and `Idempotency-Key` replay safety so a retried delivery never doubles stock. Expenses post one balanced ledger entry each and reverse exactly once; tax rates are exact bounded decimals with a single default, and disallowed discount definitions are refused before they reach the database.
-- **Statements from authoritative facts** - the balance sheet, P&L, cash, stock and sales reports are computed per request from posted journal lines and inventory movements: no stored or mutable balances, no materialized snapshots, provisional offline money excluded by construction, and every response echoes the business it was computed for (verified tie-outs: sheet balanced, P&L = current earnings, cash = trial balance, stock = inventory balances).
-- **Typed failures, audited sign-ins, real backups** - every API failure is a ProblemDetails body with a stable code and a correlation id (no stack/SQL leakage, no empty lists, no database-writing error logger); authentication outcomes are audited append-only with masked e-mails, and the development reset ticket never reaches a log. Backups are real `pg_dump` artifacts with SHA-256 manifests, restored into a disposable database and reconciled by a drill; the runtime database role is DML-only. See `docs/migration/deployment.md`.
-- **One MudBlazor surface** - the customer page, its dialog, layout and navigation live in `QtsBilling.Ui` and render from injected `ICustomerApiClient`/`IAccountApiClient` interfaces: no component touches HTTP or a database, hosts own render modes/assets/routing, and a platform-injection HTML-render smoke proves the same component works outside the web host (the MAUI host build still awaits the workload).
-- **Offline-first device store** - the device keeps one WAL SQLite file with a discardable cache (products, customers, stock) and a durable pending group (provisional sales, cash movements, outbox, inbox receipts, sync cursors). Money and quantities are checked scaled integers (precision loss and overflow are rejected, never rounded), an offline capture commits sale + lines + cash + outbox atomically, a cache rebuild can never touch pending money, the outbox survives crashes and restarts, and startup blocks on a failed integrity check or an unknown/newer schema after snapshotting the file (20 temp-file tests, QB-17).
-- **Sells while offline** - the desktop client sells cash from its cached catalog: the capture is committed atomically into the device store, the receipt is clearly marked `PROVISIONAL` with a provisional reference (never a sale or invoice number), and everything that is still waiting for the server is listed in the pending queue. One operation id can never create two sales, a failed capture is never reported as a success, and the offline permission is limited to cash with `sales.post` on an enrolled location and register (QB-19).
-- **Offline sales land exactly once** - `POST /api/v1/sync/operations` accepts a captured operation exactly once: the receipt row and the sale share one transaction, a replay returns the original sale, the same key with a different body is a stable conflict, and the server re-prices and re-checks the stock, the tax rate, the drawer and the permissions - the device never decides a business fact (QB-20).
-- **A device learns what changed** - every master-data write appends its projection in the same transaction, with a row-locked per-business revision, so the change feed is commit ordered: a device walks the `(revision, ordinal)` cursor, a deactivation arrives as a tombstone, and a cursor the server cannot explain is answered with `RESYNC_REQUIRED` instead of a silent gap (QB-21).
-- **One desktop client, same components** - the Windows desktop app (`QtsBilling.Maui`) renders the shared customer page, layout and navigation in a WebView2, signs in against the same API without embedding a credential, keeps the session in the Windows secure store, opens the device-local SQLite store at startup and stays usable while the server is down; the web host remains independently deployable (QB-18).
+- **Truthful payments and receipts** — card capture is disabled until a verified PSP integration exists; receipts render from the immutable sale snapshots (JSON + printable HTML) with a visually distinct provisional template for offline capture; refunds reverse the sale, return the stock and keep the drawer arithmetic accounted.
+- **Immutable invoices** — drafts stay editable with server-computed totals; issuing allocates unique scoped numbers inside the posting transaction and freezes the line snapshots (catalog renames never change a historical invoice). Posted invoices are never edited: corrections are a void (unpaid) or a full credit note that references the original and reverses its entry; payments allocate against the open balance with `Idempotency-Key` receipts.
+
+#### Procurement & reporting
+
+- **Purchasing and expense integrity** — a purchase order is a commitment: stock moves only through receipts, which carry quantity/cost snapshots, `GRN-`/`PR-` numbers and `Idempotency-Key` replay safety so a retried delivery never doubles stock. Expenses post one balanced ledger entry each and reverse exactly once; tax rates are exact bounded decimals with a single default, and disallowed discount definitions are refused before they reach the database.
+- **Statements from authoritative facts** — the balance sheet, P&L, cash, stock and sales reports are computed per request from posted journal lines and inventory movements: no stored or mutable balances, no materialized snapshots, provisional offline money excluded by construction, and every response echoes the business it was computed for (verified tie-outs: sheet balanced, P&L = current earnings, cash = trial balance, stock = inventory balances).
+
+#### Reliability & shared UI
+
+- **Typed failures, audited sign-ins, real backups** — every API failure is a ProblemDetails body with a stable code and a correlation id (no stack/SQL leakage, no empty lists, no database-writing error logger); authentication outcomes are audited append-only with masked e-mails, and the development reset ticket never reaches a log. Backups are real `pg_dump` artifacts with SHA-256 manifests, restored into a disposable database and reconciled by a drill; the runtime database role is DML-only. See `docs/migration/deployment.md`.
+- **One MudBlazor surface** — the customer page, its dialog, layout and navigation live in `QtsBilling.Ui` and render from injected `ICustomerApiClient`/`IAccountApiClient` interfaces: no component touches HTTP or a database, hosts own render modes/assets/routing, and a platform-injection HTML-render smoke proves the same component works outside the web host (the MAUI host build still awaits the workload).
+
+#### Offline & sync (desktop)
+
+- **Offline-first device store** — the device keeps one WAL SQLite file with a discardable cache (products, customers, stock) and a durable pending group (provisional sales, cash movements, outbox, inbox receipts, sync cursors). Money and quantities are checked scaled integers (precision loss and overflow are rejected, never rounded), an offline capture commits sale + lines + cash + outbox atomically, a cache rebuild can never touch pending money, the outbox survives crashes and restarts, and startup blocks on a failed integrity check or an unknown/newer schema after snapshotting the file (20 temp-file tests, QB-17).
+- **Sells while offline** — the desktop client sells cash from its cached catalog: the capture is committed atomically into the device store, the receipt is clearly marked `PROVISIONAL` with a provisional reference (never a sale or invoice number), and everything that is still waiting for the server is listed in the pending queue. One operation id can never create two sales, a failed capture is never reported as a success, and the offline permission is limited to cash with `sales.post` on an enrolled location and register (QB-19).
+- **Offline sales land exactly once** — `POST /api/v1/sync/operations` accepts a captured operation exactly once: the receipt row and the sale share one transaction, a replay returns the original sale, the same key with a different body is a stable conflict, and the server re-prices and re-checks the stock, the tax rate, the drawer and the permissions — the device never decides a business fact (QB-20).
+- **A device learns what changed** — every master-data write appends its projection in the same transaction, with a row-locked per-business revision, so the change feed is commit ordered: a device walks the `(revision, ordinal)` cursor, a deactivation arrives as a tombstone, and a cursor the server cannot explain is answered with `RESYNC_REQUIRED` instead of a silent gap (QB-21).
+- **One desktop client, same components** — the Windows desktop app (`QtsBilling.Maui`) renders the shared customer page, layout and navigation in a WebView2, signs in against the same API without embedding a credential, keeps the session in the Windows secure store, opens the device-local SQLite store at startup and stays usable while the server is down; the web host remains independently deployable (QB-18).
+
+#### Building blocks
+
 - **Value objects** — provider-neutral primitives: `Money` (`numeric(18,4)`), `Quantity` (`numeric(18,6)`), `CurrencyCode`, `ScaledDecimal`.
 - **Sync protocol** — per-business `sync_revisions` with commit-ordered ordinal, `processed_operations` idempotency with payload fingerprint, `sync_changes` change feed, tombstones and `RESYNC_REQUIRED` on an expired cursor. The idempotent **sync-push** handler (`POST /api/v1/sync/operations`) is in place; the master-data change feed (QB-21) and the MAUI push/pull coordinator (QB-22) are the remaining pieces.
 
@@ -125,30 +169,24 @@ QtsBilling is a **hybrid online/offline, API-first** system. Governing decisions
 ## Architecture
 
 ```
-                     ┌─────────────────────────────────────────────┐
-                     │  QtsWebApp.Client  (Blazor WebAssembly)     │
-                     │  QtsBilling.Ui + Contracts — no DB access   │
-                     └────────────────────┬────────────────────────┘
-                                          │ HTTPS via typed API clients
-   ┌───────────────────────────┐           ▼
-   │  QtsBilling.Maui (Windows) │  ┌─────────────────────────────────────┐
-   │  Blazor Hybrid + WebView2  │─▶│  QtsWebApp  (ASP.NET Core host)     │
-   │  QtsBilling.Ui + Contracts │HTTP│ · Blazor Server UI + QtsBilling.Ui │
-   │  + Persistence.Sqlite      │  │ · /api/v1 minimal-API endpoints     │
-   │  (offline capture/outbox)  │  │ · Identity · policies · correlation │
-   └───────────────────────────┘  │ · ProblemDetails · OpenAPI (dev)    │
-                                    └──────────┬──────────────┬────────────┘
-                                               ▼              ▼
-                 ┌─────────────────────────────────┐  ┌──────────────────────────┐
-                 │ QtsBilling.Persistence.Postgres │  │ QtsModels.ValueObjects   │
-                 │  EF Core 10 · Npgsql 10.x       │  │ (Money / Quantity /      │
-                 │  BillingDbContext (Identity),   │  │  CurrencyCode /          │
-                 │  38-table schema + guards       │  │  ScaledDecimal)          │
-                 └────────────────┬────────────────┘  └──────────────────────────┘
-                                  ▼
-                       ┌────────────────────┐
-                       │   PostgreSQL 18    │  ← single authoritative store
-                       └────────────────────┘
+   Clients
+   |-- QtsWebApp.Client   (Blazor WebAssembly) -- QtsBilling.Ui + Contracts, no DB access
+   +-- QtsBilling.Maui    (Windows hybrid)     -- QtsBilling.Ui + Contracts + device-local SQLite
+                    |
+                    |  HTTPS, typed API clients   (the desktop client is offline-tolerant)
+                    v
+   QtsWebApp   (ASP.NET Core host)
+     - Blazor Server UI + the shared QtsBilling.Ui RCL
+     - /api/v1 minimal-API feature slices
+     - Identity, permission policies, correlation IDs, ProblemDetails, OpenAPI (dev)
+                    |
+                    v
+   QtsBilling.Persistence.Postgres   (EF Core 10, Npgsql, BillingDbContext, 38-table schema + guards)
+                    |
+                    v
+   PostgreSQL 18   <-- the single authoritative store
+
+   Domain value objects (QtsModels.ValueObjects): Money, Quantity, CurrencyCode, ScaledDecimal
 
 Browser and desktop both consume the shared QtsBilling.Ui RCL + QtsBilling.Contracts wire DTOs; neither
 ships database credentials or drivers. The desktop keeps a device-local SQLite store for offline capture.
