@@ -11,8 +11,8 @@ public sealed class OutboxCaptureTests
         await using var harness = LocalStoreHarness.Create();
         var startup = await harness.Store.InitializeAsync();
 
-        Assert.Equal(3, startup.AppliedMigrations.Count);
-        Assert.Equal(3, startup.SchemaVersion);
+        Assert.Equal(4, startup.AppliedMigrations.Count);
+        Assert.Equal(4, startup.SchemaVersion);
         Assert.Equal("wal", startup.JournalMode);
         Assert.True(startup.IntegrityCheckPassed);
         Assert.Null(startup.PreMigrationBackupPath);

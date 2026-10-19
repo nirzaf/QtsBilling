@@ -9,4 +9,10 @@
         <RootNamespace>QtsBilling.Contracts</RootNamespace>
     </PropertyGroup>
 
+    <ItemGroup>
+        <!-- The provider-neutral value objects: one shared commercial calculation for the server,
+             the browser and the Windows device (specification D03). -->
+        <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
+    </ItemGroup>
+
 </Project>

@@ -69,6 +69,13 @@ public sealed class SaleLine : Entity, ITenantScoped
 
     public decimal LineTotal { get; set; }
 
+    /// <summary>
+    /// How the tax was composed into the price of this line (specification D03). It is a snapshot: a
+    /// later change of the catalog tax policy never rewrites a posted line, and a document can mix
+    /// exclusive and inclusive lines.
+    /// </summary>
+    public string TaxMode { get; set; } = "Exclusive";
+
     /// <summary>Cost of goods snapshot used for margin/COGS reporting.</summary>
     public decimal UnitCostSnapshot { get; set; }
 }

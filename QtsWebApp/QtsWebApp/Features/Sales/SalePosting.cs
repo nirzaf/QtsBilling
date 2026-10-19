@@ -8,6 +8,7 @@ using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsModels.ValueObjects;
 using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Inventory;
 using QtsWebApp.Infrastructure;
@@ -214,11 +215,33 @@ internal static class SalePosting
                 continue;
             }
 
-            var net = gross - discount;
-            var tax = product.TaxType == TaxType.Inclusive
-                ? LedgerWriter.Round(net * serverRate / (1 + serverRate))
-                : LedgerWriter.Round(net * serverRate);
-            var lineTotal = product.TaxType == TaxType.Inclusive ? net : net + tax;
+            // One shared commercial calculation (specification D03): the server, the browser and the
+            // device compute a line with the same function, so the same commercial inputs always give
+            // the same amounts. For an inclusive line the tax is already inside the payable, so the
+            // revenue base is the payable minus that tax.
+            CommercialLineAmounts amounts;
+
+            try
+            {
+                amounts = CommercialAmounts.ComputeLine(
+                    new CommercialLineInput
+                    {
+                        Quantity = quantity,
+                        UnitPrice = serverPrice,
+                        TaxMode = product.TaxType == TaxType.Inclusive
+                            ? CommercialTaxMode.Inclusive
+                            : CommercialTaxMode.Exclusive,
+                        TaxRate = serverRate,
+                        DiscountAmount = discount,
+                        PricingPolicyVersion = line.PricingPolicyVersion,
+                    },
+                    $"lines[{index}]");
+            }
+            catch (CommercialAmountException exception)
+            {
+                errors[exception.Field] = [exception.Message];
+                continue;
+            }
 
             computed.Add(new ComputedLine(
                 index + 1,
@@ -227,11 +250,13 @@ internal static class SalePosting
                 variant.Sku,
                 quantity,
                 serverPrice,
-                discount,
+                amounts.DiscountAmount,
                 serverRate,
-                tax,
-                lineTotal,
-                gross,
+                amounts.TaxAmount,
+                amounts.PayableAmount,
+                amounts.GrossAmount,
+                amounts.RevenueBaseAmount,
+                amounts.TaxMode.ToString(),
                 product.TrackStock,
                 LedgerWriter.Round(variant.PurchasePrice ?? 0m)));
         }
@@ -473,6 +498,7 @@ internal static class SalePosting
                     TaxRate = line.TaxRate,
                     TaxAmount = line.Tax,
                     LineTotal = line.LineTotal,
+                    TaxMode = line.TaxMode,
                     UnitCostSnapshot = line.UnitCost,
                 };
 
@@ -531,7 +557,10 @@ internal static class SalePosting
                 });
             }
 
-            var revenue = subtotal - discount;
+            // The revenue is the net base of the lines, never the gross: for a tax-inclusive line the tax
+            // is already inside the payable, so crediting the gross would count that tax twice and the
+            // entry would not balance (specification D03, finding F11).
+            var revenue = total - tax;
             var journalLines = new List<QtsBilling.Contracts.Accounting.JournalLineRequest>
             {
                 new(DebitAccountFor(payment.Payment.Method, accounts), total, 0, $"Sale {saleNumber}", request.LocationId),
@@ -674,6 +703,10 @@ internal static class SalePosting
         decimal Tax,
         decimal LineTotal,
         decimal Gross,
+        /// <summary>The net revenue of the line: the payable minus the tax that is already inside it.</summary>
+        decimal RevenueBase,
+        /// <summary>How the tax was composed into the price (Exclusive, Inclusive or Exempt).</summary>
+        string TaxMode,
         bool TrackStock,
         decimal UnitCost);
 

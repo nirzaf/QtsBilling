@@ -2,7 +2,9 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sync;
+using QtsModels.ValueObjects;
 using QtsBilling.Persistence.Sqlite.Entities;
+using QtsModels.ValueObjects;
 
 // The device row and the wire contract share a name; the store speaks the entity.
 using SyncConflict = QtsBilling.Persistence.Sqlite.Entities.SyncConflict;
@@ -259,6 +261,14 @@ public sealed partial class SqliteLocalStore
 
                 var taxRate = payload.TryGetProperty("taxRate", out var rate) && rate.TryGetDecimal(out var value) ? value : 0m;
 
+                // The tax composition travels with the projection: the device has to compute the same
+                // tax as the server (specification D03/F12).
+                var taxMode = payload.TryGetProperty("taxType", out var type) && type.GetString() is { } taxTypeName
+                    && Enum.TryParse<CommercialTaxMode>(taxTypeName, ignoreCase: true, out var parsedMode)
+                    && Enum.IsDefined(parsedMode)
+                        ? parsedMode.ToString()
+                        : "Exclusive";
+
                 foreach (var variant in variants.EnumerateArray())
                 {
                     if (!variant.TryGetProperty("id", out var idElement) || !idElement.TryGetGuid(out var variantId))
@@ -294,6 +304,7 @@ public sealed partial class SqliteLocalStore
                         ? priceValue
                         : row.Price;
                     row.TaxRate = taxRate;
+                    row.TaxMode = taxMode;
                     row.Active = variant.TryGetProperty("isActive", out var active) && active.GetBoolean();
                     row.Revision = variant.TryGetProperty("version", out var version) && version.TryGetInt64(out var versionValue)
                         ? versionValue

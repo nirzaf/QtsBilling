@@ -64,6 +64,7 @@ public sealed class LocalStoreDbContext : DbContext
             b.Property(x => x.Name).HasColumnName("name").HasMaxLength(256);
             b.Property(x => x.Price).HasColumnName("price_scaled").HasConversion(LocalValueConverters.Money);
             b.Property(x => x.TaxRate).HasColumnName("tax_scaled").HasConversion(LocalValueConverters.Quantity);
+            b.Property(x => x.TaxMode).HasColumnName("tax_mode").HasMaxLength(16).IsRequired();
             b.Property(x => x.Active).HasColumnName("active");
             b.Property(x => x.Revision).HasColumnName("revision");
             b.HasIndex(x => new { x.BusinessId, x.LocationId, x.Name });

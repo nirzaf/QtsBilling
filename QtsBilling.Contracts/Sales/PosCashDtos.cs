@@ -89,7 +89,9 @@ public sealed record SaleReceiptLineDto(
     decimal DiscountAmount,
     decimal TaxRate,
     decimal TaxAmount,
-    decimal LineTotal);
+    decimal LineTotal,
+    /// <summary>How the tax was composed into the price (Exclusive, Inclusive or Exempt).</summary>
+    string TaxMode = "Exclusive");
 
 public sealed record SaleReceiptPaymentDto(
     string Method,

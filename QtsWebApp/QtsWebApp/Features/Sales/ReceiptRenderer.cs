@@ -129,6 +129,13 @@ public static class ReceiptRenderer
                 {
                     builder.Append("tax ").Append(line.TaxAmount.ToString("0.0000", culture))
                         .Append(" (").Append((line.TaxRate * 100).ToString("0.####", culture)).Append("%)");
+
+                    // A tax-inclusive line already carries that tax inside the price the customer paid:
+                    // the receipt says so instead of showing a tax that is added twice.
+                    if (string.Equals(line.TaxMode, "Inclusive", StringComparison.Ordinal))
+                    {
+                        builder.Append(" included in the price");
+                    }
                 }
 
                 builder.AppendLine("</td><td class=\"num\"></td><td class=\"num\"></td></tr>");

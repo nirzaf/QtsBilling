@@ -1,5 +1,7 @@
 namespace QtsBilling.Contracts.Sales;
 
+using QtsModels.ValueObjects;
+
 /// <summary>
 /// Customer cart line captured at sale time. All values are historical snapshots; the server
 /// re-validates price/tax/discount policy and never trusts them blindly (specification §3.5/§4.4).
@@ -10,7 +12,17 @@ public sealed record SaleLineRequest(
     decimal UnitPrice,
     decimal DiscountAmount,
     decimal TaxRate,
-    string? ObservedCatalogRevision);
+    string? ObservedCatalogRevision)
+{
+    /// <summary>
+    /// How the tax is composed into the price the client showed. The server is authoritative: it
+    /// recomputes the line with the stored catalog policy and rejects a client amount that disagrees.
+    /// </summary>
+    public CommercialTaxMode? TaxMode { get; init; }
+
+    /// <summary>The pricing policy version the client captured the line against.</summary>
+    public string? PricingPolicyVersion { get; init; }
+}
 
 /// <summary>
 /// Sale capture request shared by the online POS API and the offline sync outbox payload.
@@ -92,6 +104,8 @@ public sealed record PostedSaleLineDto(
     decimal TaxRate,
     decimal TaxAmount,
     decimal LineTotal,
+    /// <summary>How the tax was composed into the price (Exclusive, Inclusive or Exempt).</summary>
+    string TaxMode,
     decimal UnitCostSnapshot);
 
 public sealed record PostedPaymentDto(

@@ -3262,6 +3262,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("tax_amount");
 
+                    b.Property<string>("TaxMode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("tax_mode");
+
                     b.Property<decimal>("TaxRate")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)")

@@ -3,6 +3,7 @@ using MudBlazor;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sync;
+using QtsModels.ValueObjects;
 
 namespace QtsBilling.Ui.Pages;
 
@@ -198,7 +199,7 @@ public partial class Pos
 
         if (existing is null)
         {
-            _lines.Add(new CartLine(item.VariantId, item.Name, item.Sku, item.UnitPrice, item.TaxRate, item.Revision, 1m));
+            _lines.Add(new CartLine(item.VariantId, item.Name, item.Sku, item.UnitPrice, item.TaxRate, item.Revision, 1m, item.TaxMode));
         }
         else
         {
@@ -269,7 +270,10 @@ public partial class Pos
                         line.TaxRate,
                         LineTax(line),
                         0m,
-                        line.Revision))
+                        line.Revision)
+                    {
+                        TaxMode = line.TaxMode,
+                    })
                 ]);
 
             var result = await service.CaptureCashSaleAsync(draft);
@@ -298,9 +302,34 @@ public partial class Pos
         }
     }
 
-    private static decimal LineTotal(CartLine line) => (line.Quantity * line.UnitPrice) + LineTax(line);
+    /// <summary>
+    /// The line amount, computed with the shared commercial calculation: the device and the server use
+    /// the same function, so an offline amount and the posted amount agree (specification D03/F12).
+    /// </summary>
+    private static decimal LineTotal(CartLine line) => LineAmounts(line).PayableAmount;
 
-    private static decimal LineTax(CartLine line) => line.Quantity * line.UnitPrice * line.TaxRate;
+    /// <summary>The tax of the line, with the same shared calculation the server uses.</summary>
+    private static decimal LineTax(CartLine line) => LineAmounts(line).TaxAmount;
+
+    private static CommercialLineAmounts LineAmounts(CartLine line)
+    {
+        try
+        {
+            return CommercialAmountCalculator.ComputeLine(
+                line.Quantity,
+                line.UnitPrice,
+                line.TaxMode,
+                line.TaxRate,
+                0m,
+                field: "line");
+        }
+        catch (CommercialAmountException)
+        {
+            // A line that cannot be computed exactly shows no tax: the server rejects the capture and
+            // the cashier sees the error, rather than the device inventing an amount.
+            return new CommercialLineAmounts(0m, 0m, 0m, 0m, 0m, line.TaxRate, line.TaxMode, null);
+        }
+    }
 
     private sealed class CartLine(
         Guid variantId,
@@ -309,7 +338,8 @@ public partial class Pos
         decimal unitPrice,
         decimal taxRate,
         long revision,
-        decimal quantity)
+        decimal quantity,
+        CommercialTaxMode taxMode)
     {
         public Guid VariantId { get; } = variantId;
 
@@ -324,6 +354,9 @@ public partial class Pos
         public long Revision { get; } = revision;
 
         public decimal Quantity { get; set; } = quantity;
+
+        /// <summary>How the tax is composed into the price (the cached catalog policy).</summary>
+        public CommercialTaxMode TaxMode { get; } = taxMode;
     }
 }
 

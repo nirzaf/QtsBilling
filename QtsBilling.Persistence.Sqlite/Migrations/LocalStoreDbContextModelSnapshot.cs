@@ -108,6 +108,12 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("sku");
 
+                    b.Property<string>("TaxMode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("tax_mode");
+
                     b.Property<long>("TaxRate")
                         .HasColumnType("INTEGER")
                         .HasColumnName("tax_scaled");

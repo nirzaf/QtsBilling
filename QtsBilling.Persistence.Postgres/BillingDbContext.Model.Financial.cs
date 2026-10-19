@@ -46,6 +46,7 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
             b.Property(e => e.SkuSnapshot).HasMaxLength(64);
+            b.Property(e => e.TaxMode).HasMaxLength(16).IsRequired();
             b.HasOne<Sale>()
                 .WithMany()
                 .HasForeignKey(e => new { e.SaleId, e.BusinessId })

@@ -2,6 +2,7 @@ using System.Text.Json;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Serialization;
 using QtsBilling.Persistence.Sqlite.Entities;
+using QtsModels.ValueObjects;
 
 namespace QtsBilling.Persistence.Sqlite.Pos;
 
@@ -49,7 +50,12 @@ public sealed class LocalPosStore
                 product.TaxRate,
                 stock.TryGetValue(product.ProductId, out var onHand) ? onHand : null,
                 product.Active,
-                product.Revision))
+                product.Revision)
+            {
+                TaxMode = Enum.TryParse<CommercialTaxMode>(product.TaxMode, ignoreCase: true, out var mode) && Enum.IsDefined(mode)
+                    ? mode
+                    : CommercialTaxMode.Exclusive,
+            })
         ];
     }
 

@@ -22,6 +22,12 @@ public sealed class CachedProduct
     /// <summary>Tax rate, scale 1,000,000 (six decimal places).</summary>
     public decimal TaxRate { get; set; }
 
+    /// <summary>
+    /// How the tax is composed into the price (Exclusive, Inclusive or Exempt). The device needs it to
+    /// compute the same tax as the server with the shared calculation (specification D03/F12).
+    /// </summary>
+    public string TaxMode { get; set; } = "Exclusive";
+
     public bool Active { get; set; }
 
     public long Revision { get; set; }

@@ -1,5 +1,7 @@
 namespace QtsBilling.Contracts.Pos;
 
+using QtsModels.ValueObjects;
+
 /// <summary>
 /// A sellable item in the device-local cache. The variant is the unit that is actually sold; the price
 /// and tax rate are the snapshot the server will re-validate when the offline sale is pushed.
@@ -12,7 +14,17 @@ public sealed record LocalCatalogItem(
     decimal TaxRate,
     decimal? OnHand,
     bool Active,
-    long Revision);
+    long Revision)
+{
+    /// <summary>
+    /// How the tax is composed into the price. The device computes the line with the shared
+    /// calculation, so an offline amount and the posted amount agree (specification D03/F12).
+    /// </summary>
+    public CommercialTaxMode TaxMode { get; init; } = CommercialTaxMode.Exclusive;
+
+    /// <summary>The pricing policy version the cached price was captured under.</summary>
+    public string? PricingPolicyVersion { get; init; }
+}
 
 /// <summary>One line of a provisional cash sale, with the fixed price snapshot taken at capture time.</summary>
 public sealed record LocalSaleLineDraft(
@@ -23,7 +35,14 @@ public sealed record LocalSaleLineDraft(
     decimal TaxRate,
     decimal Tax,
     decimal Discount,
-    long ExpectedCatalogRevision);
+    long ExpectedCatalogRevision)
+{
+    /// <summary>How the tax was composed into the captured tax amount.</summary>
+    public CommercialTaxMode TaxMode { get; init; } = CommercialTaxMode.Exclusive;
+
+    /// <summary>The pricing policy version the line was captured against.</summary>
+    public string? PricingPolicyVersion { get; init; }
+}
 
 /// <summary>
 /// The cash a cashier collected, with the lines it belongs to. The operation id is generated once per
