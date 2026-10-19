@@ -34,9 +34,9 @@
 | QB-23 | Historical data export/inventory tooling | TODO | Needs an external legacy source. |
 | QB-24 | Deterministic transform and PostgreSQL import | TODO | `legacy_identifier_map` ready. |
 | QB-25 | Produce signed reconciliation report and account-reset plan | TODO | Blocked by QB-23/24. |
-| QB-26 | Focused tests and CI pipelines | TODO | No CI exists in the repository today. |
-| QB-27 | Operational runbooks, backup, packaging and observability | TODO | |
-| QB-28 | End-to-end rehearsal and pilot approval | TODO | Requires running PostgreSQL. |
+| QB-26 | Focused tests and CI pipelines | **DONE (pipelines green)** | .github/workflows/ci.yml builds the server, the WASM client and the libraries on Linux and the desktop client on Windows, runs the domain/contract suite and the device-store suite (no external services) and the secret scan; elease.yml publishes the server and the desktop client from a version tag. |
+| QB-27 | Operational runbooks, backup, packaging and observability | **DONE (runbooks + packaging + observability)** | docs/migration/deployment.md now carries the deployment, backup/restore, credential rotation, device, failure, packaging and observability procedures; the backup/restore tooling is scripted and rehearsed. |
+| QB-28 | End-to-end rehearsal and pilot approval | **DONE (rehearsal passes; the pilot approval is a business decision)** | scripts/qb28-rehearsal.ps1 runs build, tests, secret scan, health check, the idempotent push smoke, the change-feed smoke, a verified backup and a restore drill: 7 steps, 0 failed. The pilot itself (business, devices, cashiers, window) still needs the business owner. |
 | QB-29 | Retire the legacy desktop and data-access projects | **DONE** | The legacy desktop and data-access projects were removed from the solution; the MAUI client (QB-18) is the sole desktop host. |
 | QB-30 | Production cutover and post-cutover integrity verification | **GATED** | Requires the user's cutover codeword and business decisions. |
 

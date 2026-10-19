@@ -158,3 +158,93 @@ for integer money columns, v1 -> v2 schema upgrade with pending records plus the
 blocked startup on an unknown/newer schema with the money rows intact, database-enforced cash-only and
 lifecycle constraints) and the static boundary checks (no Npgsql/web reference, no floating-point
 column, PostgreSQL migration history untouched).
+
+## 11. Runbooks (QB-27)
+
+Every procedure below is written so that it never destroys business data. The rehearsal
+(`scripts/qb28-rehearsal.ps1`) runs the checkable parts of them.
+
+### 11.1 Deploy the web host
+
+1. Apply the schema: `dotnet ef database update --project QtsBilling.Persistence.Postgres` (the app also
+   applies pending migrations at startup - prefer the explicit command for a controlled rollout).
+2. Provision the runtime role: `scripts/provision-postgres-roles.ps1` (DML only, no DDL, no ownership).
+3. Configure the environment: `QTS_POSTGRES_CONNECTION`, `QTS_DATAPROTECTION_PATH` (a persistent key
+   ring - without it every restart invalidates the sessions), the ASP.NET Core URLs and, in production,
+   a TLS terminator in front of the app.
+4. Start the host and check `GET /api/v1/health` before routing traffic to it.
+5. Roll back by rolling the *process* back; the schema is migrated forward only.
+
+### 11.2 Backup and restore
+
+- Backup: `scripts/backup-postgres.ps1` writes a `pg_dump` artifact plus a `.json` manifest with the
+  SHA-256 of the dump. Copy both to the backup store; the manifest is what proves the copy is intact.
+- Restore: `scripts/restore-postgres.ps1` loads a dump into a chosen database. Always restore into a
+  **disposable** database first, reconcile it (`scripts/restore-drill.ps1` does exactly that and drops the
+  drill database afterwards).
+- A restore is not a rollback: restoring over a live database replaces it. Decide, rehearse, and record
+  the decision.
+
+### 11.3 Credential rotation
+
+| What | How | What it invalidates |
+|---|---|---|
+| Database password | Change it in the database, then update `QTS_POSTGRES_CONNECTION` and restart the host. | Nothing; the sessions survive (the key ring is separate). |
+| Data Protection key ring | Add a new key to `QTS_DATAPROTECTION_PATH` and keep the old file. | Nothing while the old key is kept; removing it invalidates every session and ticket. |
+| Device enrolment | Revoke the device in `device_registrations` (or through `devices.manage`). | The device can no longer push or pull; its queued operations stay on the device for review. |
+| User password | The reset flow (`/api/v1/auth/password-reset/*`). | The old session of that user ends with the security stamp rotation. |
+
+### 11.4 Device procedures
+
+- **Lost or stolen device:** revoke the enrolment (the server refuses every further push and pull), then
+  wipe the sandbox on the device when it comes back. The queued operations on that device are lost with it -
+  take a copy of the queue before wiping if the sales matter.
+- **Retired device:** wipe the sandbox (`%LOCALAPPDATA%\<publisher>\<app>\Data`) and revoke the enrolment.
+- **Device fell behind:** the server answers `RESYNC_REQUIRED`; the device wipes its cache and re-pulls the
+  baseline. The pending queue is not touched.
+- **Device with a stuck queue:** the queue never blocks the UI. Check the device's API-call log
+  (`api-calls.log`) and the startup report (`startup-diagnostics.txt`); a terminal refusal is shown as
+  *Rejected* with the error code and must be resolved by an operator, not by retrying.
+- **Device re-enrolled to another business:** the catalog refresh rebuilds the cache and re-resolves the
+  location and the register, so no rows of the old business survive.
+
+### 11.5 Failure procedures
+
+- **Failed schema migration on a device:** the store refuses to start, the pending money rows stay exactly as
+  they were, and a pre-migration snapshot sits next to the database. Restore the snapshot or ship a fixed
+  build; never delete the file to "unblock" the device.
+- **Corrupted device database:** quarantine the file, let the device re-initialize and re-sync from the
+  server, and report the incident. The device cache is disposable; the server is the truth.
+- **Server disk full:** the server fails writes instead of losing them. Free space, restart, and check the
+  pending operations on the devices - they are still on the devices.
+
+### 11.6 Packaging (desktop client)
+
+- **Unpackaged (the release workflow):** `dotnet publish QtsBilling.Maui -c Release -f net10.0-windows10.0.19041.0
+  -p:RuntimeIdentifier=win-x64 -p:WindowsPackageType=None`. The published folder is the application.
+- **MSIX:** the identity lives in `Platforms/Windows/Package.appxmanifest`
+  (`com.qtsbilling.desktop`); build with `-p:WindowsPackageType=MSIX` and sign with the operator's
+  certificate. The WebView2 runtime is a prerequisite; the bootstrapper installs it when it is missing.
+
+## 12. Observability (QB-27)
+
+| Surface | What it carries | Where |
+|---|---|---|
+| Server responses | A correlation id (`X-Correlation-Id`) on every request and in every typed failure. | The response headers and the log. |
+| Server logs | Structured events per request; failures are typed (`code`, `traceId`), never a stack trace. | The host log. |
+| Audit feed | Append-only `audit_events`: sign-ins, permission changes, money movements. | `GET /api/v1/audit-events` (Owner, `audit.view`). |
+| Health | The liveness/readiness of the host. | `GET /api/v1/health`. |
+| Device startup report | Device id, server address, local-store schema, journal mode, integrity result, shared routes, whether the sync coordinator is registered. | `%LOCALAPPDATA%\<publisher>\<app>\Data\startup-diagnostics.txt`. |
+| Device API log | Every API call with method, route, status and duration - never a credential or a payload body. | `%LOCALAPPDATA%\<publisher>\<app>\Data\api-calls.log`. |
+| Device queue | The pending operations with their state, the open conflicts and the feed revision. | The point-of-sale screen. |
+
+What to watch day to day: the pending-operation count and the conflict count on the devices (a device that
+cannot push is accumulating money that the server has not seen), the `RESYNC_REQUIRED` rate, the failed
+authentication rate in the audit feed, and the backup job's success (a missing manifest means an unprovable
+backup).
+
+## 13. Verified in QB-27
+
+The rehearsal (QB-28) runs the checkable parts of these runbooks on every rehearsal: the secret scan, the
+health check, the idempotent push smoke, the change-feed smoke, the backup with its SHA-256 manifest and
+the restore drill into a disposable database.

@@ -212,7 +212,7 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Purchasing, expenses, tax, discounts (QB-12) | ✅ Done, verified live |
 | Financial & operational reports (QB-13) | ✅ Done, verified live |
 | Security, audit, real backup/restore (QB-14) | ✅ Done, verified live |
-| Browser off the database (QB-15) | ✅ Done for current surface; CI bundle-check still TODO (QB-26) |
+| Browser off the database (QB-15) | ✅ Done for current surface |
 | Shared `QtsBilling.Ui` RCL (QB-16) | ✅ Done (web + desktop) |
 | Device-local SQLite store (QB-17) | ✅ Done, verified with temp-file tests |
 | MAUI Windows desktop client (QB-18) | ✅ Done, verified on Windows 11 |
@@ -222,8 +222,8 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Device sync loop + conflict queue (QB-22) | ✅ Done, verified live |
 | OIDC/PKCE device flow | 📋 TODO — the client still uses the session endpoint |
 | Historical data import + reconciliation (QB-23 … QB-25) | 📋 TODO — out-of-band, needs an external source |
-| Tests, CI/CD, secret scanning (QB-26) | 📋 TODO — no CI configured yet |
-| Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | 📋 TODO |
+| Tests, CI/CD, secret scanning (QB-26) | ✅ Done — the CI and release pipelines are in place |
+| Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | ✅ Done — the runbooks live in docs/migration/deployment.md, the rehearsal passes 7/7 |
 | Production cutover (QB-30) | 🔒 GATED — requires an explicit business-owner codeword |
 
 Full task-by-task view: [`docs/migration/task-status.md`](docs/migration/task-status.md).
@@ -390,7 +390,7 @@ check) is planned under **QB-26**.
 Per-task detail lives in [`docs/migration/tasks/`](docs/migration/tasks/); the aggregate tracker is
 [`docs/migration/task-status.md`](docs/migration/task-status.md). Highlights:
 
-**Done (server + desktop):** QB-01…QB-22 — solution boundaries; contracts and value objects;
+**Done (server + desktop):** QB-01…QB-22, plus the CI pipelines, the operational runbooks and the rehearsal (QB-26…QB-28) — solution boundaries; contracts and value objects;
 the PostgreSQL schema with a balanced immutable ledger (QB-07), transactional inventory (QB-08), atomic
 idempotent sales (QB-09), cash register / receipts / refunds (QB-10), invoices & credit notes (QB-11),
 purchasing / expenses / tax / discounts (QB-12), derived reports (QB-13), and security / audit / real
@@ -403,9 +403,8 @@ push handler (QB-20), the commit-ordered change feed (QB-21) and the device sync
 - **OIDC/PKCE device flow** — the standards-based device authorisation for the desktop client.
 - **QB-23 … QB-25** — out-of-band import of historical data (export → deterministic transform →
   PostgreSQL load), plus a signed reconciliation report and account-reset plan.
-- **QB-26** — focused tests and CI pipelines (build, tests, secret scanning, WASM bundle check).
-- **QB-27 / QB-28** — operational runbooks, backup, packaging/MSIX, observability; end-to-end rehearsal
-  and pilot approval.
+- **Pilot approval** — the business decision that opens the pilot (which business, which devices, which
+  cashiers and the acceptance window).
 - **QB-30** — production cutover and post-cutover integrity verification (gated behind the business-owner's
   cutover codeword).
 

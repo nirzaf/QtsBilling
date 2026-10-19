@@ -25,7 +25,6 @@ param(
     [string]$Container = "qtsbilling-pg",
     [string]$Database = "qtsbilling",
     [string]$User = "qtsbilling",
-    [string]$Password = "qtsbilling",
     [string]$BaseUrl = "http://localhost:5188",
     [switch]$SkipBuild
 )
@@ -47,7 +46,8 @@ function Invoke-Step([string]$Step, [scriptblock]$Action) {
     try {
         $output = & $Action 2>&1 | Out-String
         $failed = $output -match "(?i)\bFAIL\b|error CS|Unhandled exception"
-        Add-Result $Step (-not $failed) ($output.Trim() -split "`n" | Select-Object -Last 2 | ForEach-Object { $_.Trim() } | Join-String -Separator " | ")
+        $detail = (($output.Trim() -split "`n" | Select-Object -Last 2 | ForEach-Object { $_.Trim() }) -join " | ")
+        Add-Result $Step (-not $failed) $detail
     }
     catch {
         Add-Result $Step $false $_.Exception.Message
@@ -64,12 +64,26 @@ try {
     Invoke-Step "scan: static secret scan" { powershell -NoProfile -ExecutionPolicy Bypass -File scripts/secret-scan.ps1 2>&1 | Out-String }
 
     # 3. the server
-    $env:QTS_POSTGRES_CONNECTION = "Host=localhost;Port=5433;Database=$Database;Username=$User;Password=$Password"
+    $connection = $env:QTS_POSTGRES_CONNECTION
+
+    if ([string]::IsNullOrWhiteSpace($connection)) {
+        Add-Result "server: configuration" $false "QTS_POSTGRES_CONNECTION is not set; the rehearsal never carries a credential itself."
+        $connection = ""
+    }
+    else {
+        Add-Result "server: configuration" $true "the connection string comes from the environment."
+    }
+
     $env:ASPNETCORE_ENVIRONMENT = "Development"
+    New-Item -ItemType Directory -Force -Path (Join-Path $repoRoot "backups") | Out-Null
+
+    if ($connection) {
+        $env:QTS_POSTGRES_CONNECTION = $connection
+    }
 
     $serverProcess = Start-Process -FilePath "dotnet" `
         -ArgumentList "run --project QtsWebApp/QtsWebApp/QtsWebApp.csproj --no-launch-profile --urls $BaseUrl" `
-        -WorkingDirectory (Join-Path $repoRoot "QtsWebApp/QtsWebApp") `
+        -WorkingDirectory $repoRoot `
         -RedirectStandardOutput "backups/rehearsal-server.log" `
         -RedirectStandardError "backups/rehearsal-server.err" `
         -WindowStyle Hidden -PassThru

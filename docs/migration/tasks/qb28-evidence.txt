@@ -1,0 +1,23 @@
+﻿# QB-28 live evidence - 2026-10-19
+# End-to-end rehearsal: scripts/qb28-rehearsal.ps1 (7 steps, 0 failed).
+
+====================================================================================================
+Rehearsal output
+====================================================================================================
+scan: static secret scan                                   PASS
+    allow | scripts/qb20-sync-push-smoke.cs:43 | hardcoded password literal | == secret scan PASSED: no unallowlisted credential material found ==
+server: configuration                                      PASS
+    the connection string comes from the environment.
+server: health endpoint                                    PASS
+    http://localhost:5188
+sync: idempotent push (replay, conflict, device, business) PASS
+    push #5 (other business) -> 403 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"The operation belongs to another business.","status":403,"code":"FORBIDDEN","traceId":"00-d344fef092fdcb2d86791776acf5d18e-4458cc396ba7d0e0-00"} | OPERATION_ID=01a15575-58b0-7059-947b-f1d15efd9c4d
+sync: change feed (order, cursor, resync)                  PASS
+    feed after revision 1: 53 change(s) | feed with a cursor past the server: resyncRequired=True changes=0
+backup: pg_dump with SHA-256 manifest                      PASS
+    sha256          : 4DDB66F134D86161BCFFEBACA614035AC88E61CF28F4D2C697540D5277DCA8A4 | manifest        : C:\Users\DELL\repos\QtsBilling\backups\qtsbilling-20261019-213838.dump.json
+restore: drill into a disposable database                  PASS
+    dropped 'qtsbilling_restore_drill' | == drill PASSED: backup restored into a disposable database and reconciled ==
+server stopped
+
+rehearsal: 7 step(s), 0 failed
