@@ -2400,6 +2400,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("discount_amount");
 
+                    b.Property<string>("IdempotencyKey")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
                     b.Property<Guid>("LocationId")
                         .HasColumnType("uuid")
                         .HasColumnName("location_id");
@@ -2408,6 +2413,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasMaxLength(400)
                         .HasColumnType("text")
                         .HasColumnName("note");
+
+                    b.Property<string>("PayloadHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
 
                     b.Property<string>("PaymentStatus")
                         .IsRequired()
@@ -2472,6 +2482,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("ReversalOfSaleId");
 
                     b.HasIndex("BusinessId", "CustomerId");
+
+                    b.HasIndex("BusinessId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_sales_business_idempotency_key")
+                        .HasFilter("idempotency_key IS NOT NULL");
 
                     b.HasIndex("BusinessId", "PostedAtUtc");
 

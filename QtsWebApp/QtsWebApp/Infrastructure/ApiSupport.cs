@@ -79,7 +79,7 @@ public static class EnumBridge
 {
     public static TTarget To<TTarget>(Enum value)
         where TTarget : struct, Enum
-        => Enum.Parse<TTarget>(value.ToString());
+        => Enum.Parse<TTarget>(value.ToString(), ignoreCase: true);
 }
 
 /// <summary>Domain rejection carrying a stable error code so every handler answers with the same contract.</summary>

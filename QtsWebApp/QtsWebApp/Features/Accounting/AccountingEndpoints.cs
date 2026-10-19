@@ -402,8 +402,8 @@ public static class AccountingEndpoints
         BillingDbContext db,
         string? cursor,
         int? pageSize,
-        JournalEntryState? status,
-        JournalOrigin? origin,
+        string? status,
+        string? origin,
         DateOnly? from,
         DateOnly? to,
         CancellationToken cancellationToken)
@@ -416,14 +416,28 @@ public static class AccountingEndpoints
         var size = Math.Clamp(pageSize ?? DefaultPageSize, 1, MaxPageSize);
         var query = db.JournalEntries.AsNoTracking().Where(entry => entry.BusinessId == businessId);
 
-        if (status is { } wantedStatus)
+        if (!string.IsNullOrWhiteSpace(status))
         {
+            if (!Enum.TryParse<JournalEntryState>(status.Trim(), ignoreCase: true, out var wantedStatus))
+            {
+                return ApiResults.ValidationProblem(
+                    "The filter is invalid.",
+                    new Dictionary<string, string[]> { ["status"] = [$\"Unknown status '{status}'.\"] });
+            }
+
             var stored = EnumBridge.To<EntryStatus>(wantedStatus);
             query = query.Where(entry => entry.Status == stored);
         }
 
-        if (origin is { } wantedOrigin)
+        if (!string.IsNullOrWhiteSpace(origin))
         {
+            if (!Enum.TryParse<JournalOrigin>(origin.Trim(), ignoreCase: true, out var wantedOrigin))
+            {
+                return ApiResults.ValidationProblem(
+                    "The filter is invalid.",
+                    new Dictionary<string, string[]> { ["origin"] = [$\"Unknown origin '{origin}'.\"] });
+            }
+
             var stored = EnumBridge.To<JournalSourceType>(wantedOrigin);
             query = query.Where(entry => entry.SourceType == stored);
         }
