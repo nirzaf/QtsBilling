@@ -391,3 +391,7 @@ appsettings.*.local.json
 
 # QB-14: real logical backups and their manifests stay outside the repository
 /backups/
+
+# JetBrains Rider / IntelliJ IDE settings — not part of the source
+.idea/
+.idea.*/
