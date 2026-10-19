@@ -20,6 +20,7 @@ using QtsWebApp.Features.Pricing;
 using QtsWebApp.Features.Purchasing;
 using QtsWebApp.Features.Reporting;
 using QtsWebApp.Features.Sales;
+using QtsWebApp.Features.Sync;
 using QtsWebApp.Infrastructure;
 using static MudBlazor.Defaults.Classes.Position;
 
@@ -193,6 +194,7 @@ app.MapExpenseEndpoints();
 app.MapPricingEndpoints();
 app.MapReportEndpoints();
 app.MapAuditEndpoints();
+app.MapSyncOperationEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()

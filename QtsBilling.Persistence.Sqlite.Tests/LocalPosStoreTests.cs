@@ -17,7 +17,7 @@ public sealed class LocalPosStoreTests
         operationId,
         cash,
         [
-            new LocalSaleLineDraft(0, Guid.CreateVersion7(), 2m, 5.00m, 0.34m, 0m, 7),
+            new LocalSaleLineDraft(0, Guid.CreateVersion7(), 2m, 5.00m, 0.068m, 0.34m, 0m, 7),
         ]);
 
     [Fact]
@@ -138,7 +138,7 @@ public sealed class LocalPosStoreTests
         var imprecise = new LocalCashSaleDraft(
             Guid.CreateVersion7(),
             10m,
-            [new LocalSaleLineDraft(0, Guid.CreateVersion7(), 0.0000001m, 5m, 0m, 0m, 1)]);
+            [new LocalSaleLineDraft(0, Guid.CreateVersion7(), 0.0000001m, 5m, 0m, 0m, 0m, 1)]);
         var refused = await pos.CaptureCashSaleAsync(Context(), imprecise);
         Assert.False(refused.Accepted);
 
@@ -198,8 +198,8 @@ public sealed class LocalPosStoreTests
     {
         var lines = new List<LocalSaleLineDraft>
         {
-            new(0, Guid.CreateVersion7(), 2m, 5.00m, 1.00m, 0.50m, 1),
-            new(1, Guid.CreateVersion7(), 1m, 3.00m, 0m, 0m, 1),
+            new(0, Guid.CreateVersion7(), 2m, 5.00m, 0.1m, 1.00m, 0.50m, 1),
+            new(1, Guid.CreateVersion7(), 1m, 3.00m, 0m, 0m, 0m, 1),
         };
 
         // 2 × 5.00 − 0.50 + 1.00 tax = 10.50, plus 3.00 = 13.50

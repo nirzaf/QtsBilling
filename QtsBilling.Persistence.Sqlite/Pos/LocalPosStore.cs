@@ -161,6 +161,7 @@ public sealed class LocalPosStore
                         line.VariantId,
                         line.Quantity,
                         line.UnitPrice,
+                        TaxRateOf(line),
                         line.Tax,
                         line.Discount,
                         line.ExpectedCatalogRevision))
@@ -235,6 +236,22 @@ public sealed class LocalPosStore
         return total;
     }
 
+    /// <summary>
+    /// The store keeps the tax amount of a line; the rate is derived again for display and for the
+    /// pending list. A free line has no rate.
+    /// </summary>
+    private static decimal TaxRateOf(LocalSaleLine line)
+    {
+        var gross = line.Quantity * line.UnitPrice;
+
+        if (gross == 0m)
+        {
+            return 0m;
+        }
+
+        return line.Tax / gross;
+    }
+
     private static LocalSaleCaptureResult Rejected(LocalCashSaleDraft draft, string message)
         => new(false, draft.OperationId, null, 0m, LocalCaptureCodes.Rejected, message);
 
@@ -264,6 +281,7 @@ public sealed class LocalPosStore
                     variantId = line.VariantId,
                     quantity = line.Quantity,
                     unitPrice = line.UnitPrice,
+                    taxRate = line.TaxRate,
                     tax = line.Tax,
                     discount = line.Discount,
                     expectedCatalogRevision = line.ExpectedCatalogRevision,

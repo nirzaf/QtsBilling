@@ -1,0 +1,63 @@
+﻿# QB-20 live evidence - 2026-10-19
+# Server-side idempotent sync-push handler: POST /api/v1/sync/operations.
+# The script scripts/qb20-sync-push-smoke.cs pushes one offline operation five times and prints the outcome.
+
+====================================================================================================
+1. The five documented push outcomes (push, replay, same key/different body, unknown device, other business)
+====================================================================================================
+login: 200
+session user=01a154f9-f2d0-73b0-b7f1-845cef6706ee business=01a154f9-f0aa-7e4c-89c8-f900b2eab2dc
+variant=01a15506-5ca1-7abc-b13c-d189b11d1744 price=30.0000
+register=01a154fd-c841-765d-88d6-cfae34fe2a73
+open drawer: 409 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"This register already has an open drawer session.","status":409,"detail":"Close the current session before opening a new one.","code":"CONFLICT","traceId":"00-6a70d003af1d4b95825afefa564ad960-9256d3951dbfbec5-00"}
+opening stock: 201 {"id":"01a15507-2b8c-71d6-98f3-9418ebc39109","locationId":"01a154f9-f148-7ca9-ad02-77767dcaf851","locationName":"Main","variantId":"01a15506-5ca1-7abc-b13c-d189b11d1744","movementType":"opening","quantityDelta":10,"unitCost":10,"referenceType":"opening","referenceId":"a48a03cf-b078-4459-ad96-1693a481465f","occurredAtUtc":"2026-10-19T16:38:15.6905406+00:00","createdAtUtc":"2026-10-19T16:38:15.6932228+00:00"}
+canonical fingerprint: 1c31119e659dd0c3f8320a3ceafb0265d90b08da89fd5df34f895a3d2f7563b3
+push #1 -> 200 {"operationId":"01a15507-2b9c-781c-b846-525fc23a9014","outcome":"posted","serverSaleId":"01a15507-2bdb-7f67-81ec-6f8c1fa209eb","postedReference":"S-2026-00002","processedAtUtc":"2026-10-19T16:38:15.7617951+00:00","isTerminal":true}
+push #2 (replay) -> 200 {"operationId":"01a15507-2b9c-781c-b846-525fc23a9014","outcome":"posted","serverSaleId":"01a15507-2bdb-7f67-81ec-6f8c1fa209eb","processedAtUtc":"2026-10-19T16:38:15.761795+00:00","isTerminal":true}
+push #3 (same key, different body) -> 409 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.10","title":"This operation id was already used with a different payload.","status":409,"code":"SAME_KEY_DIFFERENT_PAYLOAD","traceId":"00-becc10270de3de68642bfe89cebaf55f-0eb26fae727eca3a-00"}
+push #4 (unknown device) -> 403 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"The device is not enrolled in this business.","status":403,"code":"DEVICE_NOT_ENROLLED","traceId":"00-9778d600d284d60133af035516ddfc15-c882baafbb090744-00"}
+push #5 (other business) -> 403 {"type":"https://tools.ietf.org/html/rfc9110#section-15.5.4","title":"The operation belongs to another business.","status":403,"code":"FORBIDDEN","traceId":"00-4bcfb80ae949bcc4ddf870798fe11cc7-7031c0f6bb404574-00"}
+OPERATION_ID=01a15507-2b9c-781c-b846-525fc23a9014
+
+====================================================================================================
+2. Database verification: one pushed operation, one business effect
+====================================================================================================
+== QB-20 database verification: one pushed operation, one business effect ==
+ sale_number  | total_amount |            idempotency_key            | payment_status | lines | payments | journal_rows 
+--------------+--------------+---------------------------------------+----------------+-------+----------+--------------
+ S-2026-00001 |      30.0000 | sync-01a155052979719e99209fc58c464522 | Confirmed      |     1 |        1 |            1
+ S-2026-00002 |      30.0000 | sync-01a155072b9c781cb846525fc23a9014 | Confirmed      |     1 |        1 |            1
+(2 rows)
+
+   operation_type    |   outcome   |     error_code     | has_sale |       hash       
+---------------------+-------------+--------------------+----------+------------------
+ pos.sale.capture.v1 | NeedsReview | INSUFFICIENT_STOCK | t        | b39d174665dc5387
+ pos.sale.capture.v1 | NeedsReview | INSUFFICIENT_STOCK | t        | 2a503c90140edb9f
+ pos.sale.capture.v1 | Posted      |                    | t        | a9af290fcaeddd0b
+ pos.sale.capture.v1 | NeedsReview | INSUFFICIENT_STOCK | f        | 6631aade7d807321
+ pos.sale.capture.v1 | NeedsReview | INSUFFICIENT_STOCK | f        | 91d527ea9771532c
+ pos.sale.capture.v1 | Posted      |                    | t        | 1c31119e659dd0c3
+(6 rows)
+
+ movement_type | quantity_delta | rows_for_variant 
+---------------+----------------+------------------
+ Opening       |      10.000000 |                2
+ Sale          |      -1.000000 |                2
+ Opening       |      10.000000 |                2
+ Sale          |      -1.000000 |                2
+(4 rows)
+
+total sales in the database: 2
+
+====================================================================================================
+3. Temp-file test suite (28 tests: the device store, the capture rules and the shared component smoke)
+====================================================================================================
+  Determining projects to restore...
+  All projects are up-to-date for restore.
+  QtsBilling.Contracts -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Contracts\bin\Debug\net10.0\QtsBilling.Contracts.dll
+  QtsModels -> C:\Users\DELL\repos\QtsBilling\QtsModels\bin\Debug\net10.0\QtsModels.dll
+  QtsBilling.Persistence.Sqlite -> C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite\bin\Debug\net10.0\QtsBilling.Persistence.Sqlite.dll
+C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\LocalPosStoreTests.cs(20,17): error CS7036: There is no argument given that corresponds to the required parameter 'ExpectedCatalogRevision' of 'LocalSaleLineDraft.LocalSaleLineDraft(int, Guid, decimal, decimal, decimal, decimal, decimal, long)' [C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\QtsBilling.Persistence.Sqlite.Tests.csproj]
+C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\LocalPosStoreTests.cs(141,18): error CS7036: There is no argument given that corresponds to the required parameter 'ExpectedCatalogRevision' of 'LocalSaleLineDraft.LocalSaleLineDraft(int, Guid, decimal, decimal, decimal, decimal, decimal, long)' [C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\QtsBilling.Persistence.Sqlite.Tests.csproj]
+C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\LocalPosStoreTests.cs(201,13): error CS7036: There is no argument given that corresponds to the required parameter 'ExpectedCatalogRevision' of 'LocalSaleLineDraft.LocalSaleLineDraft(int, Guid, decimal, decimal, decimal, decimal, decimal, long)' [C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\QtsBilling.Persistence.Sqlite.Tests.csproj]
+C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\LocalPosStoreTests.cs(202,13): error CS7036: There is no argument given that corresponds to the required parameter 'ExpectedCatalogRevision' of 'LocalSaleLineDraft.LocalSaleLineDraft(int, Guid, decimal, decimal, decimal, decimal, decimal, long)' [C:\Users\DELL\repos\QtsBilling\QtsBilling.Persistence.Sqlite.Tests\QtsBilling.Persistence.Sqlite.Tests.csproj]

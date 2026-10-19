@@ -20,6 +20,7 @@ public sealed record LocalSaleLineDraft(
     Guid VariantId,
     decimal Quantity,
     decimal UnitPrice,
+    decimal TaxRate,
     decimal Tax,
     decimal Discount,
     long ExpectedCatalogRevision);

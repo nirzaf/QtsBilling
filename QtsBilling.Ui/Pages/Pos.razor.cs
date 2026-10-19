@@ -149,6 +149,7 @@ public partial class Pos
                         line.VariantId,
                         line.Quantity,
                         line.UnitPrice,
+                        line.TaxRate,
                         LineTax(line),
                         0m,
                         line.Revision))
