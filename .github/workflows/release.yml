@@ -59,11 +59,11 @@ jobs:
           -p:Version="$env:VERSION" -p:InformationalVersion="$env:VERSION"
           -o out/server-linux-x64
 
-      - name: Publish desktop app (MAUI, win10-x64, unpackaged)
+      - name: Publish desktop app (MAUI, win-x64, unpackaged)
         shell: pwsh
         run: >
           dotnet publish QtsBilling.Maui/QtsBilling.Maui.csproj -c Release
-          -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifier=win10-x64
+          -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifier=win-x64
           -p:WindowsPackageType=None -p:ApplicationDisplayVersion="$env:VERSION" -p:Version="$env:VERSION"
           -o out/desktop-win-x64
 
