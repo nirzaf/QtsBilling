@@ -21,6 +21,7 @@
     </ItemGroup>
 
     <ItemGroup>
+        <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
         <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
         <ProjectReference Include="..\QtsServices\QtsServices.csproj" />
     </ItemGroup>
