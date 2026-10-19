@@ -1,0 +1,90 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  DOTNET_NOLOGO: 1
+  DOTNET_CLI_TELEMETRY_OPTOUT: 1
+
+jobs:
+  release:
+    name: Build & publish versioned assets
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Derive version from tag
+        shell: pwsh
+        run: |
+          $ref = $env:GITHUB_REF_NAME
+          if ($ref -notmatch '^v\d+\.\d+\.\d+$') {
+            Write-Error "Tag must be of the form vMAJOR.MINOR.PATCH (got: $ref)"; exit 1
+          }
+          $v = $ref.Substring(1)
+          "VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV    -Encoding ascii -Append
+          "TAG=$ref"   | Out-File -FilePath $env:GITHUB_ENV    -Encoding ascii -Append
+          Write-Host "Release version $v (tag $ref)"
+
+      - name: Install MAUI workload
+        run: dotnet workload install maui
+
+      - name: Publish web host + WASM client (win-x64)
+        shell: pwsh
+        run: >
+          dotnet publish QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release -r win-x64 --self-contained true
+          -p:Version="$env:VERSION" -p:InformationalVersion="$env:VERSION"
+          -p:IncludeNativeLibrariesForSelfExtract=true -o out/server-win-x64
+
+      - name: Publish web host + WASM client (linux-x64)
+        shell: pwsh
+        run: >
+          dotnet publish QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release -r linux-x64 --self-contained true
+          -p:Version="$env:VERSION" -p:InformationalVersion="$env:VERSION"
+          -o out/server-linux-x64
+
+      - name: Publish desktop app (MAUI, win10-x64, unpackaged)
+        shell: pwsh
+        run: >
+          dotnet publish QtsBilling.Maui/QtsBilling.Maui.csproj -c Release
+          -f net10.0-windows10.0.19041.0 -p:RuntimeIdentifier=win10-x64
+          -p:WindowsPackageType=None -p:ApplicationDisplayVersion="$env:VERSION" -p:Version="$env:VERSION"
+          -o out/desktop-win-x64
+
+      - name: Package release assets
+        shell: pwsh
+        run: |
+          $v = $env:VERSION
+          New-Item -ItemType Directory -Force artifacts | Out-Null
+          Compress-Archive -Path out/server-win-x64/*   -DestinationPath "artifacts/QtsBilling.Server-win-x64-$v.zip" -Force
+          Compress-Archive -Path out/server-linux-x64/*  -DestinationPath "artifacts/QtsBilling.Server-linux-x64-$v.zip" -Force
+          Compress-Archive -Path out/desktop-win-x64/*   -DestinationPath "artifacts/QtsBilling.Desktop-win-x64-$v.zip" -Force
+          Get-ChildItem artifacts/*.zip |
+            Get-FileHash -Algorithm SHA256 |
+            ForEach-Object { '{0}  {1}' -f $_.Hash.ToLower(), (Split-Path $_.Path -Leaf) } |
+            Set-Content -Path artifacts/SHA256SUMS.txt -Encoding ascii
+          Get-Content artifacts/SHA256SUMS.txt
+
+      - name: Create GitHub Release with assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $assets = (Get-ChildItem artifacts).FullName
+          gh release create "$env:TAG" --title "QtsBilling $env:VERSION" --generate-notes -- $assets

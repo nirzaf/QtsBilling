@@ -12,7 +12,6 @@ secret store, never in the repository._
 | `QTS_POSTGRES_CONNECTION` | yes | Npgsql connection string for the authoritative database. Use the least-privilege application role in production (see §3). |
 | `ASPNETCORE_ENVIRONMENT` | yes | `Production` in deployed environments. Development seeds the demo owner and returns reset tickets in responses. |
 | `QTS_DATAPROTECTION_PATH` | production: yes | Directory for the ASP.NET Core Data Protection key ring (session cookies, reset tickets, token providers). Use a persistent volume, **not** the repository and not the database. |
-| `QTS_MONGODB_REMOTE` | migration only | Legacy read-only source used by QB-23/24/25 migration tools; never configured on the new production host. |
 | `QTS_OPENIDDICT_*` | QB-22 | OIDC/PKCE device-grant configuration; introduced with the sync/device work, not used by the web host today. |
 
 Development defaults (documented fixtures only): PostgreSQL in the `qtsbilling-pg` container on
@@ -94,14 +93,12 @@ Operational policy:
   allowlisted; any new finding fails the scan and must be reviewed before commit.
 - Recommend running the scan in CI on every pull request and before every release tag.
 - No custom cryptography: password hashing is ASP.NET Core Identity's PBKDF2 implementation; token/cookie
-  protection is ASP.NET Core Data Protection (random per-key material, no static IV). Legacy WinForms
-  static-IV AES helpers are not part of the new host.
+  protection is ASP.NET Core Data Protection (random per-key material, no static IV).
 
 ## 7. SQLite device-local data protection and recovery policy (OPEN-8)
 
-SQLite is device-local only and never authoritative. Until the .NET MAUI workload is available (QB-18/19/20
-blocked by the missing `maui-windows` workload), this policy is binding for whatever device implementation
-lands:
+SQLite is device-local only and never authoritative. The device store and MAUI host have landed (QB-17/18/19
+on the installed `maui-windows` workload); this policy is binding for the shipped device implementation:
 
 - **Confidentiality:** the device database lives inside the app's private sandbox and relies on OS-level
   protection (BitLocker/device encryption + per-user ACLs) as the minimum. The final at-rest encryption
@@ -159,5 +156,5 @@ See `docs/migration/tasks/qb17-evidence.txt`: 20 temp-file SQLite tests (atomic 
 idempotent replay, outbox durability across a restart and a cache rebuild, crash recovery, `typeof()` proof
 for integer money columns, v1 -> v2 schema upgrade with pending records plus the pre-migration snapshot,
 blocked startup on an unknown/newer schema with the money rows intact, database-enforced cash-only and
-lifecycle constraints) and the static boundary checks (no Npgsql/Mongo/web reference, no floating-point
+lifecycle constraints) and the static boundary checks (no Npgsql/web reference, no floating-point
 column, PostgreSQL migration history untouched).
