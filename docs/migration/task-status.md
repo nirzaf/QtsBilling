@@ -65,3 +65,14 @@ Development bootstrap: the first start applies migrations and creates one **Owne
 whose setup is deliberately pending. Sign-in is refused with `PASSWORD_RESET_REQUIRED` until the
 setup ticket (logged at startup, or returned by `POST /api/v1/auth/password-reset/request` in
 Development) is completed via `POST /api/v1/auth/password-reset/complete`.
+
+## Test status
+
+```text
+dotnet test TestQtsBilling --filter "FullyQualifiedName~TestQtsBilling.ValueObjects|FullyQualifiedName~TestQtsBilling.Contracts"
+    → 41 passed / 0 failed
+dotnet test TestQtsBilling
+    → 41 passed / 93 failed — every failure is a legacy suite that needs a live source:
+      System.InvalidOperationException: The 'QTS_MONGODB_REMOTE' environment variable is not set
+      (pre-existing condition, not a regression; split fixtures land with QB-23/QB-26)
+```
