@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Abstractions;
@@ -37,6 +38,7 @@ public static class AuthEndpoints
         SignInManager<User> signInManager,
         UserManager<User> userManager,
         BillingDbContext db,
+        HttpContext http,
         CancellationToken cancellationToken)
     {
         var email = request.Email?.Trim() ?? string.Empty;
@@ -54,11 +56,15 @@ public static class AuthEndpoints
         // Unknown and inactive accounts are indistinguishable to the caller (no account enumeration).
         if (user is null || !user.IsActive)
         {
+            await RecordAuthEventAsync(db, null, "login.failed", email, "unknown-or-inactive", http.TraceIdentifier, cancellationToken).ConfigureAwait(false);
+
             return InvalidCredentials();
         }
 
         if (user.PasswordResetRequired)
         {
+            await RecordAuthEventAsync(db, user.Id, "login.failed", email, "setup-required", http.TraceIdentifier, cancellationToken).ConfigureAwait(false);
+
             return ApiResults.Problem(
                 StatusCodes.Status403Forbidden,
                 ApiErrorCodes.PasswordResetRequired,
@@ -72,6 +78,8 @@ public static class AuthEndpoints
 
         if (result.IsLockedOut)
         {
+            await RecordAuthEventAsync(db, user.Id, "login.failed", email, "locked-out", http.TraceIdentifier, cancellationToken).ConfigureAwait(false);
+
             return ApiResults.Problem(
                 StatusCodes.Status401Unauthorized,
                 ApiErrorCodes.InvalidCredentials,
@@ -81,8 +89,12 @@ public static class AuthEndpoints
 
         if (!result.Succeeded)
         {
+            await RecordAuthEventAsync(db, user.Id, "login.failed", email, "invalid-credentials", http.TraceIdentifier, cancellationToken).ConfigureAwait(false);
+
             return InvalidCredentials();
         }
+
+        await RecordAuthEventAsync(db, user.Id, "login.succeeded", email, null, http.TraceIdentifier, cancellationToken).ConfigureAwait(false);
 
         return Results.Ok(await BuildSessionAsync(user, db, cancellationToken).ConfigureAwait(false));
     }
@@ -135,10 +147,9 @@ public static class AuthEndpoints
 
         if (environment.IsDevelopment())
         {
-            logger.LogWarning(
-                "Development password-reset ticket for {Email} (completes account setup): {Token}",
-                user.Email,
-                token);
+            // The development ticket travels through the response only; the log records that it was
+            // generated, never the token itself (QB-14: logs carry no credentials or tokens).
+            logger.LogWarning("Development password-reset ticket generated for {Email}; the token is in the response body.", user.Email);
 
             return Results.Ok(new PasswordResetTicketDto(user.Email ?? email, token, DateTimeOffset.UtcNow.Add(ResetTicketLifetime)));
         }
@@ -220,6 +231,46 @@ public static class AuthEndpoints
             membership is null ? [] : [membership.Role.ToString()],
             membership is null ? [] : RolePermissions.For(membership.Role),
             user.PasswordResetRequired);
+    }
+
+    /// <summary>
+    /// Structured, non-sensitive authentication audit (QB-14). The e-mail is masked before it is stored
+    /// and the password or reset ticket never appears; the entry carries the request correlation id so a
+    /// security review can tie it to the request that produced it.
+    /// </summary>
+    private static async Task RecordAuthEventAsync(
+        BillingDbContext db,
+        Guid? userId,
+        string action,
+        string email,
+        string? reason,
+        string correlationId,
+        CancellationToken cancellationToken)
+    {
+        Guid? businessId = null;
+
+        if (userId is { } accountId)
+        {
+            businessId = await db.BusinessMemberships.AsNoTracking()
+                .Where(membership => membership.UserId == accountId && membership.IsActive)
+                .OrderBy(membership => membership.CreatedAtUtc)
+                .Select(membership => (Guid?)membership.BusinessId)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        db.AuditEvents.Add(new AuditEvent
+        {
+            BusinessId = businessId,
+            UserId = userId,
+            EntityType = "auth",
+            Action = action,
+            OccurredAtUtc = DateTimeOffset.UtcNow,
+            CorrelationId = correlationId,
+            Summary = JsonSerializer.Serialize(new { email = Redaction.Email(email), reason }),
+        });
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
     }
 
     private static IResult InvalidCredentials()

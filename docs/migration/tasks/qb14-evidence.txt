@@ -1,0 +1,138 @@
+﻿# QB-14 live evidence - host http://localhost:5188 (PostgreSQL 18.6 in docker container qtsbilling-pg, port 5433)
+# run 2026-10-19. Development host for the API/audit smoke; a Production-mode host on port 5189 with an
+# unreachable database for the typed-failure test; the repository scripts for backup/restore, least-privilege
+# roles and the static secret scan.
+
+====================================================================================================
+1. Security smoke - structured audit, redaction, typed failures, permission denial (qb14-smoke.ps1)
+====================================================================================================
+== QB-14 live smoke: audit, redaction, typed failures, permission denial ==
+owner login | HTTP 200 | code=-
+login with a wrong password | HTTP 401 | code=INVALID_CREDENTIALS
+login for an unknown account | HTTP 401 | code=INVALID_CREDENTIALS
+audit feed | entries=8 pageSize=10
+  audit | auth | login.failed | user=01a153e4-9ea7-772b-b734-1d560de2b6a8 | summary={"email": "o***@qtsbilling.local", "reason": "invalid-credentials"} | trace=114ed0fded2445fa8cff264021bcd4ea
+  audit | auth | login.succeeded | user=01a153e4-9ea7-772b-b734-1d560de2b6a8 | summary={"email": "o***@qtsbilling.local", "reason": null} | trace=77979c8988084c80af6202b3e3ece7d1
+  audit | auth | login.failed | user=0f7c0e3a-6a3f-4fd2-9a41-2b6c9d1e5a01 | summary={"email": "c***@qtsbilling.local", "reason": "setup-required"} | trace=3691ce89c26343f3b189333ada8d98c9
+  audit | auth | login.failed | user=01a153e4-9ea7-772b-b734-1d560de2b6a8 | summary={"email": "o***@qtsbilling.local", "reason": "invalid-credentials"} | trace=8d3cf8aa2b6141cdb6bdc1d9248eca9a
+  audit | auth | login.succeeded | user=01a153e4-9ea7-772b-b734-1d560de2b6a8 | summary={"email": "o***@qtsbilling.local", "reason": null} | trace=f965bf3c7b2248b98803dbd98527e2b1
+  audit | auth | login.failed | user=0f7c0e3a-6a3f-4fd2-9a41-2b6c9d1e5a01 | summary={"email": "c***@qtsbilling.local", "reason": "setup-required"} | trace=7623efb135df4566afa1e61b617061a7
+audit redaction | raw owner email in summaries=0 (must be 0) | masked identifiers=6
+audit correlation | entries with a request correlation id=8/8
+audit filter | action=login.failed entries=5
+audit business feed | expense entries visible to the owner=3
+audit feed without a session | HTTP 401 | code=UNAUTHENTICATED (typed 401, not an empty body)
+malformed JSON | HTTP 400 | code=VALIDATION_FAILED | title='The request could not be read.' | trace=116087c93a2b44a88d7f31b8f9b5aed7
+---- cashier fixture (dev database): create shell account, establish password through the reset flow
+  INSERT 0 0
+  UPDATE 1
+  INSERT 0 0
+cashier reset ticket issued | HTTP 200 | ticket present=True
+cashier password established | HTTP 204 | code=-
+cashier login | HTTP 200 | code=-
+cashier reads reports (has reports.view) | HTTP 200 | code=-
+cashier reads the audit feed | HTTP 403 | code=FORBIDDEN (typed 403; audit.authorization negative control)
+cashier creates a tax rate (lacks taxes.manage) | HTTP 403 | code=FORBIDDEN
+log redaction | owner reset ticket written to the log=False (must be False) | redacted log line present=True
+== smoke complete ==
+
+====================================================================================================
+2. Typed failure - API host whose database is unreachable (qb14-typed-failure.ps1, production mode)
+====================================================================================================
+== QB-14 typed failure test: API host whose database is unreachable ==
+environment: Production, database: qtsbilling_missing (does not exist)
+host listening on 5189
+---- response headers
+  HTTP/1.1 500 Internal Server Error
+  Content-Type: application/problem+json
+---- status            : 500 (must be 500)
+---- code              : INTERNAL_ERROR (must be INTERNAL_ERROR)
+---- title             : An unexpected error occurred.
+---- traceId present   : True
+---- stack/SQL leaked  : False (must be False)
+broken host stopped
+
+====================================================================================================
+3. Backup and restore drill - real pg_dump restored into a disposable database and reconciled (scripts/restore-drill.ps1)
+====================================================================================================
+== QB-14 restore drill: qtsbilling -> qtsbilling_restore_drill ==
+---- step 1: backup the live database
+  docker container: qtsbilling-pg
+  database        : qtsbilling (user qtsbilling)
+  backup file     : C:\Users\DELL\repos\QtsBilling\backups\qtsbilling-20261019-163847.dump
+  size (bytes)    : 261406
+  sha256          : AE5201C16A63F860AF5C7BBFA91BC86950977B6E7C0D67AC65C6A1865EBAF375
+  manifest        : C:\Users\DELL\repos\QtsBilling\backups\qtsbilling-20261019-163847.dump.json
+---- step 2: restore into the disposable database
+  digest verified against manifest: AE5201C16A63F860AF5C7BBFA91BC86950977B6E7C0D67AC65C6A1865EBAF375
+  restoring into   : qtsbilling_restore_drill
+  restore complete : qtsbilling_restore_drill
+---- step 3: reconcile source against restore
+  audit_events         source=77             restored=77             match
+  businesses           source=3              restored=3              match
+  credit_notes         source=2              restored=2              match
+  customers            source=9              restored=9              match
+  expenses             source=3              restored=3              match
+  identity_users       source=1              restored=1              match
+  invoices             source=7              restored=7              match
+  journal_entries      source=41             restored=41             match
+  journal_lines        source=125            restored=125            match
+  journal_posted_credit_total source=6081.5000      restored=6081.5000      match
+  journal_posted_debit_total source=6081.5000      restored=6081.5000      match
+  payments             source=18             restored=18             match
+  product_variants     source=18             restored=18             match
+  products             source=18             restored=18             match
+  purchase_orders      source=6              restored=6              match
+  purchase_receipts    source=6              restored=6              match
+  sale_lines           source=14             restored=14             match
+  sales                source=14             restored=14             match
+---- step 4: cleanup
+  dropped 'qtsbilling_restore_drill'
+== drill PASSED: backup restored into a disposable database and reconciled ==
+
+====================================================================================================
+4. Least-privilege application role - DML permitted, DDL refused (scripts/provision-postgres-roles.ps1)
+====================================================================================================
+provisioning role 'qtsbilling_app' on 'qtsbilling' (container qtsbilling-pg)
+DO
+REVOKE
+REVOKE
+GRANT
+GRANT
+GRANT
+GRANT
+GRANT
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+ALTER DEFAULT PRIVILEGES
+---- verification 1: app role reads business data (must succeed)
+  SELECT COUNT(*) FROM products -> exit 0, value 18
+---- verification 2: app role runs DDL (must be refused)
+  ERROR:  permission denied for schema public
+  LINE 1: CREATE TABLE qts_least_privilege_probe (x int)
+---- verification 3: app role drops a table (must be refused)
+  DROP TABLE audit_events -> exit 1 (refused: True)
+== least-privilege verification PASSED: DML permitted, DDL refused, role is not table owner ==
+
+====================================================================================================
+5. Static secret/config scan over every tracked file (scripts/secret-scan.ps1)
+====================================================================================================
+scanned 162 tracked files
+allowlisted development fixtures : 5
+  allow | .env.example:18 | connection-string password
+  allow | QtsBilling.Persistence.Postgres/PostgresServiceCollectionExtensions.cs:14 | connection-string password
+  allow | QtsWebApp/QtsWebApp/Features/Auth/DevDataSeeder.cs:16 | hardcoded password literal
+  allow | README.md:268 | connection-string password
+  allow | docs/migration/task-status.md:63 | connection-string password
+== secret scan PASSED: no unallowlisted credential material found ==
+
+====================================================================================================
+6. Data Protection key ring persistence - Production-mode host on port 5190 with QTS_DATAPROTECTION_PATH
+====================================================================================================
+environment: Production, database qtsbilling (reachable), QTS_DATAPROTECTION_PATH=<temp>/qb14/dataprotection
+host ready: True
+login: 200 (cookie issued by the persisted key ring)
+---- persisted key ring:
+  key-ad80acb7-ee21-425e-a75c-c567da826347.xml (1016 bytes)
+---- key material contains an XML key file (no static IV):
+  <key id="ad80acb7-ee21-425e-a75c-c567da826347" version="1">

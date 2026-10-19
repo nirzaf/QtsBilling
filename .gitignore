@@ -388,3 +388,6 @@ secrets.json
 appsettings.*.local.json
 *.[Pp]ublish.xml
 
+
+# QB-14: real logical backups and their manifests stay outside the repository
+/backups/

@@ -53,6 +53,9 @@ public static class Permissions
     public const string DevicesManage = "devices.manage";
     public const string UsersManage = "users.manage";
 
+    /// <summary>Reading the structured audit feed; granted narrowly (Owner) per D-43.</summary>
+    public const string AuditView = "audit.view";
+
     public static readonly IReadOnlyList<string> All =
     [
         CustomersRead, CustomersWrite,
@@ -64,6 +67,7 @@ public static class Permissions
         InvoicesIssue, InvoicesManage,
         PurchasingManage, ExpensesManage, TaxesManage, DiscountsManage,
         ReportsView, DevicesManage, UsersManage,
+        AuditView,
     ];
 }
 

@@ -1,12 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using MudBlazor.Services;
+using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
 using QtsWebApp.Features.Auth;
 using QtsWebApp.Features.Accounting;
+using QtsWebApp.Features.Audit;
 using QtsWebApp.Features.Catalog;
 using QtsWebApp.Features.Customers;
 using QtsWebApp.Features.Health;
@@ -78,28 +81,48 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
 
-    options.Events.OnRedirectToLogin = context =>
+    options.Events.OnRedirectToLogin = async context =>
     {
         if (context.Request.Path.StartsWithSegments("/api"))
         {
+            // Typed 401 for API callers instead of an empty status or an HTML login redirect (QB-14).
             context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-            return Task.CompletedTask;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new Dictionary<string, object?>
+            {
+                ["type"] = "https://httpstatuses.com/401",
+                ["title"] = "Authentication is required.",
+                ["status"] = StatusCodes.Status401Unauthorized,
+                ["detail"] = "Sign in through the session endpoint and retry with the session cookie.",
+                ["code"] = ApiErrorCodes.Unauthenticated,
+            });
+
+            return;
         }
 
         context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
     };
 
-    options.Events.OnRedirectToAccessDenied = context =>
+    options.Events.OnRedirectToAccessDenied = async context =>
     {
         if (context.Request.Path.StartsWithSegments("/api"))
         {
+            // Typed 403: a signed-in principal without the permission gets a machine-readable code.
             context.Response.StatusCode = StatusCodes.Status403Forbidden;
-            return Task.CompletedTask;
+            context.Response.ContentType = "application/problem+json";
+            await context.Response.WriteAsJsonAsync(new Dictionary<string, object?>
+            {
+                ["type"] = "https://httpstatuses.com/403",
+                ["title"] = "The signed-in user may not perform this action.",
+                ["status"] = StatusCodes.Status403Forbidden,
+                ["detail"] = "The required permission is missing from this membership; ask an owner to review the role.",
+                ["code"] = ApiErrorCodes.Forbidden,
+            });
+
+            return;
         }
 
         context.Response.Redirect(context.RedirectUri);
-        return Task.CompletedTask;
     };
 });
 
@@ -109,6 +132,18 @@ builder.Services.AddProblemDetails();
 builder.Services.ConfigureHttpJsonOptions(options => QtsBilling.Contracts.Serialization.ContractJson.Apply(options.SerializerOptions));
 builder.Services.AddOpenApi();
 builder.Services.AddTransient<LocalApiHandler>();
+
+// Key-ring persistence (QB-14): set QTS_DATAPROTECTION_PATH in production so session-cookie and ticket
+// keys survive restarts and rotation is a deliberate, reviewed operation. Unset (development) keeps an
+// ephemeral ring; no key material is ever committed or written next to the database.
+var dataProtectionPath = builder.Configuration["QTS_DATAPROTECTION_PATH"];
+
+if (!string.IsNullOrWhiteSpace(dataProtectionPath))
+{
+    builder.Services.AddDataProtection()
+        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
+        .SetApplicationName("QtsBilling");
+}
 
 builder.Services.AddHttpClient<ICustomerApiClient, CustomerApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
@@ -132,6 +167,7 @@ else
 }
 
 app.UseMiddleware<CorrelationIdMiddleware>();
+app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseHttpsRedirection();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -152,6 +188,7 @@ app.MapPurchasingEndpoints();
 app.MapExpenseEndpoints();
 app.MapPricingEndpoints();
 app.MapReportEndpoints();
+app.MapAuditEndpoints();
 app.MapHealthEndpoints();
 
 app.MapRazorComponents<App>()
