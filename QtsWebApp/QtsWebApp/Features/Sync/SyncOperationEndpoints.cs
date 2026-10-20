@@ -114,6 +114,18 @@ public static class SyncOperationEndpoints
         HttpContext http,
         CancellationToken cancellationToken)
     {
+        var result = await ProcessCoreAsync(principal, db, envelope, http, cancellationToken).ConfigureAwait(false);
+        BillingMetrics.RecordSyncOperation(result.Receipt.Outcome.ToString().ToLowerInvariant(), envelope?.Type);
+        return result;
+    }
+
+    private static async Task<(SyncOperationReceipt Receipt, IResult? Result)> ProcessCoreAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        SyncOperationEnvelope envelope,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
         if (!principal.TryGetBusinessId(out var businessId)
             || !Guid.TryParse(principal.FindFirst(ClaimTypes.NameIdentifier)?.Value, out var userId))
         {
