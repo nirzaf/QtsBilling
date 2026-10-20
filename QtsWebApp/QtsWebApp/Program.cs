@@ -2,7 +2,10 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using MudBlazor.Services;
+using OpenIddict.Abstractions;
+using OpenIddict.Validation.AspNetCore;
 using QtsBilling.Contracts.Abstractions;
+using System.Security.Cryptography.X509Certificates;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -71,7 +74,91 @@ builder.Services
 
 builder.Services.Configure<DataProtectionTokenProviderOptions>(options => options.TokenLifespan = AuthEndpoints.ResetTicketLifetime);
 
-builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
+builder.Services.AddAuthentication(options =>
+    {
+        // One request is authenticated by one scheme: a bearer header selects the native access token,
+        // otherwise the browser session cookie. The two principals are never merged.
+        options.DefaultScheme = "QtsAuth";
+        options.DefaultAuthenticateScheme = "QtsAuth";
+        options.DefaultChallengeScheme = IdentityConstants.ApplicationScheme;
+        options.DefaultSignInScheme = IdentityConstants.ApplicationScheme;
+    })
+    .AddIdentityCookies();
+
+builder.Services.AddAuthentication()
+    .AddPolicyScheme("QtsAuth", "browser cookie or native bearer token", options =>
+    {
+        options.ForwardDefaultSelector = context =>
+            context.Request.Headers.Authorization.ToString().StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)
+                ? OpenIddictValidationAspNetCoreDefaults.AuthenticationScheme
+                : IdentityConstants.ApplicationScheme;
+    });
+
+// Native identity (QB-22): the Windows public client uses an authorization code with PKCE. There is
+// no client secret and no password grant; the token and discovery endpoints are OpenIddict's own.
+builder.Services.AddOpenIddict()
+    .AddCore(options => options.UseEntityFrameworkCore().UseDbContext<BillingDbContext>())
+    .AddServer(options =>
+    {
+        options.SetAuthorizationEndpointUris("/connect/authorize")
+            .SetTokenEndpointUris("/connect/token")
+            .SetRevocationEndpointUris("/connect/revoke");
+
+        options.AllowAuthorizationCodeFlow()
+            .AllowRefreshTokenFlow()
+            .RequireProofKeyForCodeExchange();
+
+        options.RegisterScopes(
+            OpenIddictConstants.Scopes.OpenId,
+            OpenIddictConstants.Scopes.OfflineAccess,
+            NativeAuthorizationEndpoints.ApiScope);
+
+        options.SetAccessTokenLifetime(TimeSpan.FromMinutes(15));
+        options.SetRefreshTokenLifetime(TimeSpan.FromHours(8));
+
+        // A redeemed refresh token cannot be replayed, not even immediately: reuse is treated as theft
+        // and revokes the chain.
+        options.SetRefreshTokenReuseLeeway(TimeSpan.Zero);
+
+        var signingCertificatePath = builder.Configuration["QTS_OPENIDDICT_CERTIFICATE_PATH"];
+
+        if (!string.IsNullOrWhiteSpace(signingCertificatePath))
+        {
+            var certificate = X509CertificateLoader.LoadPkcs12FromFile(
+                signingCertificatePath,
+                builder.Configuration["QTS_OPENIDDICT_CERTIFICATE_PASSWORD"]);
+
+            options.AddSigningCertificate(certificate).AddEncryptionCertificate(certificate);
+        }
+        else if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+        {
+            options.AddDevelopmentSigningCertificate();
+            options.AddDevelopmentEncryptionCertificate();
+        }
+        else
+        {
+            // Fail closed: a production host never signs tokens with an ephemeral development key.
+            throw new InvalidOperationException(
+                "QTS_OPENIDDICT_CERTIFICATE_PATH must point to the reviewed signing certificate outside development.");
+        }
+
+        if (builder.Environment.IsDevelopment() || builder.Environment.IsEnvironment("Testing"))
+        {
+            options.UseAspNetCore()
+                .EnableAuthorizationEndpointPassthrough()
+                .DisableTransportSecurityRequirement();
+        }
+        else
+        {
+            options.UseAspNetCore().EnableAuthorizationEndpointPassthrough();
+        }
+    })
+    .AddValidation(options =>
+    {
+        options.UseLocalServer();
+        options.UseAspNetCore();
+    });
+
 builder.Services.AddAuthorization(QtsPolicies.Configure);
 // The handler reads the current membership of the actor, so it needs a scoped context (never a
 // singleton DbContext).
@@ -166,6 +253,10 @@ builder.Services.AddHttpClient<IAccountApiClient, AccountApiClient>(client => cl
 
 var app = builder.Build();
 
+// The approved native public client is registered once and only when missing; the operation is
+// idempotent, so a restart never rotates credentials or redirect addresses.
+await NativeAuthorizationEndpoints.EnsureNativeClientAsync(app.Services);
+
 if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
@@ -189,6 +280,7 @@ app.UseAntiforgery();
 app.MapStaticAssets();
 
 app.MapAuthEndpoints();
+app.MapNativeAuthorizationEndpoints();
 app.MapCustomerEndpoints();
 app.MapProductEndpoints();
 app.MapAccountingEndpoints();

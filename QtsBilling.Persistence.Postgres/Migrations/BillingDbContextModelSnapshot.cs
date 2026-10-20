@@ -185,6 +185,288 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.ToTable("user_tokens", (string)null);
                 });
 
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("application_type");
+
+                    b.Property<string>("ClientId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("client_id");
+
+                    b.Property<string>("ClientSecret")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("client_secret");
+
+                    b.Property<string>("ClientType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("client_type");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<string>("ConsentType")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("consent_type");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("DisplayNames")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("display_names");
+
+                    b.Property<string>("JsonWebKeySet")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("json_web_key_set");
+
+                    b.Property<string>("Permissions")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("permissions");
+
+                    b.Property<string>("PostLogoutRedirectUris")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("post_logout_redirect_uris");
+
+                    b.Property<string>("Properties")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("RedirectUris")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("redirect_uris");
+
+                    b.Property<string>("Requirements")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("requirements");
+
+                    b.Property<string>("Settings")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("settings");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClientId")
+                        .IsUnique();
+
+                    b.ToTable("openiddict_applications", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("application_id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<DateTime?>("CreationDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date");
+
+                    b.Property<string>("Properties")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("Scopes")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("scopes");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("subject");
+
+                    b.Property<string>("Type")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ApplicationId", "Status", "Subject", "Type");
+
+                    b.ToTable("openiddict_authorizations", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreScope", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("description");
+
+                    b.Property<string>("Descriptions")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("descriptions");
+
+                    b.Property<string>("DisplayName")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("display_name");
+
+                    b.Property<string>("DisplayNames")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("display_names");
+
+                    b.Property<string>("Name")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("name");
+
+                    b.Property<string>("Properties")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("properties");
+
+                    b.Property<string>("Resources")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("resources");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("openiddict_scopes", (string)null);
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+                {
+                    b.Property<string>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("id");
+
+                    b.Property<string>("ApplicationId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("application_id");
+
+                    b.Property<string>("AuthorizationId")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("authorization_id");
+
+                    b.Property<string>("ConcurrencyToken")
+                        .IsConcurrencyToken()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("concurrency_token");
+
+                    b.Property<DateTime?>("CreationDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("creation_date");
+
+                    b.Property<DateTime?>("ExpirationDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expiration_date");
+
+                    b.Property<string>("Payload")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("payload");
+
+                    b.Property<string>("Properties")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("properties");
+
+                    b.Property<DateTime?>("RedemptionDate")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("redemption_date");
+
+                    b.Property<string>("ReferenceId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("reference_id");
+
+                    b.Property<string>("Status")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)")
+                        .HasColumnName("status");
+
+                    b.Property<string>("Subject")
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("subject");
+
+                    b.Property<string>("Type")
+                        .HasMaxLength(150)
+                        .HasColumnType("character varying(150)")
+                        .HasColumnName("type");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorizationId");
+
+                    b.HasIndex("ReferenceId")
+                        .IsUnique();
+
+                    b.HasIndex("ApplicationId", "Status", "Subject", "Type");
+
+                    b.ToTable("openiddict_tokens", (string)null);
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.Account", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3693,6 +3975,30 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                        .WithMany("Authorizations")
+                        .HasForeignKey("ApplicationId");
+
+                    b.Navigation("Application");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken", b =>
+                {
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", "Application")
+                        .WithMany("Tokens")
+                        .HasForeignKey("ApplicationId");
+
+                    b.HasOne("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", "Authorization")
+                        .WithMany("Tokens")
+                        .HasForeignKey("AuthorizationId");
+
+                    b.Navigation("Application");
+
+                    b.Navigation("Authorization");
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.Account", b =>
                 {
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
@@ -4543,6 +4849,18 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasForeignKey("BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreApplication", b =>
+                {
+                    b.Navigation("Authorizations");
+
+                    b.Navigation("Tokens");
+                });
+
+            modelBuilder.Entity("OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization", b =>
+                {
+                    b.Navigation("Tokens");
                 });
 #pragma warning restore 612, 618
         }

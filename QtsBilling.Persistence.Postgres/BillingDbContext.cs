@@ -149,6 +149,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         ConfigureAccounting(modelBuilder);
         ConfigurePurchasing(modelBuilder);
         ConfigurePlatform(modelBuilder);
+        ConfigureOpenIddict(modelBuilder);
 
         ApplyGlobalConventions(modelBuilder);
     }
