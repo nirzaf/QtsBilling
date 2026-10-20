@@ -81,6 +81,10 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<InventoryMovement> InventoryMovements => Set<InventoryMovement>();
 
+    public DbSet<StockTransfer> StockTransfers => Set<StockTransfer>();
+
+    public DbSet<StockTransferLine> StockTransferLines => Set<StockTransferLine>();
+
     public DbSet<Sale> Sales => Set<Sale>();
 
     public DbSet<SaleLine> SaleLines => Set<SaleLine>();

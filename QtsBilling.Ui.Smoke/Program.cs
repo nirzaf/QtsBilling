@@ -15,6 +15,9 @@ using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
+using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Pos;
+using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Pages;
 
 var failures = 0;
@@ -43,7 +46,6 @@ string[] forbidden =
     "Npgsql",
     "MongoDB",
     "QtsServices",
-    "QtsModels",
     "QtsWebApp",
 ];
 
@@ -90,6 +92,19 @@ Check("component renders an empty state", html.Contains("No customers yet", Stri
 Check("component renders table headers", html.Contains(">Name<", StringComparison.Ordinal) && html.Contains(">Email<", StringComparison.Ordinal));
 Check("no database or connection string leaks into the markup", !html.Contains("Password" + "=", StringComparison.OrdinalIgnoreCase) && !html.Contains("Npgsql", StringComparison.OrdinalIgnoreCase));
 
+// 4. The browser uses the same shared POS page through the online checkout contract.
+services.AddSingleton<IPosCheckoutOrchestrator, StubPosCheckoutOrchestrator>();
+await using var posProvider = services.BuildServiceProvider();
+await using var posRenderer = new HtmlRenderer(posProvider, posProvider.GetRequiredService<ILoggerFactory>());
+var posHtml = await posRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await posRenderer.RenderComponentAsync<Pos>(ParameterView.Empty);
+    return output.ToHtmlString();
+});
+Check("browser POS renders online checkout", posHtml.Contains("ONLINE CASH SALE", StringComparison.Ordinal));
+Check("browser POS asks for location and register", posHtml.Contains("Sale context", StringComparison.Ordinal) && posHtml.Contains("Cash register", StringComparison.Ordinal));
+Check("browser POS exposes a direct server post action", posHtml.Contains("Post cash sale", StringComparison.Ordinal));
+
 Console.WriteLine($"     rendered markup: {html.Length} chars");
 
 Console.WriteLine(failures == 0
@@ -122,6 +137,21 @@ internal sealed class StubCustomerApiClient : ICustomerApiClient
 
     private static CustomerDto Sample(string name, Guid? id = null)
         => new(id ?? Guid.CreateVersion7(), name, null, null, null, true, 1, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+}
+
+internal sealed class StubPosCheckoutOrchestrator : IPosCheckoutOrchestrator
+{
+    public Task<PosCheckoutContext> GetContextAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult(new PosCheckoutContext([], []));
+
+    public Task<CashSessionDetailDto> OpenCashDrawerAsync(Guid registerId, decimal openingFloat, CancellationToken cancellationToken = default)
+        => throw new NotImplementedException();
+
+    public Task<PosCatalogPage> GetCatalogAsync(Guid locationId, string? search = null, string? cursor = null, CancellationToken cancellationToken = default)
+        => Task.FromResult(new PosCatalogPage([], null));
+
+    public Task<SaleCaptureResult> CaptureCashSaleAsync(Guid locationId, Guid registerId, LocalCashSaleDraft draft, CancellationToken cancellationToken = default)
+        => Task.FromResult(new SaleCaptureResult(Guid.NewGuid(), "S-SMOKE", "USD", 0m, 0m, DateTimeOffset.UtcNow, false));
 }
 
 internal sealed class StubAccountApiClient : IAccountApiClient

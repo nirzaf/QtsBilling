@@ -51,6 +51,15 @@ public enum JournalSourceType
     Refund,
     Reversal,
     MigrationOpening,
+    StockTransfer,
+    StockTransferReceipt,
+}
+
+public enum StockTransferStatus
+{
+    Draft,
+    Dispatched,
+    Received,
 }
 
 public enum EntryStatus

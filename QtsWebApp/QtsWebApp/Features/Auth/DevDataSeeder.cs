@@ -193,6 +193,7 @@ public static class DevDataSeeder
         ("1010", "Bank", AccountType.Asset),
         ("1100", "Accounts Receivable", AccountType.Asset),
         ("1200", "Inventory", AccountType.Asset),
+        ("1210", "Inventory In Transit", AccountType.Asset),
         ("1300", "Input Tax Receivable", AccountType.Asset),
         ("2000", "Accounts Payable", AccountType.Liability),
         ("2100", "Tax Payable", AccountType.Liability),

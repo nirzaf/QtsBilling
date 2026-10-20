@@ -1,7 +1,12 @@
 using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
+using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Clients;
+using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Pos;
+using QtsBilling.Contracts.Sales;
+using QtsWebApp.Client.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
@@ -10,6 +15,11 @@ var builder = WebAssemblyHostBuilder.CreateDefault(args);
 builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
 builder.Services.AddScoped<ICustomerApiClient, CustomerApiClient>();
 builder.Services.AddScoped<IAccountApiClient, AccountApiClient>();
+builder.Services.AddScoped<IProductApiClient, ProductApiClient>();
+builder.Services.AddScoped<IInventoryApiClient, InventoryApiClient>();
+builder.Services.AddScoped<ICashRegisterApiClient, CashRegisterApiClient>();
+builder.Services.AddScoped<ISaleApiClient, SaleApiClient>();
+builder.Services.AddScoped<IPosCheckoutOrchestrator, WebPosCheckoutOrchestrator>();
 
 builder.Services.AddBlazoredLocalStorage();
 builder.Services.AddMudServices();

@@ -68,3 +68,62 @@ public sealed record InventoryReconciliationRowDto(
     Guid VariantId,
     decimal OnHand,
     decimal MovementSum);
+
+public enum StockTransferState
+{
+    Draft,
+    Dispatched,
+    Received,
+}
+
+public sealed record StockTransferLineRequest(Guid VariantId, decimal Quantity);
+
+public sealed record CreateStockTransferRequest(
+    Guid SourceLocationId,
+    Guid DestinationLocationId,
+    IReadOnlyList<StockTransferLineRequest> Lines,
+    string? Note);
+
+public sealed record StockTransferLineDto(
+    Guid Id,
+    int LineNo,
+    Guid VariantId,
+    string VariantName,
+    string? Sku,
+    decimal Quantity,
+    decimal? UnitCostAtDispatch,
+    decimal? ValueAtDispatch);
+
+public sealed record StockTransferSummaryDto(
+    Guid Id,
+    string TransferNumber,
+    StockTransferState Status,
+    Guid SourceLocationId,
+    string SourceLocationName,
+    Guid DestinationLocationId,
+    string DestinationLocationName,
+    string Currency,
+    decimal TotalQuantity,
+    decimal? TotalValue,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? DispatchedAtUtc,
+    DateTimeOffset? ReceivedAtUtc);
+
+public sealed record StockTransferDetailDto(
+    Guid Id,
+    string TransferNumber,
+    StockTransferState Status,
+    Guid SourceLocationId,
+    string SourceLocationName,
+    Guid DestinationLocationId,
+    string DestinationLocationName,
+    string Currency,
+    string? Note,
+    DateTimeOffset CreatedAtUtc,
+    DateTimeOffset? DispatchedAtUtc,
+    DateTimeOffset? ReceivedAtUtc,
+    Guid? DispatchJournalEntryId,
+    Guid? ReceiveJournalEntryId,
+    IReadOnlyList<StockTransferLineDto> Lines,
+    decimal TotalQuantity,
+    decimal? TotalValue);

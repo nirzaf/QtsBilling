@@ -1,5 +1,6 @@
 @page "/pos"
 @using QtsBilling.Contracts.Pos
+@using QtsBilling.Contracts.Sales
 
 <PageTitle>Point of sale - QTS Billing</PageTitle>
 
@@ -9,13 +10,173 @@
     {
         <MudChip T="string" Color="Color.Primary" Size="Size.Small" Variant="Variant.Filled">OFFLINE CASH CAPTURE</MudChip>
     }
+    else if (PosService is null && OnlineCheckout is not null)
+    {
+        <MudChip T="string" Color="Color.Success" Size="Size.Small" Variant="Variant.Filled">ONLINE CASH SALE</MudChip>
+    }
 </MudStack>
 
-@if (PosService is null)
+@if (PosService is null && OnlineCheckout is null)
 {
     <MudAlert Severity="Severity.Info" Class="mt-4" Dense="true">
-        This host does not provide a device-local point of sale.
+        This host does not provide a point-of-sale checkout.
     </MudAlert>
+}
+else if (PosService is null)
+{
+    <MudText Typo="Typo.body2" Class="mt-2">Sales post directly to the server and require an open cash drawer.</MudText>
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Class="mt-4" Dense="true">@_error</MudAlert>
+    }
+
+    @if (_postedReceipt is not null)
+    {
+        <MudAlert Severity="Severity.Success" Class="mt-4" Dense="true" ShowCloseIcon="true" CloseIconClicked="ClearPostedReceipt">
+            Sale @_postedReceipt.SaleNumber posted. Total: @_postedReceipt.TotalAmount.ToString("0.00") @_postedReceipt.Currency.
+            <MudButton Variant="Variant.Text" Color="Color.Success" StartIcon="@Icons.Material.Filled.Print"
+                       OnClick="OpenPostedReceiptAsync" Class="ml-2">
+                Print 80 mm receipt
+            </MudButton>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mt-2">
+        <MudItem xs="12" md="5">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Sale context</MudText>
+                    <MudSelect T="Guid?" Label="Location" Value="_onlineLocationId" ValueChanged="OnOnlineLocationChanged"
+                               Disabled="@(_busy || _onlineAttempt is not null || _loadingContext)" Class="mt-2">
+                        @foreach (var location in _locations)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)location.Id)">@location.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudSelect T="Guid?" Label="Cash register" Value="_onlineRegisterId" ValueChanged="OnOnlineRegisterChanged"
+                               Disabled="@(_busy || _onlineAttempt is not null || _loadingContext || _onlineLocationId is null)" Class="mt-2">
+                        @foreach (var register in RegistersForSelectedLocation)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)register.Id)">
+                                @register.Name@(register.CurrentSession is { Status: CashRegisterSessionState.Open } session ? $" — open ({session.Currency})" : " — closed")
+                            </MudSelectItem>
+                        }
+                    </MudSelect>
+                    @if (_onlineLocationId is not null && RegistersForSelectedLocation.All(register => register.CurrentSession is not { Status: CashRegisterSessionState.Open }))
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            No open cash drawer is available at this location. Select a closed register to open one if you have register-management permission.
+                        </MudAlert>
+                    }
+                    @if (SelectedOnlineRegister is { } selectedRegister && selectedRegister.CurrentSession is not { Status: CashRegisterSessionState.Open })
+                    {
+                        <MudNumericField T="decimal" @bind-Value="_openingFloat" Label="Opening cash float" Min="0m" Step="0.5m"
+                                         Class="mt-2" Disabled="@(_busy || _onlineAttempt is not null)" />
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LockOpen"
+                                   Disabled="@(_busy || _onlineAttempt is not null || _openingFloat < 0m)"
+                                   OnClick="@(() => OpenDrawerAsync(selectedRegister.Id))" Class="mt-2">
+                            @(_busy ? "Opening drawer..." : "Open cash drawer")
+                        </MudButton>
+                        <MudText Typo="Typo.caption" Class="mt-1">Requires register-management permission. Opening float is recorded in the drawer audit.</MudText>
+                    }
+                    else if (SelectedOnlineRegister?.CurrentSession is { Status: CashRegisterSessionState.Open } openSession)
+                    {
+                        <MudAlert Severity="Severity.Success" Dense="true" Class="mt-2">
+                            Drawer open in @openSession.Currency. Expected cash: @openSession.ExpectedCash?.ToString("0.00").
+                        </MudAlert>
+                    }
+                    <MudTextField @bind-Value="_search"
+                                  @bind-Value:after="SearchOnlineCatalogAsync"
+                                  Label="Search catalog"
+                                  Adornment="Adornment.Start"
+                                  AdornmentIcon="@Icons.Material.Filled.Search"
+                                  Immediate="true"
+                                  DebounceInterval="400"
+                                  Disabled="@(_onlineLocationId is null || _onlineAttempt is not null)"
+                                  Class="mt-3" />
+                    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                               Disabled="@(_catalogLoading || _onlineLocationId is null || _onlineAttempt is not null)"
+                               OnClick="RefreshOnlineCatalogAsync" Class="mt-2">
+                        @(_catalogLoading ? "Loading catalog..." : "Refresh catalog")
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Class="mt-1">Choose a product to add it to the sale. The server checks its current price and stock.</MudText>
+                </MudCardContent>
+            </MudCard>
+
+            <MudStack Spacing="1" Class="mt-2">
+                @foreach (var item in Filtered)
+                {
+                    <MudButton Variant="Variant.Outlined" FullWidth="true" Class="justify-space-between"
+                               Disabled="@(_busy || _onlineAttempt is not null)" OnClick="@(() => AddLine(item))">
+                        <span>@item.Name <small>(@item.Sku)</small></span>
+                        <span>@item.UnitPrice.ToString("0.00")</span>
+                    </MudButton>
+                }
+                @if (_catalogLoading && _catalog.Count == 0)
+                {
+                    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+                }
+                else if (_catalog.Count == 0)
+                {
+                    <MudAlert Severity="Severity.Info" Dense="true">No matching products. Search by product name or SKU.</MudAlert>
+                }
+                @if (_catalogCursor is not null)
+                {
+                    <MudButton Variant="Variant.Text" Disabled="@_catalogLoading" OnClick="LoadMoreOnlineCatalogAsync">Load more products</MudButton>
+                }
+            </MudStack>
+        </MudItem>
+
+        <MudItem xs="12" md="7">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Current sale</MudText>
+                    <MudTable Items="@_lines" Dense="true" Hover="true" Class="mt-2">
+                        <HeaderContent>
+                            <MudTh>Item</MudTh><MudTh>Qty</MudTh><MudTh>Unit price</MudTh><MudTh>Total</MudTh><MudTh></MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Item">@context.Name</MudTd>
+                            <MudTd DataLabel="Qty">@context.Quantity.ToString("0.##")</MudTd>
+                            <MudTd DataLabel="Unit price">@context.UnitPrice.ToString("0.00")</MudTd>
+                            <MudTd DataLabel="Total">@LineTotal(context).ToString("0.00")</MudTd>
+                            <MudTd><MudIconButton Icon="@Icons.Material.Filled.Delete" aria-label="@($"Remove {context.Name}")"
+                                                   Color="Color.Error" Size="Size.Small" Disabled="@(_busy || _onlineAttempt is not null)"
+                                                   OnClick="@(() => RemoveLine(context))" /></MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent><MudText Typo="Typo.body2" Class="pa-4">Choose products to start a sale.</MudText></NoRecordsContent>
+                    </MudTable>
+                    <MudNumericField T="decimal?" @bind-Value="_cashReceived" Label="Cash received" Min="0m" Step="0.5m"
+                                     Class="mt-2" Disabled="@(_busy || _onlineAttempt is not null)" />
+                    <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-2">
+                        <MudText>Total</MudText><MudText>@Total.ToString("0.00")</MudText>
+                    </MudStack>
+                    <MudStack Row="true" Justify="Justify.SpaceBetween">
+                        <MudText>Change</MudText><MudText>@Math.Max(0m, Change).ToString("0.00")</MudText>
+                    </MudStack>
+                    @if (_onlineAttempt is not null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
+                            The post result is uncertain. Retry sends the same sale with its original idempotency key.
+                        </MudAlert>
+                    }
+                    @if (_onlineAttemptRejected)
+                    {
+                        <MudButton Variant="Variant.Outlined" Color="Color.Warning" FullWidth="true" Class="mt-2"
+                                   OnClick="StartFreshAfterRejectionAsync">
+                            Clear rejected sale and refresh
+                        </MudButton>
+                    }
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PointOfSale"
+                               FullWidth="true" Class="mt-3"
+                               Disabled="@(_busy || _lines.Count == 0 || _onlineLocationId is null || !CanPostOnline || (_cashReceived ?? Total) < Total)"
+                               OnClick="CaptureAsync">
+                        @(_busy ? "Posting..." : _onlineAttempt is null ? "Post cash sale" : "Retry sale post")
+                    </MudButton>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
 }
 else if (!PosService.IsOfflineCaptureSupported)
 {

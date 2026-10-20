@@ -65,3 +65,51 @@ public sealed class InventoryMovement : Entity, ITenantScoped
 
     public string? Memo { get; set; }
 }
+
+/// <summary>Inter-location stock transfer with dispatch and receipt posting checkpoints.</summary>
+public sealed class StockTransfer : TenantEntity
+{
+    public string TransferNumber { get; set; } = string.Empty;
+
+    public Guid SourceLocationId { get; set; }
+
+    public Guid DestinationLocationId { get; set; }
+
+    public StockTransferStatus Status { get; set; } = StockTransferStatus.Draft;
+
+    public string Currency { get; set; } = "QAR";
+
+    public string? Note { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+
+    public DateTimeOffset? DispatchedAtUtc { get; set; }
+
+    public Guid? DispatchedByUserId { get; set; }
+
+    public Guid? DispatchJournalEntryId { get; set; }
+
+    public DateTimeOffset? ReceivedAtUtc { get; set; }
+
+    public Guid? ReceivedByUserId { get; set; }
+
+    public Guid? ReceiveJournalEntryId { get; set; }
+}
+
+/// <summary>Transfer line, valued from the source movement at dispatch and reused at receipt.</summary>
+public sealed class StockTransferLine : TenantEntity
+{
+    public Guid StockTransferId { get; set; }
+
+    public int LineNo { get; set; }
+
+    public Guid VariantId { get; set; }
+
+    public decimal Quantity { get; set; }
+
+    public decimal? UnitCostAtDispatch { get; set; }
+
+    public decimal? ValueAtDispatch { get; set; }
+}

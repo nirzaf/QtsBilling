@@ -353,6 +353,74 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.ReferenceType, e.ReferenceId, e.MovementType }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.VariantId, e.OccurredAtUtc });
         });
+
+        modelBuilder.Entity<StockTransfer>(b =>
+        {
+            b.ToTable("stock_transfers");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.TransferNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SourceLocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DestinationLocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DispatchJournalEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ReceiveJournalEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.DispatchedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ReceivedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.TransferNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_stock_transfers_business_idempotency_key");
+            b.HasIndex(e => new { e.BusinessId, e.Status, e.CreatedAtUtc });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_stock_transfers_distinct_locations",
+                "source_location_id <> destination_location_id"));
+        });
+
+        modelBuilder.Entity<StockTransferLine>(b =>
+        {
+            b.ToTable("stock_transfer_lines");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Quantity).HasPrecision(18, 6);
+            b.Property(e => e.UnitCostAtDispatch).HasPrecision(18, 8);
+            b.Property(e => e.ValueAtDispatch).HasPrecision(18, 4);
+            b.HasOne<StockTransfer>()
+                .WithMany()
+                .HasForeignKey(e => new { e.StockTransferId, e.BusinessId })
+                .HasPrincipalKey(transfer => new { transfer.Id, transfer.BusinessId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<ProductVariant>()
+                .WithMany()
+                .HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(variant => new { variant.Id, variant.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.StockTransferId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.VariantId });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_stock_transfer_lines_quantity_positive",
+                "quantity > 0 AND (unit_cost_at_dispatch IS NULL OR unit_cost_at_dispatch >= 0) AND (value_at_dispatch IS NULL OR value_at_dispatch >= 0)"));
+        });
     }
 
     /// <summary>

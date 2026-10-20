@@ -28,8 +28,9 @@ public static class ReceiptRenderer
         builder.Append("<title>Receipt ").Append(Encode(receipt.SaleNumber)).AppendLine("</title>");
         builder.AppendLine("<style>");
         builder.AppendLine("  :root { color-scheme: light; }");
+        builder.AppendLine("  @page { size: 80mm auto; margin: 0; }");
         builder.AppendLine("  body { font-family: 'Consolas', 'Courier New', monospace; font-size: 13px; color: #111; margin: 0; background: #f5f5f5; }");
-        builder.AppendLine("  .receipt { max-width: 340px; margin: 16px auto; background: #fff; padding: 16px; border: 1px solid #ddd; }");
+        builder.AppendLine("  .receipt { box-sizing: border-box; width: 72mm; max-width: 340px; margin: 16px auto; background: #fff; padding: 4mm; border: 1px solid #ddd; }");
         builder.AppendLine("  h1 { font-size: 15px; margin: 0 0 2px 0; text-align: center; }");
         builder.AppendLine("  .muted { color: #555; text-align: center; margin: 0 0 8px 0; }");
         builder.AppendLine("  .badge { text-align: center; font-weight: bold; padding: 4px 6px; margin: 8px 0; border: 1px solid #111; }");
@@ -41,7 +42,7 @@ public static class ReceiptRenderer
         builder.AppendLine("  hr { border: none; border-top: 1px dashed #999; margin: 8px 0; }");
         builder.AppendLine("  .totals td { font-weight: bold; }");
         builder.AppendLine("  .foot { margin-top: 10px; font-size: 11px; color: #555; text-align: center; }");
-        builder.AppendLine("  @media print { body { background: #fff; } .receipt { border: none; margin: 0; max-width: none; } }");
+        builder.AppendLine("  @media print { body { width: 80mm; background: #fff; } .receipt { width: 72mm; border: none; margin: 0; max-width: none; } }");
         builder.AppendLine("</style>");
         builder.AppendLine("</head>");
         builder.AppendLine("<body>");
