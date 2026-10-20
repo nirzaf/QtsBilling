@@ -310,6 +310,11 @@ public static class InventoryEndpoints
                 new Dictionary<string, string[]> { ["locationId"] = ["The location does not exist in this business."] });
         }
 
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this inventory location.");
+        }
+
         var duplicate = await db.InventoryMovements.AsNoTracking()
             .Where(movement => movement.BusinessId == businessId
                 && movement.ReferenceType == referenceType
