@@ -14,6 +14,10 @@ public sealed class Customer : TenantEntity
 
     public string? Address { get; set; }
 
+    public decimal? CreditLimit { get; set; }
+
+    public int PaymentTermsDays { get; set; }
+
     public bool IsActive { get; set; } = true;
 }
 
