@@ -12,6 +12,7 @@ public sealed class LocalPosStoreTests
         Guid.CreateVersion7(),
         Guid.CreateVersion7(),
         Guid.CreateVersion7(),
+        Guid.CreateVersion7(),
         Guid.CreateVersion7());
 
     private static LocalCashSaleDraft Draft(Guid operationId, decimal cash = 12.34m) => new(
@@ -69,7 +70,7 @@ public sealed class LocalPosStoreTests
             CanonicalPayload = payload,
             Sha256Fingerprint = SqlitePayloadHash.Compute(payload),
             State = OutboxState.Pending,
-            NextAttemptUtc = DateTime.UtcNow.AddHours(-1),
+            NextAttemptAtUtc = DateTime.UtcNow.AddHours(-1),
             CreatedAtUtc = DateTime.UtcNow.AddHours(-1),
         };
 
