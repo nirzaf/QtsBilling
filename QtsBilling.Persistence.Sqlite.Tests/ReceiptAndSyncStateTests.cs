@@ -87,7 +87,7 @@ public sealed class ReceiptAndSyncStateTests
     }
 
     [Fact]
-    public async Task Transient_retry_receipt_keeps_the_operation_pending()
+    public async Task Transient_retry_is_scheduled_without_a_terminal_inbox_receipt()
     {
         await using var harness = LocalStoreHarness.Create();
         await harness.Store.InitializeAsync();
@@ -95,19 +95,24 @@ public sealed class ReceiptAndSyncStateTests
         var operationId = Guid.CreateVersion7();
         await harness.Store.CaptureProvisionalCashSaleAsync(TestData.Sale(operationId));
 
-        await harness.Store.ApplyReceiptAsync(new InboxReceipt
+        Assert.True(await harness.Store.ScheduleOutboxRetryAsync(operationId, "UNKNOWN"));
+
+        Assert.Equal("Pending", harness.ScalarString("SELECT state FROM outbox_operations;"));
+        Assert.Equal("Pending", harness.ScalarString("SELECT state FROM local_sale_drafts;"));
+        Assert.Equal(1L, harness.ScalarLong("SELECT attempt_count FROM outbox_operations;"));
+        Assert.Equal("UNKNOWN", harness.ScalarString("SELECT last_error_code FROM outbox_operations;"));
+        Assert.Equal(0L, harness.ScalarLong("SELECT COUNT(*) FROM inbox_receipts;"));
+
+        var due = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow.AddMinutes(1));
+        Assert.Single(due);
+
+        await Assert.ThrowsAsync<ArgumentException>(() => harness.Store.ApplyReceiptAsync(new InboxReceipt
         {
             OperationId = operationId,
             ServerResult = "TransientRetry",
             ErrorCode = "UNKNOWN",
             AppliedAtUtc = DateTime.UtcNow,
-        });
-
-        Assert.Equal("Pending", harness.ScalarString("SELECT state FROM outbox_operations;"));
-        Assert.Equal("Pending", harness.ScalarString("SELECT state FROM local_sale_drafts;"));
-
-        var due = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow.AddMinutes(1));
-        Assert.Single(due);
+        }));
     }
 
     [Fact]
@@ -131,7 +136,7 @@ public sealed class ReceiptAndSyncStateTests
         var profile = await harness.Store.GetDeviceProfileAsync();
         Assert.NotNull(profile);
         Assert.Equal(deviceId, profile!.DeviceId);
-        Assert.Equal(4, profile.SchemaVersion);
+        Assert.Equal(5, profile.SchemaVersion);
 
         await harness.Store.SaveSyncStateAsync(new SyncState
         {
