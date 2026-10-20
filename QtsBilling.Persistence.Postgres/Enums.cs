@@ -53,6 +53,7 @@ public enum JournalSourceType
     MigrationOpening,
     StockTransfer,
     StockTransferReceipt,
+    StockCount,
 }
 
 public enum StockTransferStatus
@@ -60,6 +61,14 @@ public enum StockTransferStatus
     Draft,
     Dispatched,
     Received,
+}
+
+public enum StockCountStatus
+{
+    Open,
+    Submitted,
+    Approved,
+    Cancelled,
 }
 
 public enum EntryStatus
