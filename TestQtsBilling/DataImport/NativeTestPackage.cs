@@ -85,6 +85,10 @@ internal sealed class NativeTestPackage : IDisposable
 
     public string OpeningExternalId => $"{Prefix}-open";
 
+    public string ReceivableReference => $"INV-OPEN-{Prefix}";
+
+    public string PayableReference => $"BILL-OPEN-{Prefix}";
+
     public string LocationCode => $"NATIVE-{Prefix}";
 
     public string InventoryAccountCode { get; set; } = "1200";
@@ -166,11 +170,11 @@ internal sealed class NativeTestPackage : IDisposable
             },
             receivables = new object[]
             {
-                new { partyExternalId = package.CustomerExternalId, amount = 50m, reference = "INV-OPEN-1" },
+                new { partyExternalId = package.CustomerExternalId, amount = 50m, reference = package.ReceivableReference },
             },
             payables = new object[]
             {
-                new { partyExternalId = package.SupplierExternalId, amount = 30m, reference = "BILL-OPEN-1" },
+                new { partyExternalId = package.SupplierExternalId, amount = 30m, reference = package.PayableReference },
             },
         });
 
