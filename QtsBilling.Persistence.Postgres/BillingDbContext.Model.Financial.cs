@@ -333,6 +333,75 @@ public partial class BillingDbContext
                 .OnDelete(DeleteBehavior.Restrict);
         });
 
+        modelBuilder.Entity<BankAccount>(b =>
+        {
+            b.ToTable("bank_accounts");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Name).HasMaxLength(200).IsRequired();
+            b.Property(e => e.AccountNumberMasked).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Iban).HasMaxLength(34);
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.HasOne<Account>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LedgerAccountId, e.BusinessId })
+                .HasPrincipalKey(account => new { account.Id, account.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.LedgerAccountId }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<BankStatementImport>(b =>
+        {
+            b.ToTable("bank_statement_imports");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.FileName).HasMaxLength(200).IsRequired();
+            b.Property(e => e.OpeningBalance).HasPrecision(18, 4);
+            b.Property(e => e.ClosingBalance).HasPrecision(18, 4);
+            b.Property(e => e.FileHash).HasMaxLength(64).IsRequired();
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64).IsRequired();
+            b.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
+            b.HasOne<BankAccount>()
+                .WithMany()
+                .HasForeignKey(e => new { e.BankAccountId, e.BusinessId })
+                .HasPrincipalKey(account => new { account.Id, account.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ImportedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey }).IsUnique()
+                .HasDatabaseName("ux_bank_statement_imports_business_idempotency_key");
+            b.HasIndex(e => new { e.BusinessId, e.BankAccountId, e.FileHash }).IsUnique()
+                .HasDatabaseName("ux_bank_statement_imports_account_file_hash");
+            b.ToTable(t => t.HasCheckConstraint("ck_bank_statement_imports_line_count", "line_count > 0"));
+        });
+
+        modelBuilder.Entity<BankStatementLine>(b =>
+        {
+            b.ToTable("bank_statement_lines");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Description).HasColumnType("text").IsRequired();
+            b.Property(e => e.Reference).HasMaxLength(128);
+            b.Property(e => e.Amount).HasPrecision(18, 4);
+            b.HasOne<BankStatementImport>()
+                .WithMany()
+                .HasForeignKey(e => new { e.StatementImportId, e.BusinessId })
+                .HasPrincipalKey(import => new { import.Id, import.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.MatchedJournalLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ReconciledByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.StatementImportId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.MatchedJournalLineId }).IsUnique()
+                .HasFilter("matched_journal_line_id IS NOT NULL")
+                .HasDatabaseName("ux_bank_statement_lines_business_matched_journal_line");
+            b.HasIndex(e => new { e.BusinessId, e.ValueDate });
+            b.ToTable(t => t.HasCheckConstraint("ck_bank_statement_lines_nonzero_amount", "amount <> 0"));
+        });
+
         modelBuilder.Entity<JournalEntry>(b =>
         {
             b.ToTable("journal_entries");
