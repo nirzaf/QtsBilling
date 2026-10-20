@@ -83,6 +83,7 @@ public partial class BillingDbContext
             b.Property(e => e.PspReference).HasMaxLength(128);
             b.Property(e => e.CardBrand).HasMaxLength(32);
             b.Property(e => e.CardLast4).HasMaxLength(4);
+            b.Property(e => e.BounceReason).HasMaxLength(500);
             b.HasOne<Sale>()
                 .WithMany()
                 .HasForeignKey(e => new { e.SaleId, e.BusinessId })
@@ -92,6 +93,16 @@ public partial class BillingDbContext
                 .WithMany()
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
                 .HasPrincipalKey(i => new { i.Id, i.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CustomerId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Account>()
+                .WithMany()
+                .HasForeignKey(e => new { e.BankAccountId, e.BusinessId })
+                .HasPrincipalKey(a => new { a.Id, a.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.SaleId });
@@ -111,6 +122,27 @@ public partial class BillingDbContext
                 .HasFilter("idempotency_key IS NOT NULL")
                 .HasDatabaseName("ux_payments_business_idempotency_key");
             b.ToTable(t => t.HasCheckConstraint("ck_payments_amount_positive", "amount > 0"));
+            b.ToTable(t => t.HasCheckConstraint("ck_payments_unallocated_amount", "unallocated_amount >= 0 AND unallocated_amount <= amount"));
+        });
+
+        modelBuilder.Entity<PaymentAllocation>(b =>
+        {
+            b.ToTable("payment_allocations");
+            HasBusinessFk(b);
+            b.Property(e => e.AllocatedAmount).HasPrecision(18, 4);
+            b.HasOne<Payment>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PaymentId, e.BusinessId })
+                .HasPrincipalKey(payment => new { payment.Id, payment.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Invoice>()
+                .WithMany()
+                .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
+                .HasPrincipalKey(invoice => new { invoice.Id, invoice.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.PaymentId });
+            b.HasIndex(e => new { e.BusinessId, e.InvoiceId });
+            b.ToTable(t => t.HasCheckConstraint("ck_payment_allocations_amount_positive", "allocated_amount > 0"));
         });
 
         modelBuilder.Entity<CashRegister>(b =>
@@ -187,6 +219,8 @@ public partial class BillingDbContext
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Reason).HasColumnType("text").IsRequired();
             b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
             b.HasOne<Sale>()
                 .WithMany()
                 .HasForeignKey(e => new { e.SaleId, e.BusinessId })
@@ -205,8 +239,7 @@ public partial class BillingDbContext
             b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.RefundNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.SaleId })
-                .IsUnique()
-                .HasDatabaseName("ux_refunds_business_sale");
+                .HasDatabaseName("ix_refunds_business_sale");
             b.Property(e => e.IdempotencyKey).HasMaxLength(64);
             b.Property(e => e.PayloadHash).HasMaxLength(64);
             b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
@@ -222,6 +255,8 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
             b.Property(e => e.SkuSnapshot).HasMaxLength(64);
+            b.Property(e => e.Quantity).HasPrecision(18, 6);
+            b.Property(e => e.Disposition).HasConversion<string>().HasMaxLength(32).HasDefaultValue(RefundDisposition.Restock).IsRequired();
             b.HasOne<Refund>()
                 .WithMany()
                 .HasForeignKey(e => new { e.RefundId, e.BusinessId })
@@ -233,7 +268,11 @@ public partial class BillingDbContext
                 .HasPrincipalKey(l => new { l.Id, l.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.RefundId, e.LineNo }).IsUnique();
-            b.ToTable(t => t.HasCheckConstraint("ck_refund_lines_amounts", "quantity > 0 AND unit_price >= 0"));
+            b.ToTable(t =>
+            {
+                t.HasCheckConstraint("ck_refund_lines_amounts", "quantity > 0 AND unit_price >= 0");
+                t.HasCheckConstraint("ck_refund_lines_disposition", "disposition IN ('Restock', 'DamagedWriteOff')");
+            });
         });
     }
 
@@ -262,6 +301,36 @@ public partial class BillingDbContext
             b.Property(e => e.Name).HasMaxLength(100).IsRequired();
             b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
             b.ToTable(t => t.HasCheckConstraint("ck_accounting_periods_range", "start_date <= end_date"));
+        });
+
+        modelBuilder.Entity<BusinessAccountingSettings>(b =>
+        {
+            b.ToTable("business_accounting_settings", table =>
+                table.HasCheckConstraint("ck_business_accounting_settings_scale", "settlement_scale IN (0, 2, 3, 4)"));
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.SettlementScale).HasDefaultValue(2);
+            b.HasIndex(e => e.BusinessId).IsUnique();
+            ConfigureSettingsAccount(b, e => new { e.CashAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.BankClearingAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.AccountsReceivableAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.InventoryAssetAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.InputTaxReceivableAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.AccountsPayableAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.OutputTaxPayableAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.GrniClearingAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.CustomerDepositsAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.RetainedEarningsAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.SalesRevenueAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.SalesReturnsAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.CogsAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.PurchasePriceVarianceAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.InventoryShrinkageAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.CashOverShortAccountId, e.BusinessId });
+            b.HasOne<Account>().WithMany()
+                .HasForeignKey(e => new { e.RoundingAccountId, e.BusinessId })
+                .HasPrincipalKey(account => new { account.Id, account.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<JournalEntry>(b =>
@@ -343,6 +412,9 @@ public partial class BillingDbContext
             b.Property(e => e.InvoiceNumber).HasMaxLength(64).IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Note).HasColumnType("text");
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_invoices_balance_math",
+                "balance_due = GREATEST(0, total_amount - amount_paid - credited_amount) AND amount_paid >= 0 AND credited_amount >= 0"));
             b.HasOne<BusinessLocation>()
                 .WithMany()
                 .HasForeignKey(e => new { e.LocationId, e.BusinessId })
@@ -381,6 +453,7 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
             b.Property(e => e.SkuSnapshot).HasMaxLength(64);
+            b.Property(e => e.UnitCostSnapshot).HasPrecision(18, 4);
             b.HasOne<Invoice>()
                 .WithMany()
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
@@ -407,6 +480,8 @@ public partial class BillingDbContext
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Reason).HasColumnType("text").IsRequired();
             b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
             b.HasOne<Invoice>()
                 .WithMany()
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
@@ -420,9 +495,43 @@ public partial class BillingDbContext
             b.HasOne<User>().WithMany().HasForeignKey(e => e.IssuedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CreditNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.InvoiceId })
+                .HasDatabaseName("ix_credit_notes_business_invoice");
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
                 .IsUnique()
-                .HasDatabaseName("ux_credit_notes_business_invoice");
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_credit_notes_business_idempotency_key");
             b.ToTable(t => t.HasCheckConstraint("ck_credit_notes_amount_positive", "amount > 0"));
+        });
+
+        modelBuilder.Entity<CreditNoteLine>(b =>
+        {
+            b.ToTable("credit_note_lines");
+            HasBusinessFk(b);
+            b.HasOne<CreditNote>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CreditNoteId, e.BusinessId })
+                .HasPrincipalKey(note => new { note.Id, note.BusinessId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<InvoiceLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.InvoiceLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductVariant>()
+                .WithMany()
+                .HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(variant => new { variant.Id, variant.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.QuantityCredited).HasPrecision(18, 6);
+            b.Property(e => e.UnitPrice).HasPrecision(18, 4);
+            b.Property(e => e.TaxAmount).HasPrecision(18, 4);
+            b.Property(e => e.LineTotal).HasPrecision(18, 4);
+            b.Property(e => e.UnitCostRestocked).HasPrecision(18, 4);
+            b.HasIndex(e => new { e.CreditNoteId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.InvoiceLineId, e.BusinessId });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_credit_note_lines_amounts",
+                "quantity_credited > 0 AND unit_price >= 0 AND tax_amount >= 0 AND line_total >= 0 AND unit_cost_restocked >= 0"));
         });
     }
 
@@ -483,6 +592,9 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.Description).HasColumnType("text").IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.TaxRate).HasPrecision(18, 6);
+            b.Property(e => e.TaxAmount).HasPrecision(18, 4);
+            b.Property(e => e.TaxMode).HasMaxLength(16).IsRequired();
             b.Property(e => e.Reference).HasMaxLength(128);
             b.Property(e => e.IdempotencyKey).HasMaxLength(64);
             b.Property(e => e.PayloadHash).HasMaxLength(64);
@@ -596,10 +708,100 @@ public partial class BillingDbContext
                 "ck_purchase_receipt_lines_quantities",
                 "quantity > 0 AND unit_cost >= 0"));
         });
+
+        modelBuilder.Entity<SupplierBill>(b =>
+        {
+            b.ToTable("supplier_bills");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.BillNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.SupplierInvoiceReference).HasMaxLength(128);
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<Supplier>().WithMany().HasForeignKey(e => new { e.SupplierId, e.BusinessId })
+                .HasPrincipalKey(supplier => new { supplier.Id, supplier.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(location => new { location.Id, location.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PurchaseOrder>().WithMany().HasForeignKey(e => new { e.PurchaseOrderId, e.BusinessId })
+                .HasPrincipalKey(order => new { order.Id, order.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(journal => new { journal.Id, journal.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.BillNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.SupplierId, e.Status, e.DueDate });
+            b.HasIndex(e => new { e.BusinessId, e.SupplierId, e.SupplierInvoiceReference })
+                .IsUnique().HasFilter("supplier_invoice_reference IS NOT NULL")
+                .HasDatabaseName("ux_supplier_bills_business_supplier_reference");
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique().HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_supplier_bills_business_idempotency_key");
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_bills_amounts",
+                "subtotal_amount >= 0 AND discount_amount >= 0 AND tax_amount >= 0 AND total_amount >= 0 AND amount_paid >= 0 AND balance_due >= 0 AND balance_due = total_amount - amount_paid"));
+        });
+
+        modelBuilder.Entity<SupplierBillLine>(b =>
+        {
+            b.ToTable("supplier_bill_lines");
+            HasBusinessFk(b);
+            b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
+            b.Property(e => e.TaxMode).HasMaxLength(16).IsRequired();
+            b.Property(e => e.QuantityBilled).HasPrecision(18, 6);
+            b.Property(e => e.UnitCost).HasPrecision(18, 6);
+            b.Property(e => e.TaxRate).HasPrecision(12, 6);
+            b.HasOne<SupplierBill>().WithMany().HasForeignKey(e => new { e.SupplierBillId, e.BusinessId })
+                .HasPrincipalKey(bill => new { bill.Id, bill.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PurchaseReceiptLine>().WithMany().HasForeignKey(e => new { e.PurchaseReceiptLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductVariant>().WithMany().HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(variant => new { variant.Id, variant.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.SupplierBillId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.PurchaseReceiptLineId });
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_bill_lines_amounts",
+                "quantity_billed > 0 AND unit_cost >= 0 AND gross_amount >= 0 AND discount_amount >= 0 AND discount_amount <= gross_amount AND tax_rate >= 0 AND tax_rate < 1 AND tax_amount >= 0 AND line_total >= 0 AND net_amount >= 0 AND line_total = net_amount + tax_amount AND ((tax_mode = 'Inclusive' AND line_total = gross_amount - discount_amount) OR (tax_mode IN ('Exclusive', 'Exempt') AND net_amount = gross_amount - discount_amount AND (tax_mode <> 'Exempt' OR tax_amount = 0)) )"));
+        });
+
+        modelBuilder.Entity<SupplierPayment>(b =>
+        {
+            b.ToTable("supplier_payments");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Reference).HasMaxLength(128);
+            b.HasOne<Supplier>().WithMany().HasForeignKey(e => new { e.SupplierId, e.BusinessId })
+                .HasPrincipalKey(supplier => new { supplier.Id, supplier.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(journal => new { journal.Id, journal.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.SupplierId, e.PaidOn });
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_payments_amount_positive", "amount > 0"));
+        });
+
+        modelBuilder.Entity<SupplierPaymentAllocation>(b =>
+        {
+            b.ToTable("supplier_payment_allocations");
+            HasBusinessFk(b);
+            b.HasOne<SupplierPayment>().WithMany().HasForeignKey(e => new { e.SupplierPaymentId, e.BusinessId })
+                .HasPrincipalKey(payment => new { payment.Id, payment.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<SupplierBill>().WithMany().HasForeignKey(e => new { e.SupplierBillId, e.BusinessId })
+                .HasPrincipalKey(bill => new { bill.Id, bill.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.SupplierBillId });
+            b.HasIndex(e => new { e.SupplierPaymentId, e.SupplierBillId }).IsUnique();
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_payment_allocations_amount_positive", "allocated_amount > 0"));
+        });
     }
 
     private void ConfigurePlatform(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<IdempotencyReceipt>(b =>
+        {
+            b.ToTable("command_idempotency_receipts");
+            b.HasOne<Business>().WithMany().HasForeignKey(e => e.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.Scope).HasMaxLength(100).IsRequired();
+            b.Property(e => e.IdempotencyKey).HasMaxLength(128).IsRequired();
+            b.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ResponseJson).HasColumnType("jsonb").IsRequired().Metadata.SetMaxLength(null);
+            b.HasIndex(e => new { e.BusinessId, e.Scope, e.IdempotencyKey }).IsUnique();
+        });
+
         modelBuilder.Entity<AuditEvent>(b =>
         {
             b.ToTable("audit_events");
@@ -719,5 +921,16 @@ public partial class BillingDbContext
                 t.HasCheckConstraint("ck_open_items_amount", "original_amount > 0");
             });
         });
+    }
+
+    private static void ConfigureSettingsAccount(
+        Microsoft.EntityFrameworkCore.Metadata.Builders.EntityTypeBuilder<BusinessAccountingSettings> builder,
+        System.Linq.Expressions.Expression<Func<BusinessAccountingSettings, object?>> accountId)
+    {
+        builder.HasOne<Account>()
+            .WithMany()
+            .HasForeignKey(accountId)
+            .HasPrincipalKey(account => new { account.Id, account.BusinessId })
+            .OnDelete(DeleteBehavior.Restrict);
     }
 }
