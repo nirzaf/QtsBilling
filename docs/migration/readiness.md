@@ -70,7 +70,7 @@ A case is `EXERCISED` only when it ran against the real stack and its result is 
 | The offline grant is signed and bounded (F10) | **NOT EXERCISED** | task 23 is not done |
 | The settlement subledger exists (F14) | **PARTIALLY EXERCISED** | QB-33: a customer credit no longer creates a confirmed payment and a cheque is no longer bank money (three cases against the real PostgreSQL). The open-item subledger behind the receivable balance is still missing (task 13, the remaining part) |
 | The perpetual valuation is real (F15) | **NOT EXERCISED** | task 15 is not done |
-| The receipt posts a journal (F16) | **NOT EXERCISED** | task 16 is not done |
+| The receipt posts a journal (F16) | **EXERCISED** | QB-35: a receipt of 10 pieces at 60 posts DR inventory 600 / CR goods received not invoiced 600, leaves the payables untouched and balances on every entry |
 | The device baseline and the atomic cache commit (F27) | **NOT EXERCISED** | tasks 26, 27 are not done |
 | The release promotion is gated (F40) | **NOT EXERCISED** | task 61 is not done |
 

@@ -3,6 +3,7 @@ using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Npgsql;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Purchasing;
 using QtsBilling.Persistence.Postgres;
@@ -994,6 +995,19 @@ public static class PurchasingEndpoints
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
+                var business = await db.Businesses.AsNoTracking()
+                    .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (business is null)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.Conflict,
+                        "The business of this purchase order is not available.",
+                        "The receipt cannot be posted without the business currency and calendar.");
+                }
+
                 var linesById = orderLines.ToDictionary(line => line.Id);
 
                 foreach (var requested in grouped)
@@ -1051,6 +1065,33 @@ public static class PurchasingEndpoints
 
                 db.PurchaseReceipts.Add(receipt);
 
+                // The receipt capitalises the stock and clears it: the value is not a supplier payable
+                // until the bill arrives, and it is not invisible either. Without this entry the
+                // quantity moves while the ledger does not (specification D08, finding F16).
+                var accounts = await LedgerWriter.ResolveAccountsAsync(
+                        db,
+                        businessId,
+                        [InventoryAccountCode, GrniAccountCode],
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                foreach (var (code, purpose) in new[]
+                {
+                    (InventoryAccountCode, "inventory"),
+                    (GrniAccountCode, "goods received not invoiced"),
+                })
+                {
+                    if (!accounts.TryGetValue(code, out var account) || !account.IsActive)
+                    {
+                        throw new DomainRuleException(
+                            StatusCodes.Status409Conflict,
+                            ApiErrorCodes.Conflict,
+                            "The chart of accounts is not ready for a goods receipt.",
+                            $"This business must define an active account '{code}' ({purpose}).");
+                    }
+                }
+
+                var receiptValue = 0m;
                 var lineNo = 1;
 
                 foreach (var requested in grouped)
@@ -1094,6 +1135,37 @@ public static class PurchasingEndpoints
                     line.QuantityReceived = isReturn
                         ? line.QuantityReceived - requested.Value
                         : line.QuantityReceived + requested.Value;
+
+                    receiptValue += LedgerWriter.Round(requested.Value * line.UnitCost);
+                }
+
+                if (receiptValue > 0m)
+                {
+                    var entryLines = isReturn
+                        ? new[]
+                        {
+                            new JournalLineRequest(accounts[GrniAccountCode].Id, receiptValue, 0m, "Goods returned to the supplier", lockedOrder.LocationId),
+                            new JournalLineRequest(accounts[InventoryAccountCode].Id, 0m, receiptValue, "Inventory relieved", lockedOrder.LocationId),
+                        }
+                        : new[]
+                        {
+                            new JournalLineRequest(accounts[InventoryAccountCode].Id, receiptValue, 0m, "Goods received", lockedOrder.LocationId),
+                            new JournalLineRequest(accounts[GrniAccountCode].Id, 0m, receiptValue, "Goods received not invoiced", lockedOrder.LocationId),
+                        };
+
+                    await LedgerWriter.PostWithinTransactionAsync(
+                            db,
+                            businessId,
+                            userId,
+                            business.BaseCurrency,
+                            LedgerWriter.LocalDate(business.TimeZone, now),
+                            $"{(isReturn ? "Purchase return" : "Goods receipt")} {number}",
+                            JournalSourceType.Purchase,
+                            receipt.Id,
+                            reversalOfEntryId: null,
+                            entryLines,
+                            cancellationToken)
+                        .ConfigureAwait(false);
                 }
 
                 ApplyReceivedStatus(lockedOrder, orderLines);

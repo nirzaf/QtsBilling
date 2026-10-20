@@ -324,6 +324,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             ("1100", "Accounts receivable", AccountType.Asset),
             ("1200", "Inventory", AccountType.Asset),
             ("2100", "Tax payable", AccountType.Liability),
+            ("2101", "Goods received not invoiced", AccountType.Liability),
             ("4000", "Sales revenue", AccountType.Revenue),
             ("5000", "Cost of goods sold", AccountType.Expense),
         })
