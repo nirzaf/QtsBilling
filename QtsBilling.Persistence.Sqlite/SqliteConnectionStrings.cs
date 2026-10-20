@@ -9,6 +9,8 @@ namespace QtsBilling.Persistence.Sqlite;
 /// </summary>
 public static class SqliteConnectionStrings
 {
+    static SqliteConnectionStrings() => SQLitePCL.Batteries_V2.Init();
+
     public static string ForFile(string databasePath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
@@ -26,6 +28,32 @@ public static class SqliteConnectionStrings
             Mode = SqliteOpenMode.ReadWriteCreate,
             Cache = SqliteCacheMode.Private,
             Pooling = false,
+        }.ToString();
+    }
+
+    public static string ForEncryptedFile(string databasePath, string hexKey)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(databasePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(hexKey);
+        if (hexKey.Length != 64 || hexKey.Any(character => !Uri.IsHexDigit(character)))
+        {
+            throw new ArgumentException("The SQLite encryption key must be 32 bytes encoded as 64 hexadecimal characters.", nameof(hexKey));
+        }
+
+        var fullPath = Path.GetFullPath(databasePath);
+        var directory = Path.GetDirectoryName(fullPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        return new SqliteConnectionStringBuilder
+        {
+            DataSource = fullPath,
+            Mode = SqliteOpenMode.ReadWriteCreate,
+            Cache = SqliteCacheMode.Private,
+            Pooling = false,
+            Password = $"x'{hexKey}'",
         }.ToString();
     }
 }
