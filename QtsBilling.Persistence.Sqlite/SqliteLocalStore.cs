@@ -51,6 +51,8 @@ public sealed partial class SqliteLocalStore
     {
         using var lease = await _writeGate.AcquireAsync(cancellationToken);
 
+        await SqliteDatabaseEncryption.PrepareAsync(_options, cancellationToken).ConfigureAwait(false);
+
         await using var db = await _factory.CreateDbContextAsync(cancellationToken);
         await db.Database.OpenConnectionAsync(cancellationToken);
         try
@@ -211,6 +213,7 @@ public sealed partial class SqliteLocalStore
         RequireId(input.LocationId, nameof(input.LocationId));
         RequireId(input.UserId, nameof(input.UserId));
         RequireId(input.RegisterId, nameof(input.RegisterId));
+        RequireId(input.RegisterSessionId, nameof(input.RegisterSessionId));
 
         if (input.Lines.Count == 0)
         {
@@ -296,6 +299,7 @@ public sealed partial class SqliteLocalStore
             ProvisionalReference = reference,
             UserId = input.UserId,
             RegisterId = input.RegisterId,
+            RegisterSessionId = input.RegisterSessionId,
             PaymentMethod = "cash",
             Amount = input.Amount,
             State = SaleDraftState.Pending,
@@ -321,6 +325,7 @@ public sealed partial class SqliteLocalStore
         {
             OperationId = input.OperationId,
             RegisterId = input.RegisterId,
+            RegisterSessionId = input.RegisterSessionId,
             Amount = input.Amount,
             Reason = "provisional cash sale",
             State = SaleDraftState.Pending,
@@ -337,8 +342,9 @@ public sealed partial class SqliteLocalStore
             CanonicalPayload = canonicalPayload,
             Sha256Fingerprint = fingerprint,
             State = OutboxState.Pending,
-            Attempts = 0,
-            NextAttemptUtc = now,
+            AttemptCount = 0,
+            NextAttemptAtUtc = now,
+            LastErrorCode = null,
             CreatedAtUtc = now,
         });
 
@@ -386,9 +392,9 @@ public sealed partial class SqliteLocalStore
             operation.CreatedAtUtc = now;
         }
 
-        if (operation.NextAttemptUtc == default)
+        if (operation.NextAttemptAtUtc == default)
         {
-            operation.NextAttemptUtc = now;
+            operation.NextAttemptAtUtc = now;
         }
 
         using var lease = await _writeGate.AcquireAsync(cancellationToken);
@@ -425,7 +431,7 @@ public sealed partial class SqliteLocalStore
         await using var db = await _factory.CreateDbContextAsync(cancellationToken);
         return await db.OutboxOperations
             .AsNoTracking()
-            .Where(operation => operation.State == OutboxState.Pending && operation.NextAttemptUtc <= now)
+            .Where(operation => operation.State == OutboxState.Pending && operation.NextAttemptAtUtc <= now)
             .OrderBy(operation => operation.CreatedAtUtc)
             .ThenBy(operation => operation.OperationId)
             .Take(limit)
@@ -440,6 +446,53 @@ public sealed partial class SqliteLocalStore
         return await db.OutboxOperations
             .AsNoTracking()
             .SingleOrDefaultAsync(operation => operation.OperationId == operationId, cancellationToken);
+    }
+
+    /// <summary>Returns a transiently failed operation to the queue with bounded exponential backoff.</summary>
+    public async Task<bool> ScheduleOutboxRetryAsync(
+        Guid operationId,
+        string? errorCode,
+        CancellationToken cancellationToken = default)
+    {
+        RequireId(operationId, nameof(operationId));
+
+        using var lease = await _writeGate.AcquireAsync(cancellationToken);
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var operation = await db.OutboxOperations
+            .SingleOrDefaultAsync(candidate => candidate.OperationId == operationId, cancellationToken);
+        if (operation is null || operation.State is OutboxState.Acknowledged or OutboxState.Rejected)
+        {
+            return false;
+        }
+
+        operation.AttemptCount = checked(operation.AttemptCount + 1);
+        var delaySeconds = Math.Min(300d, Math.Pow(2d, operation.AttemptCount) * 5d);
+        var now = _time.GetUtcNow().UtcDateTime;
+        operation.NextAttemptAtUtc = now.AddSeconds(delaySeconds);
+        operation.LastErrorCode = NormalizeErrorCode(errorCode);
+        operation.State = OutboxState.Pending;
+
+        var draft = await db.LocalSaleDrafts
+            .SingleOrDefaultAsync(candidate => candidate.OperationId == operationId, cancellationToken);
+        if (draft is not null)
+        {
+            draft.State = SaleDraftState.Pending;
+            draft.LastError = operation.LastErrorCode;
+            draft.UpdatedAtUtc = now;
+        }
+
+        var cash = await db.LocalCashMovements
+            .SingleOrDefaultAsync(candidate => candidate.OperationId == operationId, cancellationToken);
+        if (cash is not null)
+        {
+            cash.State = SaleDraftState.Pending;
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        await transaction.CommitAsync(cancellationToken);
+        return true;
     }
 
     /// <summary>Marks an operation as in flight and counts the attempt. Terminal rows are left untouched.</summary>
@@ -466,10 +519,10 @@ public sealed partial class SqliteLocalStore
         }
 
         operation.State = OutboxState.Sending;
-        operation.Attempts = checked(operation.Attempts + 1);
+        operation.AttemptCount = checked(operation.AttemptCount + 1);
         if (nextAttemptUtc is not null)
         {
-            operation.NextAttemptUtc = nextAttemptUtc.Value;
+            operation.NextAttemptAtUtc = nextAttemptUtc.Value;
         }
 
         await db.SaveChangesAsync(cancellationToken);
@@ -489,6 +542,12 @@ public sealed partial class SqliteLocalStore
         ArgumentNullException.ThrowIfNull(receipt);
         RequireId(receipt.OperationId, nameof(receipt.OperationId));
         ArgumentException.ThrowIfNullOrWhiteSpace(receipt.ServerResult);
+        if (string.Equals(receipt.ServerResult, "TransientRetry", StringComparison.Ordinal))
+        {
+            throw new ArgumentException(
+                "Transient outcomes are retry metadata and must not be persisted as terminal inbox receipts.",
+                nameof(receipt));
+        }
 
         using var lease = await _writeGate.AcquireAsync(cancellationToken);
         await using var db = await _factory.CreateDbContextAsync(cancellationToken);
@@ -759,11 +818,51 @@ public sealed partial class SqliteLocalStore
 
         var products = await db.CachedProducts.ExecuteDeleteAsync(cancellationToken);
         var customers = await db.CachedCustomers.ExecuteDeleteAsync(cancellationToken);
+        var categories = await db.CachedCategories.ExecuteDeleteAsync(cancellationToken);
+        var units = await db.CachedUnits.ExecuteDeleteAsync(cancellationToken);
         var stock = await db.CachedStock.ExecuteDeleteAsync(cancellationToken);
         var tombstones = await db.CacheTombstones.ExecuteDeleteAsync(cancellationToken);
 
         await transaction.CommitAsync(cancellationToken);
-        return new CacheRebuildResult(products, customers, stock, tombstones);
+        return new CacheRebuildResult(products, customers, categories, units, stock, tombstones);
+    }
+
+    /// <summary>
+    /// Clears discardable projections and resets the business/location cursor atomically after the server
+    /// declares that the current cursor is below its change-feed floor. Durable sales and conflicts survive.
+    /// </summary>
+    public async Task<CacheRebuildResult> RebuildCacheAsync(
+        Guid businessId,
+        Guid locationId,
+        CancellationToken cancellationToken = default)
+    {
+        if (businessId == Guid.Empty || locationId == Guid.Empty)
+        {
+            throw new ArgumentException("A business and location are required to rebuild a scoped cache.");
+        }
+
+        using var lease = await _writeGate.AcquireAsync(cancellationToken);
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken);
+
+        var products = await db.CachedProducts.ExecuteDeleteAsync(cancellationToken);
+        var customers = await db.CachedCustomers.ExecuteDeleteAsync(cancellationToken);
+        var categories = await db.CachedCategories.ExecuteDeleteAsync(cancellationToken);
+        var units = await db.CachedUnits.ExecuteDeleteAsync(cancellationToken);
+        var stock = await db.CachedStock.ExecuteDeleteAsync(cancellationToken);
+        var tombstones = await db.CacheTombstones.ExecuteDeleteAsync(cancellationToken);
+
+        await UpsertSyncCursorCoreAsync(
+            db,
+            businessId,
+            locationId,
+            revision: 0,
+            ordinal: 0,
+            lastSuccessUtc: null,
+            cancellationToken).ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return new CacheRebuildResult(products, customers, categories, units, stock, tombstones);
     }
 
     // ----------------------------------------------------------------------------------------------
@@ -963,7 +1062,6 @@ public sealed partial class SqliteLocalStore
         => serverResult switch
         {
             "Posted" or "AlreadyPosted" => (OutboxState.Acknowledged, SaleDraftState.Posted),
-            "TransientRetry" => (OutboxState.Pending, SaleDraftState.Pending),
             _ => (OutboxState.Rejected, SaleDraftState.Rejected),
         };
 
@@ -973,6 +1071,17 @@ public sealed partial class SqliteLocalStore
            && string.Equals(left.PostedNumber, right.PostedNumber, StringComparison.Ordinal)
            && left.ServerRevision == right.ServerRevision
            && string.Equals(left.ErrorCode, right.ErrorCode, StringComparison.Ordinal);
+
+    private static string NormalizeErrorCode(string? errorCode)
+    {
+        if (string.IsNullOrWhiteSpace(errorCode))
+        {
+            return "TRANSIENT_ERROR";
+        }
+
+        var normalized = errorCode.Trim();
+        return normalized.Length <= 64 ? normalized : normalized[..64];
+    }
 
     private static void RequireId(Guid id, string name)
     {
