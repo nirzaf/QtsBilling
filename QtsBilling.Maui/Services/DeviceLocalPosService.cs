@@ -94,12 +94,18 @@ public sealed class DeviceLocalPosService : ILocalPosService
                     : "The offline capture grant for this device is not valid. Sign in while online to renew it.");
         }
 
+        if (grant.Claims?.RegisterSessionId is not { } registerSessionId || registerSessionId == Guid.Empty)
+        {
+            return Rejected(draft, "This device has no offline grant bound to an active cash drawer session.");
+        }
+
         var context = new LocalDeviceContext(
             _identity.DeviceId,
             businessId,
             locationId,
             session.UserId,
-            registerId);
+            registerId,
+            registerSessionId);
 
         return await _pos.CaptureCashSaleAsync(context, draft, cancellationToken).ConfigureAwait(false);
     }
