@@ -43,6 +43,30 @@ try {
         if (-not (Test-Path $file)) { continue }
 
         $scanned++
+
+        # Detect the known double-encoded UTF-8 byte prefix at the byte level so invalid UTF-8 is not
+        # silently replaced by Get-Content before the check runs.
+        $rawBytes = [System.IO.File]::ReadAllBytes($file)
+        $hexContent = [Convert]::ToHexString($rawBytes)
+        $encodingMatch = [regex]::Match($hexContent, "C383C2")
+
+        if ($encodingMatch.Success) {
+            $byteOffset = [int]($encodingMatch.Index / 2)
+            $encodingLine = 1
+
+            for ($byteIndex = 0; $byteIndex -lt $byteOffset; $byteIndex++) {
+                if ($rawBytes[$byteIndex] -eq 10) { $encodingLine++ }
+            }
+
+            $findings += [pscustomobject]@{
+                File    = $file
+                Line    = $encodingLine
+                Pattern = "double-encoded UTF-8 byte sequence"
+                Allowed = $false
+                Text    = "C383C2"
+            }
+        }
+
         $lineNumber = 0
 
         foreach ($line in (Get-Content -Path $file -ErrorAction SilentlyContinue)) {
