@@ -102,3 +102,91 @@ public sealed record PurchaseReceiptDto(
     IReadOnlyList<PurchaseReceiptLineDto> Lines);
 
 public sealed record PurchaseOrderActionRequest(string Reason);
+
+/// <summary>One supplier invoice line matched to a previously received goods line.</summary>
+public sealed record SupplierBillLineRequest(
+    Guid PurchaseReceiptLineId,
+    decimal QuantityBilled,
+    decimal UnitCost,
+    decimal DiscountAmount,
+    decimal TaxRate,
+    string TaxMode);
+
+public sealed record CreateSupplierBillRequest(
+    Guid SupplierId,
+    Guid LocationId,
+    Guid? PurchaseOrderId,
+    string? SupplierInvoiceReference,
+    DateOnly BillDate,
+    DateOnly? DueDate,
+    IReadOnlyList<SupplierBillLineRequest> Lines);
+
+public enum SupplierBillState
+{
+    Draft,
+    Issued,
+    PartiallyPaid,
+    Paid,
+    Void,
+}
+
+public sealed record SupplierBillLineDto(
+    Guid Id,
+    int LineNo,
+    Guid PurchaseReceiptLineId,
+    Guid VariantId,
+    string ProductName,
+    decimal QuantityBilled,
+    decimal UnitCost,
+    decimal GrossAmount,
+    decimal DiscountAmount,
+    decimal TaxRate,
+    string TaxMode,
+    decimal NetAmount,
+    decimal TaxAmount,
+    decimal LineTotal);
+
+public sealed record SupplierBillDto(
+    Guid Id,
+    string BillNumber,
+    SupplierBillState Status,
+    Guid SupplierId,
+    Guid LocationId,
+    Guid? PurchaseOrderId,
+    string? SupplierInvoiceReference,
+    DateOnly BillDate,
+    DateOnly? DueDate,
+    string Currency,
+    decimal SubtotalAmount,
+    decimal DiscountAmount,
+    decimal TaxAmount,
+    decimal RoundingAmount,
+    decimal TotalAmount,
+    decimal AmountPaid,
+    decimal BalanceDue,
+    Guid? JournalEntryId,
+    IReadOnlyList<SupplierBillLineDto> Lines);
+
+public sealed record SupplierBillActionRequest(string? Note);
+
+public sealed record SupplierBillAllocationRequest(Guid SupplierBillId, decimal Amount);
+
+public sealed record CreateSupplierPaymentRequest(
+    Guid SupplierId,
+    string Method,
+    decimal Amount,
+    DateOnly PaidOn,
+    string Currency,
+    string? Reference,
+    IReadOnlyList<SupplierBillAllocationRequest> Allocations);
+
+public sealed record SupplierPaymentDto(
+    Guid Id,
+    Guid SupplierId,
+    string Method,
+    decimal Amount,
+    string Currency,
+    DateOnly PaidOn,
+    string? Reference,
+    Guid JournalEntryId,
+    IReadOnlyList<SupplierBillAllocationRequest> Allocations);
