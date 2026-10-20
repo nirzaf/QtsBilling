@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Text;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Identity;
@@ -25,6 +26,7 @@ public static class DeviceEndpoints
     {
         var group = app.MapGroup("/api/v1/devices").RequireAuthorization();
 
+        group.MapPost("/enrolment-challenges", CreateEnrolmentChallengeAsync).RequireAuthorization(Permissions.DevicesManage);
         group.MapPost("/", EnrolAsync).RequireAuthorization(Permissions.DevicesManage);
         group.MapPost("/{deviceId:guid}/offline-grant", IssueOfflineGrantAsync)
             .RequireAuthorization(Permissions.SalesPost);
@@ -39,7 +41,7 @@ public static class DeviceEndpoints
         BillingDbContext db,
         CancellationToken cancellationToken)
     {
-        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out _))
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
         {
             return TypedErrors.Unauthenticated();
         }
@@ -64,22 +66,91 @@ public static class DeviceEndpoints
             return Invalid("device_location");
         }
 
-        var device = new DeviceRegistration
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return TypedErrors.Forbidden();
+        }
+
+        var challengeHash = HashEnrolmentCode(NormalizeEnrolmentCode(request.EnrolmentCode));
+        var strategy = db.Database.CreateExecutionStrategy();
+        return await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var challenge = await db.DeviceEnrolmentChallenges
+                .FromSqlInterpolated($"SELECT * FROM device_enrolment_challenges WHERE challenge_hash = {challengeHash} FOR UPDATE")
+                .SingleOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var now = DateTimeOffset.UtcNow;
+            if (challenge is null
+                || challenge.BusinessId != businessId
+                || challenge.LocationId != request.LocationId
+                || challenge.ConsumedAtUtc is not null
+                || challenge.ExpiresAtUtc <= now)
+            {
+                return Results.Conflict(new { code = "DEVICE_ENROLMENT_CODE_INVALID", detail = "The enrolment code is invalid, expired, or already used." });
+            }
+
+            var device = new DeviceRegistration
+            {
+                BusinessId = businessId,
+                LocationId = request.LocationId,
+                Name = request.Name.Trim(),
+                Platform = request.Platform.Trim(),
+                Status = DeviceStatus.Active,
+                EnrolledAtUtc = now,
+            };
+
+            db.DeviceRegistrations.Add(device);
+            challenge.ConsumedAtUtc = now;
+            challenge.ConsumedByDeviceId = device.Id;
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+
+            return Results.Created(
+                $"/api/v1/devices/{device.Id}",
+                new DeviceEnrolmentResponse(device.Id, device.EnrolledAtUtc));
+        }).ConfigureAwait(false);
+    }
+
+    private static async Task<IResult> CreateEnrolmentChallengeAsync(
+        CreateEnrolmentChallengeRequest request,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var locationExists = await db.BusinessLocations.AsNoTracking()
+            .AnyAsync(location => location.BusinessId == businessId && location.Id == request.LocationId && location.IsActive, cancellationToken)
+            .ConfigureAwait(false);
+        if (!locationExists)
+        {
+            return Invalid("device_location");
+        }
+
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return TypedErrors.Forbidden();
+        }
+
+        var code = CreateEnrolmentCode();
+        var now = DateTimeOffset.UtcNow;
+        db.DeviceEnrolmentChallenges.Add(new DeviceEnrolmentChallenge
         {
             BusinessId = businessId,
             LocationId = request.LocationId,
-            Name = request.Name.Trim(),
-            Platform = request.Platform.Trim(),
-            Status = DeviceStatus.Active,
-            EnrolledAtUtc = DateTimeOffset.UtcNow,
-        };
-
-        db.DeviceRegistrations.Add(device);
+            ChallengeHash = HashEnrolmentCode(code),
+            CreatedByUserId = userId,
+            CreatedAtUtc = now,
+            ExpiresAtUtc = now.AddMinutes(15),
+        });
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
-        return Results.Created(
-            $"/api/v1/devices/{device.Id}",
-            new DeviceEnrolmentResponse(device.Id, device.EnrolledAtUtc));
+        return Results.Ok(new CreateEnrolmentChallengeResponse(code, request.LocationId, now.AddMinutes(15)));
     }
 
     private static async Task<IResult> IssueOfflineGrantAsync(
@@ -116,21 +187,36 @@ public static class DeviceEndpoints
             return Invalid("device_location");
         }
 
+        var openSessions =
+            from session in db.CashRegisterSessions.AsNoTracking()
+            join register in db.CashRegisters.AsNoTracking()
+                on new { session.BusinessId, CashRegisterId = session.CashRegisterId }
+                equals new { register.BusinessId, CashRegisterId = register.Id }
+            where session.BusinessId == businessId
+                && register.LocationId == locationId.Value
+                && session.Status == CashRegisterSessionStatus.Open
+            select session;
+
+        CashRegisterSession? openSession;
         if (request.RegisterSessionId is { } registerSessionId)
         {
-            var registerOpen = await db.CashRegisterSessions
-                .AsNoTracking()
-                .AnyAsync(
-                    session => session.BusinessId == businessId
-                        && session.Id == registerSessionId
-                        && session.Status == CashRegisterSessionStatus.Open,
-                    cancellationToken)
+            openSession = await openSessions
+                .SingleOrDefaultAsync(session => session.Id == registerSessionId, cancellationToken)
                 .ConfigureAwait(false);
+        }
+        else
+        {
+            var locationSessions = await openSessions.Take(2).ToListAsync(cancellationToken).ConfigureAwait(false);
+            openSession = locationSessions.Count == 1 ? locationSessions[0] : null;
+        }
 
-            if (!registerOpen)
+        if (openSession is null)
+        {
+            return Results.Conflict(new
             {
-                return Invalid("register_session");
-            }
+                code = "REGISTER_SESSION_REQUIRED",
+                detail = "An open cash drawer session for this device location is required to issue an offline grant.",
+            });
         }
 
         var membership = await db.BusinessMemberships
@@ -158,10 +244,10 @@ public static class DeviceEndpoints
             device.Id,
             businessId,
             locationId.Value,
-            request.RegisterSessionId,
+            openSession.Id,
             business.BaseCurrency,
             RolePermissions.For(membership.Role),
-            membership.Version,
+            membership.AuthorizationRevision,
             issuedAt,
             expiresAt);
 
@@ -179,7 +265,30 @@ public static class DeviceEndpoints
     private static bool TryGetUserId(HttpContext http, out Guid userId)
         => Guid.TryParse(http.User.FindFirstValue(ClaimTypes.NameIdentifier), out userId);
 
-    public sealed record EnrolDeviceRequest(string Name, string Platform, Guid LocationId);
+    private static string NormalizeEnrolmentCode(string? code) => (code ?? string.Empty).Trim().ToUpperInvariant();
+
+    private static string HashEnrolmentCode(string code)
+        => Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(code)));
+
+    private static string CreateEnrolmentCode()
+    {
+        const string alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+        var bytes = RandomNumberGenerator.GetBytes(12);
+        var chars = new char[12];
+        for (var index = 0; index < chars.Length; index++)
+        {
+            chars[index] = alphabet[bytes[index] & 31];
+        }
+
+        var token = new string(chars);
+        return $"QTS-{token[..4]}-{token[4..8]}-{token[8..12]}";
+    }
+
+    public sealed record CreateEnrolmentChallengeRequest(Guid LocationId);
+
+    public sealed record CreateEnrolmentChallengeResponse(string EnrolmentCode, Guid LocationId, DateTimeOffset ExpiresAtUtc);
+
+    public sealed record EnrolDeviceRequest(string Name, string Platform, Guid LocationId, string EnrolmentCode);
 
     public sealed record DeviceEnrolmentResponse(Guid DeviceId, DateTimeOffset EnrolledAtUtc);
 
