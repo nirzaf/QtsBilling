@@ -4,7 +4,6 @@ using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sync;
 using QtsModels.ValueObjects;
 using QtsBilling.Persistence.Sqlite.Entities;
-using QtsModels.ValueObjects;
 
 // The device row and the wire contract share a name; the store speaks the entity.
 using SyncConflict = QtsBilling.Persistence.Sqlite.Entities.SyncConflict;
@@ -29,6 +28,61 @@ public sealed partial class SqliteLocalStore
     {
         ArgumentNullException.ThrowIfNull(changes);
 
+        using var lease = await _writeGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var result = await ApplyChangesCoreAsync(db, changes, businessId, locationId, cancellationToken).ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    /// <summary>
+    /// Applies one server page and advances its cursor in the same SQLite transaction. A crash can therefore
+    /// leave both the cache and cursor before the page, or both after it, but never advance past unapplied data.
+    /// </summary>
+    public async Task<SyncApplyResult> ApplyChangesAndAdvanceCursorAsync(
+        IReadOnlyList<SyncChangeDto> changes,
+        Guid businessId,
+        Guid locationId,
+        long nextRevision,
+        int nextOrdinal,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(changes);
+
+        using var lease = await _writeGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+        var result = await ApplyChangesCoreAsync(db, changes, businessId, locationId, cancellationToken).ConfigureAwait(false);
+        await UpsertSyncCursorCoreAsync(
+            db,
+            businessId,
+            locationId,
+            nextRevision,
+            nextOrdinal,
+            _time.GetUtcNow().UtcDateTime,
+            cancellationToken).ConfigureAwait(false);
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+        return result;
+    }
+
+    private static async Task<SyncApplyResult> ApplyChangesCoreAsync(
+        LocalStoreDbContext db,
+        IReadOnlyList<SyncChangeDto> changes,
+        Guid businessId,
+        Guid locationId,
+        CancellationToken cancellationToken)
+    {
+        if (businessId == Guid.Empty || locationId == Guid.Empty)
+        {
+            throw new ArgumentException("A business and location are required to apply sync changes.");
+        }
+
         if (changes.Count == 0)
         {
             return new SyncApplyResult(0, 0, 0);
@@ -37,8 +91,6 @@ public sealed partial class SqliteLocalStore
         var applied = 0;
         var conflicts = 0;
         var skipped = 0;
-
-        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
 
         var pendingVariants = await PendingVariantIdsAsync(db, cancellationToken).ConfigureAwait(false);
 
@@ -84,8 +136,6 @@ public sealed partial class SqliteLocalStore
 
             applied++;
         }
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return new SyncApplyResult(applied, conflicts, skipped);
     }
@@ -174,8 +224,35 @@ public sealed partial class SqliteLocalStore
         int ordinal,
         CancellationToken cancellationToken = default)
     {
-        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        if (businessId == Guid.Empty || locationId == Guid.Empty)
+        {
+            throw new ArgumentException("A business and location are required to set a sync cursor.");
+        }
 
+        using var lease = await _writeGate.AcquireAsync(cancellationToken).ConfigureAwait(false);
+        await using var db = await _factory.CreateDbContextAsync(cancellationToken).ConfigureAwait(false);
+        await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+        await UpsertSyncCursorCoreAsync(
+            db,
+            businessId,
+            locationId,
+            revision,
+            ordinal,
+            _time.GetUtcNow().UtcDateTime,
+            cancellationToken).ConfigureAwait(false);
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    private static async Task UpsertSyncCursorCoreAsync(
+        LocalStoreDbContext db,
+        Guid businessId,
+        Guid locationId,
+        long revision,
+        long ordinal,
+        DateTime? lastSuccessUtc,
+        CancellationToken cancellationToken)
+    {
         var state = await db.SyncStates
             .SingleOrDefaultAsync(
                 candidate => candidate.BusinessId == businessId && candidate.LocationId == locationId,
@@ -189,15 +266,12 @@ public sealed partial class SqliteLocalStore
                 BusinessId = businessId,
                 LocationId = locationId,
             };
-
             db.SyncStates.Add(state);
         }
 
         state.LastRevision = revision;
         state.LastOrdinal = ordinal;
-        state.LastSuccessUtc = DateTime.UtcNow;
-
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        state.LastSuccessUtc = lastSuccessUtc;
     }
 
     /// <summary>The variant ids a pending local operation still uses.</summary>
@@ -377,6 +451,64 @@ public sealed partial class SqliteLocalStore
                 row.Deleted = false;
                 break;
             }
+
+            case "category":
+            {
+                var row = await db.CachedCategories
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.BusinessId == businessId && candidate.CategoryId == change.EntityId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (row is null)
+                {
+                    row = new CachedCategory
+                    {
+                        BusinessId = businessId,
+                        CategoryId = change.EntityId,
+                    };
+                    db.CachedCategories.Add(row);
+                }
+
+                row.Name = payload.TryGetProperty("name", out var categoryName)
+                    ? categoryName.GetString() ?? string.Empty
+                    : row.Name;
+                row.ParentId = payload.TryGetProperty("parentId", out var parentId) && parentId.TryGetGuid(out var parentValue)
+                    ? parentValue
+                    : null;
+                row.Active = ReadBoolean(payload, "isActive") ?? ReadBoolean(payload, "active") ?? false;
+                row.Revision = ReadRevision(payload, change.Revision);
+                break;
+            }
+
+            case "unit":
+            {
+                var row = await db.CachedUnits
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.BusinessId == businessId && candidate.UnitId == change.EntityId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (row is null)
+                {
+                    row = new CachedUnit
+                    {
+                        BusinessId = businessId,
+                        UnitId = change.EntityId,
+                    };
+                    db.CachedUnits.Add(row);
+                }
+
+                row.Name = payload.TryGetProperty("name", out var unitName)
+                    ? unitName.GetString() ?? string.Empty
+                    : row.Name;
+                row.ShortName = payload.TryGetProperty("shortName", out var shortName)
+                    ? shortName.GetString() ?? string.Empty
+                    : row.ShortName;
+                row.AllowDecimals = ReadBoolean(payload, "allowDecimals") ?? row.AllowDecimals;
+                row.Revision = ReadRevision(payload, change.Revision);
+                break;
+            }
         }
 
         return touched;
@@ -388,22 +520,70 @@ public sealed partial class SqliteLocalStore
         Guid businessId,
         CancellationToken cancellationToken)
     {
-        if (change.EntityType != "customer")
+        switch (change.EntityType)
         {
-            return;
+            case "customer":
+            {
+                var row = await db.CachedCustomers
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.BusinessId == businessId && candidate.CustomerId == change.EntityId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (row is not null)
+                {
+                    row.Deleted = true;
+                    row.FieldsNeededOffline = "{}";
+                }
+                break;
+            }
+            case "category":
+            {
+                var row = await db.CachedCategories
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.BusinessId == businessId && candidate.CategoryId == change.EntityId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (row is not null)
+                {
+                    db.CachedCategories.Remove(row);
+                }
+                break;
+            }
+            case "unit":
+            {
+                var row = await db.CachedUnits
+                    .SingleOrDefaultAsync(
+                        candidate => candidate.BusinessId == businessId && candidate.UnitId == change.EntityId,
+                        cancellationToken)
+                    .ConfigureAwait(false);
+                if (row is not null)
+                {
+                    db.CachedUnits.Remove(row);
+                }
+                break;
+            }
+        }
+    }
+
+    private static bool? ReadBoolean(JsonElement payload, string propertyName)
+        => payload.TryGetProperty(propertyName, out var value)
+            && (value.ValueKind is JsonValueKind.True or JsonValueKind.False)
+                ? value.GetBoolean()
+                : null;
+
+    private static long ReadRevision(JsonElement payload, long fallback)
+    {
+        if (payload.TryGetProperty("revision", out var revision) && revision.TryGetInt64(out var revisionValue))
+        {
+            return revisionValue;
         }
 
-        var row = await db.CachedCustomers
-            .SingleOrDefaultAsync(
-                candidate => candidate.BusinessId == businessId && candidate.CustomerId == change.EntityId,
-                cancellationToken)
-            .ConfigureAwait(false);
-
-        if (row is not null)
+        if (payload.TryGetProperty("version", out var version) && version.TryGetInt64(out var versionValue))
         {
-            row.Deleted = true;
-            row.FieldsNeededOffline = "{}";
+            return versionValue;
         }
+
+        return fallback;
     }
 
     private static async Task<string?> LocalValueForAsync(
