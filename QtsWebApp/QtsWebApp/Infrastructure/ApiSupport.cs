@@ -1,6 +1,8 @@
 using System.Security.Claims;
 using System.Text;
+using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Persistence.Postgres;
 
 namespace QtsWebApp.Infrastructure;
 
@@ -30,7 +32,7 @@ public static class BusinessScope
     {
         businessId = Guid.Empty;
 
-        return principal.FindFirst(QtsClaims.BusinessId)?.Value is { Length: > 0 } value
+        return (principal.FindFirst(QtsClaims.RequestBusinessId)?.Value ?? principal.FindFirst(QtsClaims.BusinessId)?.Value) is { Length: > 0 } value
             && Guid.TryParse(value, out businessId);
     }
 
@@ -46,6 +48,41 @@ public static class BusinessScope
     /// </summary>
     public static bool HasPermission(this ClaimsPrincipal principal, string permission)
         => principal.HasClaim(QtsClaims.Permission, permission);
+
+    public static async Task<bool> CanAccessLocationAsync(
+        BillingDbContext db,
+        Guid userId,
+        Guid businessId,
+        Guid locationId,
+        CancellationToken cancellationToken)
+    {
+        var membership = await db.BusinessMemberships.AsNoTracking()
+            .Where(row => row.UserId == userId && row.BusinessId == businessId && row.IsActive)
+            .Select(row => new { row.Id, row.AllLocations })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (membership is null)
+        {
+            return false;
+        }
+
+        if (membership.AllLocations)
+        {
+            return await db.BusinessLocations.AsNoTracking()
+                .AnyAsync(location => location.BusinessId == businessId && location.Id == locationId && location.IsActive, cancellationToken)
+                .ConfigureAwait(false);
+        }
+
+        return await db.BusinessMembershipLocations.AsNoTracking()
+            .Join(db.BusinessLocations.AsNoTracking(), grant => new { grant.BusinessId, grant.LocationId }, location => new { BusinessId = location.BusinessId, LocationId = location.Id }, (grant, location) => new { grant, location })
+            .AnyAsync(row => row.grant.BusinessId == businessId
+                && row.grant.MembershipId == membership.Id
+                && row.grant.LocationId == locationId
+                && row.location.IsActive,
+                cancellationToken)
+            .ConfigureAwait(false);
+    }
 }
 
 /// <summary>Digits-only phone normalization used for the per-business uniqueness rule (F-14).</summary>
