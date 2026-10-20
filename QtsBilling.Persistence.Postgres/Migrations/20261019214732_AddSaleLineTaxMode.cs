@@ -16,18 +16,19 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                 type: "character varying(16)",
                 maxLength: 16,
                 nullable: false,
-                defaultValue: "Exclusive");
+                defaultValue: "Unspecified");
 
-            // The posted lines keep the tax composition they were priced with: it is read back from the
-            // product the line refers to, so a historical document is never rewritten and no value is
-            // invented (specification D04: additive migrations, no silent repair).
-            migrationBuilder.Sql("""
-                UPDATE sale_lines AS line
-                SET tax_mode = product.tax_type
-                FROM products AS product
-                WHERE product.id = line.variant_id
-                  AND product.business_id = line.business_id;
-                """);
+            // The historical lines are NOT rewritten: sale_lines is append-only, and a posted document
+            // must never be repaired in place. The existing rows keep the default "Unspecified", which
+            // states the truth - the composition was not recorded - and the effective composition is
+            // derived from each line's own numbers when it is read
+            // (QtsModels.ValueObjects.CommercialAmounts.ClassifyStoredLine).
+            //
+            // A previous version of this migration read the composition from the product table. That
+            // was wrong twice over: the line points at a variant, not at a product, so the join matched
+            // nothing; and the current catalog tax type is not the composition a historical sale was
+            // priced with. The corrective migration 20261019223500_CorrectSaleLineTaxModeClassification
+            // repairs the databases that ran that version.
         }
 
         /// <inheritdoc />

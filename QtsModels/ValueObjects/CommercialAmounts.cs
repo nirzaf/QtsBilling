@@ -381,6 +381,53 @@ public static class CommercialAmounts
         return allocated.Select(value => ScaledDecimal.FromScaledMoney(value)).ToArray();
     }
 
+    /// <summary>
+    /// Classifies a stored line that did not record its tax composition. The classification uses the
+    /// line's own numbers — the quantity, the price, the discount, the rate and the tax amount it was
+    /// posted with — and never the current catalog, because the catalog may have changed since the
+    /// document was written. A line whose numbers match neither composition is not classified at all.
+    /// </summary>
+    /// <param name="quantity">The posted quantity.</param>
+    /// <param name="unitPrice">The posted unit price.</param>
+    /// <param name="discountAmount">The posted discount.</param>
+    /// <param name="taxRate">The posted tax rate.</param>
+    /// <param name="taxAmount">The posted tax amount.</param>
+    /// <returns>The composition, or <see langword="null"/> when the stored numbers match neither one.</returns>
+    public static CommercialTaxMode? ClassifyStoredLine(
+        decimal quantity,
+        decimal unitPrice,
+        decimal discountAmount,
+        decimal taxRate,
+        decimal taxAmount)
+    {
+        if (taxRate == 0m)
+        {
+            // No rate means no tax was charged. The catalog has no separate exempt tax type, so a line
+            // without a tax is an exclusive line with a zero rate.
+            return taxAmount == 0m ? CommercialTaxMode.Exclusive : null;
+        }
+
+        var gross = RoundMoney(quantity * unitPrice);
+        var net = gross - RoundMoney(discountAmount);
+
+        var exclusive = RoundMoney(net * taxRate);
+
+        if (Math.Abs(exclusive - taxAmount) <= 0.0001m)
+        {
+            return CommercialTaxMode.Exclusive;
+        }
+
+        var inclusive = RoundMoney(net * taxRate / (1m + taxRate));
+
+        if (Math.Abs(inclusive - taxAmount) <= 0.0001m)
+        {
+            return CommercialTaxMode.Inclusive;
+        }
+
+        // The stored numbers match neither composition: the composition stays unknown.
+        return null;
+    }
+
     /// <summary>True when the value carries more decimals than the scale factor allows (10,000 = four decimals).</summary>
     public static bool HasMoreDecimals(decimal value, int scaleFactor)
     {

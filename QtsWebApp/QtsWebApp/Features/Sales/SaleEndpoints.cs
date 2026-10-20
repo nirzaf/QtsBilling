@@ -339,7 +339,7 @@ public static class SaleEndpoints
                 line.TaxRate,
                 line.TaxAmount,
                 line.LineTotal,
-                line.TaxMode,
+                SalePosting.EffectiveTaxMode(line),
                 line.UnitCostSnapshot))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -429,7 +429,7 @@ public static class SaleEndpoints
                 line.TaxRate,
                 line.TaxAmount,
                 line.LineTotal,
-                line.TaxMode))
+                SalePosting.EffectiveTaxMode(line)))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

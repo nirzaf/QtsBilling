@@ -645,6 +645,31 @@ internal static class SalePosting
         }).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// The effective tax composition of a posted line. The recorded snapshot wins. A line that was
+    /// written before the composition was recorded is classified from its own numbers - the quantity,
+    /// the price, the discount, the rate and the tax amount it was posted with - and never from the
+    /// current catalog, which may have changed since the document was written. A line whose numbers
+    /// match neither composition stays unclassified instead of being guessed.
+    /// </summary>
+    public static string EffectiveTaxMode(SaleLine line)
+    {
+        if (!string.IsNullOrWhiteSpace(line.TaxMode)
+            && !string.Equals(line.TaxMode, "Unspecified", StringComparison.OrdinalIgnoreCase))
+        {
+            return line.TaxMode;
+        }
+
+        var derived = CommercialAmounts.ClassifyStoredLine(
+            line.Quantity,
+            line.UnitPrice,
+            line.DiscountAmount,
+            line.TaxRate,
+            line.TaxAmount);
+
+        return derived?.ToString() ?? "Unspecified";
+    }
+
     public static Guid DebitAccountFor(PaymentMethod method, IReadOnlyDictionary<string, Account> accounts)
         => method switch
         {

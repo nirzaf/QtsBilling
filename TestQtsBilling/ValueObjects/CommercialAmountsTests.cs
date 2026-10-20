@@ -252,4 +252,40 @@ public sealed class CommercialAmountsTests
 
         Assert.Equal(CommercialTaxMode.Inclusive, CommercialAmountCalculator.ParseTaxMode("Inclusive"));
     }
+
+    [Fact]
+    public void A_stored_line_is_classified_from_its_own_numbers()
+    {
+        // The inclusive line: 115 with 15 of tax inside it.
+        Assert.Equal(
+            CommercialTaxMode.Inclusive,
+            CommercialAmounts.ClassifyStoredLine(1m, 115m, 0m, 0.15m, 15m));
+
+        // The exclusive line: 100 with 15 of tax on top of it.
+        Assert.Equal(
+            CommercialTaxMode.Exclusive,
+            CommercialAmounts.ClassifyStoredLine(1m, 100m, 0m, 0.15m, 15m));
+
+        // A line without a tax.
+        Assert.Equal(
+            CommercialTaxMode.Exclusive,
+            CommercialAmounts.ClassifyStoredLine(1m, 30m, 0m, 0m, 0m));
+
+        // Numbers that match neither composition stay unclassified.
+        Assert.Null(CommercialAmounts.ClassifyStoredLine(1m, 100m, 0m, 0.15m, 7m));
+    }
+
+    [Fact]
+    public void A_stored_line_with_a_discount_is_classified_from_its_own_numbers()
+    {
+        // 115 inclusive at 15%, 10 of discount: the payable is 105 and the tax inside it is 13.6957.
+        Assert.Equal(
+            CommercialTaxMode.Inclusive,
+            CommercialAmounts.ClassifyStoredLine(1m, 115m, 10m, 0.15m, 13.6957m));
+
+        // 100 exclusive at 15%, 10 of discount: the base is 90 and the tax on top is 13.50.
+        Assert.Equal(
+            CommercialTaxMode.Exclusive,
+            CommercialAmounts.ClassifyStoredLine(1m, 100m, 10m, 0.15m, 13.50m));
+    }
 }

@@ -29,6 +29,16 @@ public static class PurchasingEndpoints
     private const string ReceiptSequencePrefix = "GRN-";
     private const string ReturnSequenceName = "purchase_return";
     private const string ReturnSequencePrefix = "PR-";
+
+    /// <summary>The inventory account a receipt capitalises and a return relieves.</summary>
+    private const string InventoryAccountCode = "1200";
+
+    /// <summary>
+    /// The clearing account for goods that are received but not yet invoiced. A receipt is only a
+    /// commitment until the supplier bill arrives: the value sits here, not in a supplier payable
+    /// (specification D08, finding F16).
+    /// </summary>
+    private const string GrniAccountCode = "2101";
     private const int MaxLines = 100;
     private const int MaxNameLength = 200;
     private const int MaxReferenceLength = 128;

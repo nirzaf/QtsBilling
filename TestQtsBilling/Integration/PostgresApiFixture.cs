@@ -135,6 +135,35 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     // ------------------------------------------------------------------ the safety rules
 
     /// <summary>
+    /// Creates a disposable database that is migrated only up to <paramref name="migrationId"/>, so a
+    /// test can write the rows of the previous schema and then migrate forward. This is how an upgrade
+    /// is proven: the old rows exist first, and the migration runs on them afterwards.
+    /// </summary>
+    public async Task<UpgradeDatabase> CreateUpgradeDatabaseAsync(string migrationId)
+    {
+        var admin = RequireTestConnection();
+        var databaseName = $"qts_test_{Guid.NewGuid():N}";
+
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(admin) { Database = "postgres" };
+
+        await using (var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString))
+        {
+            await connection.OpenAsync().ConfigureAwait(false);
+
+            await using var command = connection.CreateCommand();
+            command.CommandText = $"CREATE DATABASE \"{databaseName}\";";
+            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        }
+
+        var connectionString = WithDatabase(admin, databaseName);
+        var database = new UpgradeDatabase(connectionString, databaseName);
+
+        await database.MigrateToAsync(migrationId).ConfigureAwait(false);
+
+        return database;
+    }
+
+    /// <summary>
     /// Reads and validates the test connection. Every rejection happens *before* a privileged
     /// connection is opened, so a production target can never be touched.
     /// </summary>
@@ -469,9 +498,91 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     }
 }
 
+/// <summary>
+/// A disposable database that a test migrates step by step, so an upgrade can be proven on the rows of
+/// the previous schema.
+/// </summary>
+public sealed class UpgradeDatabase : IAsyncDisposable
+{
+    private readonly string _databaseName;
+
+    internal UpgradeDatabase(string connectionString, string databaseName)
+    {
+        ConnectionString = connectionString;
+        _databaseName = databaseName;
+    }
+
+    /// <summary>The connection string of the disposable database.</summary>
+    public string ConnectionString { get; }
+
+    /// <summary>Runs the migrations up to (and including) the named migration.</summary>
+    public async Task MigrateToAsync(string migrationId)
+    {
+        var options = new DbContextOptionsBuilder<BillingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+
+        await using var db = new BillingDbContext(options);
+        await db.Database.MigrateAsync(migrationId).ConfigureAwait(false);
+    }
+
+    /// <summary>Runs the remaining migrations.</summary>
+    public async Task MigrateToLatestAsync()
+    {
+        var options = new DbContextOptionsBuilder<BillingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+
+        await using var db = new BillingDbContext(options);
+        await db.Database.MigrateAsync().ConfigureAwait(false);
+    }
+
+    /// <summary>Runs raw SQL against the disposable database (the seed of the previous schema).</summary>
+    public async Task ExecuteAsync(string sql)
+    {
+        var options = new DbContextOptionsBuilder<BillingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+
+        await using var db = new BillingDbContext(options);
+        await db.Database.ExecuteSqlRawAsync(sql).ConfigureAwait(false);
+    }
+
+    /// <summary>Reads a scalar from the disposable database.</summary>
+    public async Task<T> ScalarAsync<T>(string sql)
+    {
+        var options = new DbContextOptionsBuilder<BillingDbContext>()
+            .UseNpgsql(ConnectionString)
+            .Options;
+
+        await using var db = new BillingDbContext(options);
+        var connection = db.Database.GetDbConnection();
+
+        await connection.OpenAsync().ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+
+        var result = await command.ExecuteScalarAsync().ConfigureAwait(false);
+
+        return result is null or DBNull ? default! : (T)Convert.ChangeType(result, typeof(T));
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        var builder = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString) { Database = "postgres" };
+
+        await using var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString);
+        await connection.OpenAsync().ConfigureAwait(false);
+
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\" WITH (FORCE);";
+        await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+}
+
 /// <summary>One seeded business with the rows a financial scenario needs.</summary>
-public sealed record FixtureBusiness(
-    Guid BusinessId,
+public sealed record FixtureBusiness(    Guid BusinessId,
     Guid LocationId,
     Guid AccountingPeriodId,
     Guid TaxRateId,
