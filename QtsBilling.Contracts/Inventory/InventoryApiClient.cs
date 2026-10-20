@@ -33,6 +33,24 @@ public interface IInventoryApiClient
     Task<StockTransferDetailDto> DispatchTransferAsync(Guid transferId, CancellationToken cancellationToken = default);
 
     Task<StockTransferDetailDto> ReceiveTransferAsync(Guid transferId, CancellationToken cancellationToken = default);
+
+    Task<IReadOnlyList<StockCountSummaryDto>> GetStockCountsAsync(CancellationToken cancellationToken = default);
+
+    Task<StockCountDetailDto> GetStockCountAsync(Guid countId, CancellationToken cancellationToken = default);
+
+    Task<StockCountDetailDto> CreateStockCountAsync(
+        CreateStockCountRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default);
+
+    Task<StockCountDetailDto> RecordStockCountLinesAsync(
+        Guid countId,
+        RecordStockCountLinesRequest request,
+        CancellationToken cancellationToken = default);
+
+    Task<StockCountDetailDto> ApproveStockCountAsync(Guid countId, CancellationToken cancellationToken = default);
+
+    Task<StockCountDetailDto> CancelStockCountAsync(Guid countId, CancellationToken cancellationToken = default);
 }
 
 /// <summary>HTTP implementation shared by the browser client, server prerender and MAUI.</summary>
@@ -117,6 +135,35 @@ public sealed class InventoryApiClient : IInventoryApiClient
     public Task<StockTransferDetailDto> ReceiveTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
         => SendTransferCommandAsync(HttpMethod.Post, $"/api/v1/inventory/transfers/{transferId:D}/receive", null, null, cancellationToken);
 
+    public async Task<IReadOnlyList<StockCountSummaryDto>> GetStockCountsAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync("/api/v1/inventory/stock-counts", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadFromJsonAsync<List<StockCountSummaryDto>>(ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false) ?? [];
+    }
+
+    public Task<StockCountDetailDto> GetStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => SendStockCountCommandAsync<StockCountDetailDto>(HttpMethod.Get, $"/api/v1/inventory/stock-counts/{countId:D}", null, null, cancellationToken);
+
+    public Task<StockCountDetailDto> CreateStockCountAsync(
+        CreateStockCountRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        => SendStockCountCommandAsync<StockCountDetailDto>(HttpMethod.Post, "/api/v1/inventory/stock-counts", request, idempotencyKey, cancellationToken);
+
+    public Task<StockCountDetailDto> RecordStockCountLinesAsync(
+        Guid countId,
+        RecordStockCountLinesRequest request,
+        CancellationToken cancellationToken = default)
+        => SendStockCountCommandAsync<StockCountDetailDto>(HttpMethod.Put, $"/api/v1/inventory/stock-counts/{countId:D}/lines", request, null, cancellationToken);
+
+    public Task<StockCountDetailDto> ApproveStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => SendStockCountCommandAsync<StockCountDetailDto>(HttpMethod.Post, $"/api/v1/inventory/stock-counts/{countId:D}/approve", null, null, cancellationToken);
+
+    public Task<StockCountDetailDto> CancelStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => SendStockCountCommandAsync<StockCountDetailDto>(HttpMethod.Post, $"/api/v1/inventory/stock-counts/{countId:D}/cancel", null, null, cancellationToken);
+
     private async Task<StockTransferDetailDto> SendTransferCommandAsync(
         HttpMethod method,
         string route,
@@ -138,5 +185,21 @@ public sealed class InventoryApiClient : IInventoryApiClient
         await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
         return await response.Content.ReadFromJsonAsync<StockTransferDetailDto>(ContractJson.Options, cancellationToken)
             .ConfigureAwait(false) ?? throw new InvalidOperationException("The stock-transfer response was empty.");
+    }
+
+    private async Task<T> SendStockCountCommandAsync<T>(
+        HttpMethod method,
+        string route,
+        object? payload,
+        string? idempotencyKey,
+        CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(method, route);
+        if (payload is not null) request.Content = JsonContent.Create(payload, options: ContractJson.Options);
+        if (!string.IsNullOrWhiteSpace(idempotencyKey)) request.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
+        using var response = await _http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadFromJsonAsync<T>(ContractJson.Options, cancellationToken).ConfigureAwait(false)
+            ?? throw new InvalidOperationException("The stock-count response was empty.");
     }
 }
