@@ -35,6 +35,7 @@ public sealed record ReconciliationReport(
     DateTimeOffset GeneratedAtUtc,
     IReadOnlyList<ReconciliationEntry> Entries,
     IReadOnlyList<string> Exceptions,
+    IReadOnlyList<FinancialReconciliationCheck> FinancialChecks,
     string ReportSha256,
     string Signature);
 
@@ -49,7 +50,8 @@ public static class Reconciliation
         int transformationVersion,
         DateTimeOffset generatedAtUtc,
         IReadOnlyList<ReconciliationEntry> entries,
-        IReadOnlyList<string> exceptions)
+        IReadOnlyList<string> exceptions,
+        IReadOnlyList<FinancialReconciliationCheck>? financialChecks = null)
     {
         var body = new JsonObject
         {
@@ -58,6 +60,7 @@ public static class Reconciliation
             ["generatedAtUtc"] = generatedAtUtc.ToString("O"),
             ["entries"] = JsonSerializer.SerializeToNode(entries),
             ["exceptions"] = JsonSerializer.SerializeToNode(exceptions),
+            ["financialChecks"] = JsonSerializer.SerializeToNode(financialChecks ?? []),
         };
 
         var canonical = body.ToJsonString(new JsonSerializerOptions { WriteIndented = false });
