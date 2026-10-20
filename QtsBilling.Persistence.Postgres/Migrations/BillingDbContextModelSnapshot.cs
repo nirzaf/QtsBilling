@@ -700,11 +700,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("CreatedByUserId");
 
-                    b.HasIndex("SaleId");
-
                     b.HasIndex("BusinessId", "CashRegisterSessionId");
 
                     b.HasIndex("CashRegisterId", "BusinessId");
+
+                    b.HasIndex("SaleId", "BusinessId");
 
                     b.HasIndex("BusinessId", "CashRegisterId", "OccurredAtUtc");
 
@@ -1687,8 +1687,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("LocationId");
 
-                    b.HasIndex("SourceSaleId");
-
                     b.HasIndex("BusinessId", "InvoiceNumber")
                         .IsUnique()
                         .HasDatabaseName("ux_invoices_business_number")
@@ -1697,6 +1695,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("BusinessId", "IssueDate");
 
                     b.HasIndex("BusinessId", "Status");
+
+                    b.HasIndex("SourceSaleId", "BusinessId");
 
                     b.HasIndex("BusinessId", "CustomerId", "IssuedAtUtc");
 
@@ -2211,8 +2211,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("InvoiceId");
 
-                    b.HasIndex("SaleId");
-
                     b.HasIndex("BusinessId", "CashRegisterSessionId");
 
                     b.HasIndex("BusinessId", "IdempotencyKey")
@@ -2225,6 +2223,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasFilter("\"psp_reference\" IS NOT NULL");
 
                     b.HasIndex("BusinessId", "SaleId");
+
+                    b.HasIndex("SaleId", "BusinessId");
 
                     b.ToTable("payments", null, t =>
                         {
@@ -3079,12 +3079,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("BusinessId");
 
-                    b.HasIndex("SaleLineId");
-
                     b.HasIndex("RefundId", "BusinessId");
 
                     b.HasIndex("RefundId", "LineNo")
                         .IsUnique();
+
+                    b.HasIndex("SaleLineId", "BusinessId");
 
                     b.ToTable("refund_lines", null, t =>
                         {
@@ -3201,8 +3201,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("PostedByUserId");
 
-                    b.HasIndex("ReversalOfSaleId");
-
                     b.HasIndex("BusinessId", "CustomerId");
 
                     b.HasIndex("BusinessId", "IdempotencyKey")
@@ -3216,6 +3214,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsUnique();
 
                     b.HasIndex("LocationId", "BusinessId");
+
+                    b.HasIndex("ReversalOfSaleId", "BusinessId");
 
                     b.ToTable("sales", null, t =>
                         {
@@ -3825,17 +3825,18 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasForeignKey("CreatedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
-                        .WithMany()
-                        .HasForeignKey("SaleId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.CashRegister", null)
                         .WithMany()
                         .HasForeignKey("CashRegisterId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("SaleId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.CashRegisterSession", b =>
@@ -4079,7 +4080,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
                         .WithMany()
-                        .HasForeignKey("SourceSaleId")
+                        .HasForeignKey("SourceSaleId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -4198,7 +4200,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
                         .WithMany()
-                        .HasForeignKey("SaleId")
+                        .HasForeignKey("SaleId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
 
@@ -4421,17 +4424,18 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
-                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SaleLine", null)
-                        .WithMany()
-                        .HasForeignKey("SaleLineId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Refund", null)
                         .WithMany()
                         .HasForeignKey("RefundId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SaleLine", null)
+                        .WithMany()
+                        .HasForeignKey("SaleLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
                 });
 
@@ -4453,17 +4457,18 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasForeignKey("PostedByUserId")
                         .OnDelete(DeleteBehavior.Restrict);
 
-                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
-                        .WithMany()
-                        .HasForeignKey("ReversalOfSaleId")
-                        .OnDelete(DeleteBehavior.Restrict);
-
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.BusinessLocation", null)
                         .WithMany()
                         .HasForeignKey("LocationId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
+                        .WithMany()
+                        .HasForeignKey("ReversalOfSaleId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SaleLine", b =>

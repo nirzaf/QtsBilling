@@ -24,7 +24,11 @@ public partial class BillingDbContext
                 .HasPrincipalKey(l => new { l.Id, l.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<Sale>().WithMany().HasForeignKey(e => e.ReversalOfSaleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Sale>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ReversalOfSaleId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.SaleNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.PostedAtUtc });
@@ -43,6 +47,7 @@ public partial class BillingDbContext
         modelBuilder.Entity<SaleLine>(b =>
         {
             b.ToTable("sale_lines");
+            RequireTenantKey(b);
             HasBusinessFk(b);
             b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
             b.Property(e => e.SkuSnapshot).HasMaxLength(64);
@@ -74,7 +79,11 @@ public partial class BillingDbContext
             b.Property(e => e.PspReference).HasMaxLength(128);
             b.Property(e => e.CardBrand).HasMaxLength(32);
             b.Property(e => e.CardLast4).HasMaxLength(4);
-            b.HasOne<Sale>().WithMany().HasForeignKey(e => e.SaleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Sale>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SaleId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Invoice>().WithMany().HasForeignKey(e => e.InvoiceId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.SaleId });
@@ -120,7 +129,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.CashRegisterId, e.BusinessId })
                 .HasPrincipalKey(c => new { c.Id, c.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<Sale>().WithMany().HasForeignKey(e => e.SaleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Sale>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SaleId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<CashRegisterSession>()
                 .WithMany()
@@ -200,7 +213,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.RefundId, e.BusinessId })
                 .HasPrincipalKey(r => new { r.Id, r.BusinessId })
                 .OnDelete(DeleteBehavior.Cascade);
-            b.HasOne<SaleLine>().WithMany().HasForeignKey(e => e.SaleLineId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<SaleLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SaleLineId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.RefundId, e.LineNo }).IsUnique();
             b.ToTable(t => t.HasCheckConstraint("ck_refund_lines_amounts", "quantity > 0 AND unit_price >= 0"));
         });
@@ -298,7 +315,11 @@ public partial class BillingDbContext
             b.Property(e => e.Note).HasColumnType("text");
             b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<Sale>().WithMany().HasForeignKey(e => e.SourceSaleId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Sale>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SourceSaleId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<InvoiceSequence>().WithMany().HasForeignKey(e => e.InvoiceSequenceId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.InvoiceNumber })
                 .IsUnique()
