@@ -29,11 +29,13 @@ public sealed class PostgresApiFixture : IAsyncLifetime
 {
     /// <summary>The environment variable that points at the disposable test server.</summary>
     public const string ConnectionVariable = "QTS_TEST_POSTGRES_CONNECTION";
+    public const string RuntimeConnectionVariable = "QTS_TEST_POSTGRES_RUNTIME_CONNECTION";
 
     /// <summary>Every fixture database carries this marker; only a marked database is dropped.</summary>
     public const string MarkerTable = "qts_test_fixture_marker";
 
     private string _adminConnectionString = string.Empty;
+    private string _runtimeConnectionString = string.Empty;
     private string _databaseName = string.Empty;
     private bool _databaseCreated;
 
@@ -58,6 +60,15 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     public async Task InitializeAsync()
     {
         _adminConnectionString = RequireTestConnection();
+        var configuredRuntimeConnection = Environment.GetEnvironmentVariable(RuntimeConnectionVariable);
+        _runtimeConnectionString = string.IsNullOrWhiteSpace(configuredRuntimeConnection)
+            ? _adminConnectionString
+            : configuredRuntimeConnection;
+        if (!string.IsNullOrWhiteSpace(configuredRuntimeConnection))
+        {
+            ValidateTestConnection(_runtimeConnectionString);
+        }
+
         _databaseName = $"qts_test_{Guid.NewGuid():N}";
 
         await CreateDatabaseAsync().ConfigureAwait(false);
@@ -65,10 +76,15 @@ public sealed class PostgresApiFixture : IAsyncLifetime
 
         ConnectionString = WithDatabase(_adminConnectionString, _databaseName);
 
+        if (!string.IsNullOrWhiteSpace(configuredRuntimeConnection))
+        {
+            await GrantRuntimeAccessAsync().ConfigureAwait(false);
+        }
+
         await ApplyMigrationsAsync().ConfigureAwait(false);
         await MarkDatabaseAsync().ConfigureAwait(false);
 
-        Factory = new FixtureWebApplicationFactory(ConnectionString);
+        Factory = new FixtureWebApplicationFactory(WithDatabase(_runtimeConnectionString, _databaseName));
 
         await using var scope = Factory.Services.CreateAsyncScope();
         var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
@@ -270,8 +286,35 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             $"INSERT INTO {MarkerTable} (marker) VALUES ('qts-billing-integration-fixture');").ConfigureAwait(false);
     }
 
+    private async Task GrantRuntimeAccessAsync()
+    {
+        var runtimeRole = new Npgsql.NpgsqlConnectionStringBuilder(_runtimeConnectionString).Username
+            ?? throw new InvalidOperationException("The runtime PostgreSQL connection has no username.");
+        var migratorRole = new Npgsql.NpgsqlConnectionStringBuilder(_adminConnectionString).Username
+            ?? throw new InvalidOperationException("The migration PostgreSQL connection has no username.");
+        var quotedDatabase = new Npgsql.NpgsqlCommandBuilder().QuoteIdentifier(_databaseName);
+        var quotedRuntimeRole = new Npgsql.NpgsqlCommandBuilder().QuoteIdentifier(runtimeRole);
+        var quotedMigratorRole = new Npgsql.NpgsqlCommandBuilder().QuoteIdentifier(migratorRole);
+
+        await using var connection = new Npgsql.NpgsqlConnection(ConnectionString);
+        await connection.OpenAsync().ConfigureAwait(false);
+        await using var command = connection.CreateCommand();
+        command.CommandText = $"""
+            GRANT CONNECT ON DATABASE {quotedDatabase} TO {quotedRuntimeRole};
+            GRANT USAGE ON SCHEMA public TO {quotedRuntimeRole};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {quotedMigratorRole} IN SCHEMA public
+                GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO {quotedRuntimeRole};
+            ALTER DEFAULT PRIVILEGES FOR ROLE {quotedMigratorRole} IN SCHEMA public
+                GRANT USAGE, SELECT ON SEQUENCES TO {quotedRuntimeRole};
+            """;
+        await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+    }
+
     private async Task DropDatabaseAsync()
     {
+        ClearPoolFor(ConnectionString);
+        ClearPoolFor(WithDatabase(_runtimeConnectionString, _databaseName));
+
         var builder = new Npgsql.NpgsqlConnectionStringBuilder(_adminConnectionString)
         {
             Database = "postgres",
@@ -296,9 +339,15 @@ public sealed class PostgresApiFixture : IAsyncLifetime
 
         await using (var command = connection.CreateCommand())
         {
-            command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\" WITH (FORCE);";
+            command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\";";
             await command.ExecuteNonQueryAsync().ConfigureAwait(false);
         }
+    }
+
+    private static void ClearPoolFor(string connectionString)
+    {
+        using var poolKey = new Npgsql.NpgsqlConnection(connectionString);
+        Npgsql.NpgsqlConnection.ClearPool(poolKey);
     }
 
     // ------------------------------------------------------------------ the seeded data
@@ -325,6 +374,8 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             ("1200", "Inventory", AccountType.Asset),
             ("2100", "Tax payable", AccountType.Liability),
             ("2101", "Goods received not invoiced", AccountType.Liability),
+            ("2105", "Customer deposits", AccountType.Liability),
+            ("3000", "Retained earnings", AccountType.Equity),
             ("4000", "Sales revenue", AccountType.Revenue),
             ("5000", "Cost of goods sold", AccountType.Expense),
         })
@@ -356,6 +407,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             BusinessId = business.Id,
             Name = $"Fixture product {code}",
             Sku = $"SHARED-SKU-{code}",
+            UnitId = unit.Id,
             TaxRateId = taxRate.Id,
             TaxType = TaxType.Exclusive,
             ProductType = ProductType.Single,
@@ -574,13 +626,18 @@ public sealed class UpgradeDatabase : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        using (var poolKey = new Npgsql.NpgsqlConnection(ConnectionString))
+        {
+            Npgsql.NpgsqlConnection.ClearPool(poolKey);
+        }
+
         var builder = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString) { Database = "postgres" };
 
         await using var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString);
         await connection.OpenAsync().ConfigureAwait(false);
 
         await using var command = connection.CreateCommand();
-        command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\" WITH (FORCE);";
+        command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\";";
         await command.ExecuteNonQueryAsync().ConfigureAwait(false);
     }
 }
