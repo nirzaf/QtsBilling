@@ -99,6 +99,7 @@ public static class CashRegisterEndpoints
         ClaimsPrincipal principal,
         BillingDbContext db,
         CreateCashRegisterRequest request,
+        HttpContext http,
         CancellationToken cancellationToken)
     {
         if (!principal.TryGetBusinessId(out var businessId))
@@ -126,19 +127,36 @@ public static class CashRegisterEndpoints
                 new Dictionary<string, string[]> { ["locationId"] = ["The location does not exist or is inactive in this business."] });
         }
 
-        var register = new CashRegister
+        if (!TryGetUserId(principal, out var userId)
+            || !await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
         {
-            BusinessId = businessId,
-            LocationId = request.LocationId,
-            Name = name,
-            IsActive = true,
-        };
-
-        db.CashRegisters.Add(register);
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this register location.");
+        }
 
         try
         {
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            var execution = await IdempotencyExecutor.ExecuteAsync(
+                db,
+                businessId,
+                "cash_register.create",
+                http.Request.Headers["Idempotency-Key"].ToString(),
+                request,
+                async () =>
+                {
+                    var register = new CashRegister
+                    {
+                        BusinessId = businessId,
+                        LocationId = request.LocationId,
+                        Name = name,
+                        IsActive = true,
+                    };
+                    db.CashRegisters.Add(register);
+                    await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                    return (StatusCodes.Status201Created, new CashRegisterDto(register.Id, register.LocationId, register.Name, register.IsActive, null));
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Created($"/api/v1/pos/registers/{execution.Body.Id}", execution.Body);
         }
         catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.UniqueViolation)
         {
@@ -148,9 +166,6 @@ public static class CashRegisterEndpoints
                 "A register with this name already exists at the location.");
         }
 
-        return Results.Created(
-            $"/api/v1/pos/registers/{register.Id}",
-            new CashRegisterDto(register.Id, register.LocationId, register.Name, register.IsActive, null));
     }
 
     // ---------------------------------------------------------------- sessions
@@ -188,6 +203,11 @@ public static class CashRegisterEndpoints
         if (register is null || !register.IsActive)
         {
             return NotFoundRegister();
+        }
+
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, register.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this register location.");
         }
 
         var business = await db.Businesses.AsNoTracking()
@@ -300,6 +320,11 @@ public static class CashRegisterEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var register = await db.CashRegisters.AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
             .ConfigureAwait(false);
@@ -307,6 +332,11 @@ public static class CashRegisterEndpoints
         if (register is null)
         {
             return NotFoundRegister();
+        }
+
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, register.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this register location.");
         }
 
         var session = await db.CashRegisterSessions.AsNoTracking()
@@ -579,6 +609,11 @@ public static class CashRegisterEndpoints
         if (register is null)
         {
             return NotFoundRegister();
+        }
+
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, register.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this register location.");
         }
 
         var strategy = db.Database.CreateExecutionStrategy();
