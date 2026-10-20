@@ -124,10 +124,21 @@ public sealed record SaleReceiptDto(
     IReadOnlyList<SaleReceiptPaymentDto> Payments);
 
 /// <summary>
-/// Full refund of a posted cash sale (QB-10). Refunds are tied to the original confirmed payment, return
-/// the stock and post the reversal entry; partial refunds and credit notes belong to QB-11.
+/// Refund of a posted cash sale (QB-10/QB-11). Omitted lines refund all remaining quantities using Restock.
 /// </summary>
-public sealed record RefundSaleRequest(string Reason, string? Note, Guid RegisterId);
+public sealed record RefundSaleRequest(
+    string Reason,
+    string? Note,
+    Guid RegisterId,
+    IReadOnlyList<RefundLineRequest>? Lines = null);
+
+public enum RefundDisposition
+{
+    Restock,
+    DamagedWriteOff,
+}
+
+public sealed record RefundLineRequest(Guid SaleLineId, decimal Quantity, RefundDisposition Disposition = RefundDisposition.Restock);
 
 public sealed record RefundLineDto(
     Guid SaleLineId,
@@ -138,7 +149,8 @@ public sealed record RefundLineDto(
     decimal UnitPrice,
     decimal TaxAmount,
     decimal LineTotal,
-    decimal UnitCost);
+    decimal UnitCost,
+    string Disposition = "Restock");
 
 public sealed record RefundDto(
     Guid RefundId,
