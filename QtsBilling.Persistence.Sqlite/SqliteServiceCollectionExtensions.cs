@@ -24,14 +24,16 @@ public static class SqliteServiceCollectionExtensions
         }
 
         // Fail fast if the data directory cannot be created/accessed.
-        _ = SqliteConnectionStrings.ForFile(options.DatabasePath);
+        var connectionString = options.EncryptionKeyHex is { Length: > 0 } encryptionKey
+            ? SqliteConnectionStrings.ForEncryptedFile(options.DatabasePath, encryptionKey)
+            : SqliteConnectionStrings.ForFile(options.DatabasePath);
 
         services.AddSingleton(options);
         services.AddSingleton<SqliteWriteGate>();
         services.TryAddSingleton(TimeProvider.System);
 
         services.AddDbContextFactory<LocalStoreDbContext>(builder => builder
-            .UseSqlite(SqliteConnectionStrings.ForFile(options.DatabasePath))
+            .UseSqlite(connectionString)
             .AddInterceptors(new SqlitePragmaInterceptor()));
 
         services.AddScoped<SqliteLocalStore>();
