@@ -90,6 +90,25 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
                 {
                     receipt = await _api.PushAsync(envelope, cancellationToken).ConfigureAwait(false);
                 }
+                catch (ApiException exception) when (IsTransientHttpStatus(exception.StatusCode))
+                {
+                    await _store.ScheduleOutboxRetryAsync(
+                        operation.OperationId,
+                        exception.Code ?? $"HTTP_{exception.StatusCode}",
+                        cancellationToken).ConfigureAwait(false);
+                    failed++;
+                    continue;
+                }
+                catch (Exception exception) when (
+                    !cancellationToken.IsCancellationRequested &&
+                    exception is HttpRequestException or TaskCanceledException or IOException)
+                {
+                    await _store.ScheduleOutboxRetryAsync(
+                        operation.OperationId,
+                        "NETWORK_ERROR",
+                        cancellationToken).ConfigureAwait(false);
+                    return new SyncRunReport(pushed, 0, conflicts, failed + 1, "The server is unreachable.");
+                }
                 catch (ApiException exception) when (exception.IsForbidden || exception.StatusCode == 409)
                 {
                     // The server will never accept this operation (another business, or the same key with
@@ -105,6 +124,16 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
                         cancellationToken).ConfigureAwait(false);
 
                     conflicts++;
+                    continue;
+                }
+
+                if (receipt.Outcome == SyncOutcome.TransientRetry)
+                {
+                    await _store.ScheduleOutboxRetryAsync(
+                        operation.OperationId,
+                        receipt.ErrorCode ?? "TRANSIENT_RETRY",
+                        cancellationToken).ConfigureAwait(false);
+                    failed++;
                     continue;
                 }
 
@@ -161,21 +190,23 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
             if (page.ResyncRequired)
             {
                 // The cursor cannot be explained by the server: drop the cache and pull the baseline again.
-                await _store.RebuildCacheAsync(cancellationToken).ConfigureAwait(false);
-                await _store.SetSyncCursorAsync(businessId, locationId, 0, 0, cancellationToken).ConfigureAwait(false);
+                await _store.RebuildCacheAsync(businessId, locationId, cancellationToken).ConfigureAwait(false);
 
                 page = await _api.GetChangesAsync(0, 0, 200, cancellationToken).ConfigureAwait(false);
             }
 
             var applied = await _store
-                .ApplyChangesAsync(page.Changes, businessId, locationId, cancellationToken)
+                .ApplyChangesAndAdvanceCursorAsync(
+                    page.Changes,
+                    businessId,
+                    locationId,
+                    page.NextRevision,
+                    page.NextOrdinal,
+                    cancellationToken)
                 .ConfigureAwait(false);
 
             pulled = applied.Applied;
             conflicts = applied.Conflicts;
-
-            await _store.SetSyncCursorAsync(businessId, locationId, page.NextRevision, page.NextOrdinal, cancellationToken)
-                .ConfigureAwait(false);
         }
         catch (ApiException exception)
         {
@@ -188,6 +219,9 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
 
         return new SyncRunReport(0, pulled, conflicts, 0, null);
     }
+
+    private static bool IsTransientHttpStatus(int statusCode)
+        => statusCode is 429 or 502 or 503 or 504;
 
     public async Task<SyncStatus> GetStatusAsync(CancellationToken cancellationToken = default)
     {
@@ -287,7 +321,6 @@ public sealed class DeviceSyncCoordinator : ISyncCoordinator
         {
             SyncOutcome.Posted => "Posted",
             SyncOutcome.AlreadyPosted => "AlreadyPosted",
-            SyncOutcome.TransientRetry => "TransientRetry",
             _ => "Rejected",
         },
         ErrorCode = receipt.ErrorCode,
