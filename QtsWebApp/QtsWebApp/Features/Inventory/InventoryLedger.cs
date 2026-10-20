@@ -38,6 +38,21 @@ internal static class InventoryLedger
 
         var resulting = balance.OnHand + quantityDelta;
 
+        if (quantityDelta < 0m)
+        {
+            var reserved = await FulfillmentService.GetActiveReservedQuantityAsync(
+                db, businessId, locationId, variantId, now, cancellationToken).ConfigureAwait(false);
+            var available = balance.OnHand - reserved;
+            if (Math.Abs(quantityDelta) > available)
+            {
+                throw new DomainRuleException(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.InsufficientStock,
+                    "Not enough available stock.",
+                    $"On hand is {balance.OnHand}, active reservations are {reserved}, and available stock is {available}; the requested change is {quantityDelta}.");
+            }
+        }
+
         // Negative stock is prohibited in this release, adjustments included: the database check and the
         // application now agree (specification D06, finding F18).
         if (resulting < 0)

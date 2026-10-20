@@ -313,6 +313,9 @@ builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client
 builder.Services.AddHttpClient<ISalesOrderApiClient, SalesOrderApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+builder.Services.AddHttpClient<IFulfillmentApiClient, FulfillmentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddSingleton(serviceProvider =>
 {
     var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();

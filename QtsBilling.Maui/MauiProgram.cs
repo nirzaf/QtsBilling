@@ -137,6 +137,14 @@ public static class MauiProgram
             .AddHttpMessageHandler<SessionAuthHandler>();
 
         builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Orders.IFulfillmentApiClient, QtsBilling.Contracts.Orders.FulfillmentApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(60);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
             .AddHttpClient<QtsBilling.Contracts.Sync.ISyncApiClient, QtsBilling.Contracts.Sync.SyncApiClient>((services, client) =>
             {
                 client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;

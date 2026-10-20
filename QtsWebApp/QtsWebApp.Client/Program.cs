@@ -25,6 +25,7 @@ builder.Services.AddScoped<ISaleApiClient, SaleApiClient>();
 builder.Services.AddScoped<IPaymentTerminalApiClient, PaymentTerminalApiClient>();
 builder.Services.AddScoped<IQuoteApiClient, QuoteApiClient>();
 builder.Services.AddScoped<ISalesOrderApiClient, SalesOrderApiClient>();
+builder.Services.AddScoped<IFulfillmentApiClient, FulfillmentApiClient>();
 builder.Services.AddScoped<IPosCheckoutOrchestrator, WebPosCheckoutOrchestrator>();
 
 builder.Services.AddBlazoredLocalStorage();
