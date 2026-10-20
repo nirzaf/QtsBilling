@@ -51,6 +51,8 @@ public sealed class User : IdentityUser<Guid>, IVersioned, ITimestamped
 
     public bool PasswordResetRequired { get; set; } = true;
 
+    public Guid? PreferredBusinessId { get; set; }
+
     public long Version { get; set; }
 
     public DateTimeOffset CreatedAtUtc { get; set; }
@@ -66,6 +68,38 @@ public sealed class BusinessMembership : TenantEntity
     public MembershipRole Role { get; set; } = MembershipRole.Cashier;
 
     public bool IsActive { get; set; } = true;
+
+    public long AuthorizationRevision { get; set; } = 1;
+
+    public decimal MaxDiscountRate { get; set; } = 1.000000m;
+
+    public bool AllLocations { get; set; } = true;
+}
+
+/// <summary>Location grants for memberships restricted to selected locations.</summary>
+public sealed class BusinessMembershipLocation : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid MembershipId { get; set; }
+
+    public Guid LocationId { get; set; }
+}
+
+/// <summary>Short-lived, single-use code created by an owner or manager to enroll a physical device.</summary>
+public sealed class DeviceEnrolmentChallenge : TenantEntity
+{
+    public Guid LocationId { get; set; }
+
+    public string ChallengeHash { get; set; } = string.Empty;
+
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+
+    public Guid? ConsumedByDeviceId { get; set; }
+
+    public Guid CreatedByUserId { get; set; }
 }
 
 /// <summary>Enrolled client device (MAUI desktop). Revocation is enforced server-side for every sync operation.</summary>
