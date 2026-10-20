@@ -878,7 +878,7 @@ public static class InvoiceEndpoints
                 var journalLines = new List<JournalLineRequest>
                 {
                     new(accounts[ReceivableAccountCode].Id, invoice.TotalAmount, 0m, $"Invoice {number}", invoice.LocationId),
-                    new(accounts[RevenueAccountCode].Id, 0m, LedgerWriter.Round(invoice.SubtotalAmount - invoice.DiscountAmount), $"Invoice {number}", invoice.LocationId),
+                    new(accounts[RevenueAccountCode].Id, 0m, LedgerWriter.Round(lines.Sum(line => line.RevenueBaseAmount)), $"Invoice {number}", invoice.LocationId),
                 };
 
                 if (invoice.TaxAmount > 0)
@@ -2054,6 +2054,8 @@ public static class InvoiceEndpoints
                 Quantity = line.Quantity,
                 UnitPrice = line.UnitPrice,
                 DiscountAmount = line.DiscountAmount,
+                RevenueBaseAmount = LedgerWriter.Round(line.Quantity * line.UnitPrice - line.DiscountAmount),
+                TaxMode = "Exclusive",
                 TaxRate = line.TaxRate,
                 TaxAmount = line.TaxAmount,
                 LineTotal = line.LineTotal,
@@ -2229,7 +2231,7 @@ public static class InvoiceEndpoints
         }
     }
 
-    private static async Task<InvoiceDetailDto> ToDetailAsync(
+    internal static async Task<InvoiceDetailDto> ToDetailAsync(
         BillingDbContext db,
         Guid businessId,
         Invoice invoice,
