@@ -75,7 +75,11 @@ public sealed class DeviceCatalogSync
                         product.TaxRate,
                         onHand.TryGetValue(variant.Id, out var quantity) ? quantity : null,
                         variant.IsActive,
-                        variant.Version));
+                        variant.Version)
+                    {
+                        TaxMode = CommercialAmountCalculator.ParseTaxMode(detail.Product.TaxType, "taxType"),
+                        PricingPolicyVersion = detail.Product.Version.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    });
                 }
             }
 
@@ -111,15 +115,21 @@ public sealed class DeviceCatalogSync
         var registers = await _registers.GetRegistersAsync(cancellationToken).ConfigureAwait(false);
 
         // The same rule as for the location: a register of another business is never reused.
-        if (_settings.RegisterId is { } configured && configured != Guid.Empty
-            && registers.Any(candidate => candidate.Id == configured && candidate.IsActive && candidate.LocationId == locationId))
+        var register = _settings.RegisterId is { } configured && configured != Guid.Empty
+            ? registers.FirstOrDefault(candidate =>
+                candidate.Id == configured && candidate.IsActive && candidate.LocationId == locationId)
+            : null;
+        register ??= registers.FirstOrDefault(candidate => candidate.IsActive && candidate.LocationId == locationId);
+
+        if (register is null)
         {
-            return;
+            throw new ApiException(503, ApiErrorCodes.StoreUnavailable,
+                "This business has no active cash register for the device location.");
         }
 
-        var register = registers.FirstOrDefault(candidate => candidate.IsActive && candidate.LocationId == locationId)
-            ?? throw new ApiException(503, ApiErrorCodes.StoreUnavailable, "This business has no active cash register for the device location.");
-
         _settings.RegisterId = register.Id;
+        _settings.RegisterSessionId = register.CurrentSession is { Status: CashRegisterSessionState.Open } session
+            ? session.Id
+            : null;
     }
 }
