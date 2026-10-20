@@ -1,5 +1,14 @@
 namespace QtsBilling.Persistence.Postgres.Entities;
 
+public enum SupplierBillStatus
+{
+    Draft,
+    Issued,
+    PartiallyPaid,
+    Paid,
+    Void,
+}
+
 /// <summary>Purchase order header. Ordered quantities are separate from received quantities (QB-12).</summary>
 public sealed class PurchaseOrder : TenantEntity
 {
@@ -70,6 +79,13 @@ public sealed class Expense : TenantEntity
 
     public decimal Amount { get; set; }
 
+    /// <summary>Input-tax snapshot included in the paid amount; the tax mode and rate never follow mutable settings.</summary>
+    public decimal TaxRate { get; set; }
+
+    public decimal TaxAmount { get; set; }
+
+    public string TaxMode { get; set; } = "Exclusive";
+
     public string Currency { get; set; } = "QAR";
 
     public DateOnly OccurredOn { get; set; }
@@ -131,6 +147,72 @@ public sealed class PurchaseReceiptLine : Entity, ITenantScoped
     public decimal Quantity { get; set; }
 
     public decimal UnitCost { get; set; }
+}
+
+/// <summary>Supplier invoice matched to received goods and posted to the AP subledger.</summary>
+public sealed class SupplierBill : TenantEntity
+{
+    public Guid SupplierId { get; set; }
+    public Guid LocationId { get; set; }
+    public Guid? PurchaseOrderId { get; set; }
+    public string BillNumber { get; set; } = string.Empty;
+    public string? SupplierInvoiceReference { get; set; }
+    public SupplierBillStatus Status { get; set; } = SupplierBillStatus.Draft;
+    public DateOnly BillDate { get; set; }
+    public DateOnly? DueDate { get; set; }
+    public string Currency { get; set; } = "QAR";
+    public decimal SubtotalAmount { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal RoundingAmount { get; set; }
+    public decimal TotalAmount { get; set; }
+    public decimal AmountPaid { get; set; }
+    public decimal BalanceDue { get; set; }
+    public Guid? JournalEntryId { get; set; }
+    public DateTimeOffset? IssuedAtUtc { get; set; }
+    public string? IdempotencyKey { get; set; }
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>Immutable commercial and receipt-matching snapshot for one supplier bill line.</summary>
+public sealed class SupplierBillLine : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+    public Guid SupplierBillId { get; set; }
+    public int LineNo { get; set; }
+    public Guid PurchaseReceiptLineId { get; set; }
+    public Guid VariantId { get; set; }
+    public string ProductNameSnapshot { get; set; } = string.Empty;
+    public decimal QuantityBilled { get; set; }
+    public decimal UnitCost { get; set; }
+    public decimal DiscountAmount { get; set; }
+    public decimal GrossAmount { get; set; }
+    public decimal TaxRate { get; set; }
+    public decimal TaxAmount { get; set; }
+    public decimal LineTotal { get; set; }
+    public decimal NetAmount { get; set; }
+    public string TaxMode { get; set; } = "Exclusive";
+}
+
+/// <summary>Cash or bank settlement allocated to one or more supplier bills.</summary>
+public sealed class SupplierPayment : TenantEntity
+{
+    public Guid SupplierId { get; set; }
+    public PaymentMethod Method { get; set; }
+    public decimal Amount { get; set; }
+    public string Currency { get; set; } = "QAR";
+    public DateOnly PaidOn { get; set; }
+    public string? Reference { get; set; }
+    public Guid JournalEntryId { get; set; }
+}
+
+/// <summary>Append-only allocation of a supplier settlement to an AP open item.</summary>
+public sealed class SupplierPaymentAllocation : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+    public Guid SupplierPaymentId { get; set; }
+    public Guid SupplierBillId { get; set; }
+    public decimal AllocatedAmount { get; set; }
 }
 
 /// <summary>
