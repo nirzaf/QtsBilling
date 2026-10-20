@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using QtsBilling.Migration;
 using QtsBilling.Persistence.Postgres;
 
@@ -10,11 +11,12 @@ var commands = new Dictionary<string, Func<string[], Task<int>>>
     ["transform"] = TransformAsync,
     ["import"] = ImportAsync,
     ["reconcile"] = ReconcileAsync,
+    ["validate-valuation"] = ValidateValuationAsync,
 };
 
 if (args.Length == 0 || !commands.TryGetValue(args[0], out var command))
 {
-    Console.Error.WriteLine("usage: QtsBilling.Migration <inventory|transform|import|reconcile> [options]");
+    Console.Error.WriteLine("usage: QtsBilling.Migration <inventory|transform|import|reconcile|validate-valuation> [options]");
     Console.Error.WriteLine("  the source is an exported snapshot; no database of the legacy system is contacted.");
     return 2;
 }
@@ -230,6 +232,7 @@ static async Task<int> ReconcileAsync(string[] args)
     var manifest = source.ReadManifest();
     var entries = new List<ReconciliationEntry>();
     var exceptions = new List<string>();
+    var financialChecks = new List<FinancialReconciliationCheck>();
 
     var options = new DbContextOptionsBuilder<BillingDbContext>()
         .UseNpgsql(connection)
@@ -278,13 +281,19 @@ static async Task<int> ReconcileAsync(string[] args)
 
         // The imported count is the number of rows this import owns (the ones in the identifier map),
         // not the size of the target table.
-        var collectionName = collection.Collection.Replace("\"", "\"\"");
-        var imported = await db.Database
-            .SqlQueryRaw<int>($"""
+        var targetTable = new NpgsqlCommandBuilder().QuoteIdentifier(collection.TargetTable);
+        var countSql = string.Concat(
+            """
                 SELECT COUNT(*) AS "Value"
-                FROM {collection.TargetTable} t
-                WHERE t.id IN (SELECT target_id FROM legacy_identifier_map WHERE source_collection = '{collectionName}');
-                """)
+                FROM
+                """,
+            targetTable,
+            """
+                 t
+                WHERE t.id IN (SELECT target_id FROM legacy_identifier_map WHERE source_collection = @sourceCollection);
+                """);
+        var imported = await db.Database
+            .SqlQueryRaw<int>(countSql, new NpgsqlParameter("sourceCollection", collection.Collection))
             .ToListAsync()
             .ConfigureAwait(false);
 
@@ -308,25 +317,78 @@ static async Task<int> ReconcileAsync(string[] args)
             []));
     }
 
-    var (body, hash) = Reconciliation.BuildBody(mapping.SourceEnvironment, mapping.TransformationVersion, DateTimeOffset.UtcNow, entries, exceptions);
-    var signature = Reconciliation.Sign(body, key);
-
-    var report = new JsonObject
+    var businessCollection = mapping.Collections.FirstOrDefault(collection =>
+        string.Equals(collection.TargetTable, "businesses", StringComparison.OrdinalIgnoreCase));
+    if (businessCollection is null)
     {
-        ["sourceEnvironment"] = mapping.SourceEnvironment,
-        ["transformationVersion"] = mapping.TransformationVersion,
-        ["generatedAtUtc"] = DateTimeOffset.UtcNow.ToString("O"),
-        ["entries"] = JsonSerializer.SerializeToNode(entries),
-        ["exceptions"] = JsonSerializer.SerializeToNode(exceptions),
-        ["reportSha256"] = hash,
-        ["signature"] = signature,
-    };
+        exceptions.Add("financial reconciliation could not run: mapping has no collection targeting businesses");
+    }
+    else
+    {
+        var businessIds = await db.LegacyIdentifierMaps.AsNoTracking()
+            .Where(map => map.SourceCollection == businessCollection.Collection)
+            .Select(map => map.TargetId)
+            .Distinct()
+            .OrderBy(id => id)
+            .ToListAsync()
+            .ConfigureAwait(false);
 
-    await File.WriteAllTextAsync(output, report.ToJsonString(new JsonSerializerOptions { WriteIndented = true })).ConfigureAwait(false);
+        if (businessIds.Count == 0)
+        {
+            exceptions.Add("financial reconciliation could not run: no imported business identifiers were found");
+        }
+        else
+        {
+            financialChecks.AddRange(await FinancialSubledgerReconciliation.CheckAsync(db, businessIds).ConfigureAwait(false));
+            foreach (var check in financialChecks.Where(check => !check.Matches))
+            {
+                exceptions.Add(check.Problem is null
+                    ? $"financial reconciliation {check.Name} for business {check.BusinessId}: subledger {check.SubledgerTotal}, ledger {check.LedgerBalance}, variance {check.Variance}"
+                    : $"financial reconciliation {check.Name} for business {check.BusinessId}: {check.Problem}");
+            }
+        }
+    }
+
+    var generatedAt = DateTimeOffset.UtcNow;
+    var (body, hash) = Reconciliation.BuildBody(mapping.SourceEnvironment, mapping.TransformationVersion, generatedAt, entries, exceptions, financialChecks);
+    var signature = Reconciliation.Sign(body, key);
+    body["reportSha256"] = hash;
+    body["signature"] = signature;
+
+    await File.WriteAllTextAsync(output, body.ToJsonString(new JsonSerializerOptions { WriteIndented = true })).ConfigureAwait(false);
 
     Console.WriteLine($"reconciliation: {entries.Count} collection(s), {exceptions.Count} exception(s), hash {hash}, signature {signature}");
     Console.WriteLine($"report written to {output}");
     return exceptions.Count == 0 ? 0 : 1;
+}
+
+static async Task<int> ValidateValuationAsync(string[] args)
+{
+    var inputDirectory = Option(args, "--input");
+    var manifestPath = Option(args, "--manifest");
+    ValuationManifestValidationResult result;
+    try
+    {
+        result = await ValuationManifestValidator.ValidateAsync(inputDirectory, manifestPath).ConfigureAwait(false);
+    }
+    catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or FormatException or JsonException)
+    {
+        Console.Error.WriteLine($"valuation validation could not complete: {exception.Message}");
+        return 1;
+    }
+
+    foreach (var problem in result.Problems)
+    {
+        Console.Error.WriteLine($"valuation problem: {problem}");
+    }
+
+    if (!result.Passed)
+    {
+        return 1;
+    }
+
+    Console.WriteLine($"valuation manifest valid: {result.ApprovedVariantCount} finance-approved variant(s) cover all positive opening stock");
+    return 0;
 }
 
 static MigrationMapping LoadMapping(string path)
