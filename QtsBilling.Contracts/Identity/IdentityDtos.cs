@@ -15,7 +15,16 @@ public sealed record SessionDto(
     string? BusinessName,
     IReadOnlyList<string> Roles,
     IReadOnlyList<string> Permissions,
-    bool PasswordResetRequired);
+    bool PasswordResetRequired)
+{
+    public IReadOnlyList<BusinessSummaryDto> AvailableBusinesses { get; init; } = [];
+
+    public IReadOnlyList<Guid> AllowedLocationIds { get; init; } = [];
+}
+
+public sealed record BusinessSummaryDto(Guid BusinessId, string BusinessName, string Role);
+
+public sealed record SwitchBusinessRequest(Guid BusinessId);
 
 /// <summary>Requests a password reset/invitation ticket. The response never reveals whether the account exists.</summary>
 public sealed record RequestPasswordResetRequest(string Email);
