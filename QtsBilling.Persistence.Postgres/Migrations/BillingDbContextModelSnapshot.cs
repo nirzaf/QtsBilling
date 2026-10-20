@@ -1054,6 +1054,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("customer_deposits_account_id");
 
+                    b.Property<Guid>("DeliveredNotInvoicedAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivered_not_invoiced_account_id");
+
                     b.Property<Guid>("GrniClearingAccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("grni_clearing_account_id");
@@ -1129,6 +1133,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("CogsAccountId", "BusinessId");
 
                     b.HasIndex("CustomerDepositsAccountId", "BusinessId");
+
+                    b.HasIndex("DeliveredNotInvoicedAccountId", "BusinessId");
 
                     b.HasIndex("GrniClearingAccountId", "BusinessId");
 
@@ -1874,6 +1880,68 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                             t.HasCheckConstraint("ck_customers_credit_limit", "credit_limit IS NULL OR credit_limit >= 0");
 
                             t.HasCheckConstraint("ck_customers_payment_terms", "payment_terms_days >= 0 AND payment_terms_days <= 3650");
+                        });
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeliveryInvoiceAllocation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<decimal>("CostValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("cost_value");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("DeliveryLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_line_id");
+
+                    b.Property<Guid>("InvoiceLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("invoice_line_id");
+
+                    b.Property<Guid>("JournalEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journal_entry_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "BusinessId");
+
+                    b.HasIndex("BusinessId", "DeliveryLineId");
+
+                    b.HasIndex("BusinessId", "InvoiceLineId")
+                        .IsUnique();
+
+                    b.HasIndex("DeliveryLineId", "BusinessId");
+
+                    b.HasIndex("InvoiceLineId", "BusinessId");
+
+                    b.HasIndex("JournalEntryId", "BusinessId");
+
+                    b.ToTable("delivery_invoice_allocations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_delivery_invoice_allocations_values", "quantity > 0 AND cost_value >= 0");
                         });
                 });
 
@@ -2632,6 +2700,159 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.ToTable("inventory_movements", (string)null);
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.InventoryReservation", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<string>("CloseReason")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)")
+                        .HasColumnName("close_reason");
+
+                    b.Property<DateTimeOffset?>("ClosedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("closed_at_utc");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("location_id");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("BusinessId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("LocationId", "BusinessId");
+
+                    b.HasIndex("OrderId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "OrderId", "Status", "ExpiresAtUtc");
+
+                    b.ToTable("inventory_reservations", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inventory_reservations_key", "length(idempotency_key) BETWEEN 1 AND 128 AND length(payload_hash) = 64");
+                        });
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.InventoryReservationLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("OrderLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_line_id");
+
+                    b.Property<decimal>("QuantityConsumed")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity_consumed");
+
+                    b.Property<decimal>("QuantityReleased")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity_released");
+
+                    b.Property<decimal>("QuantityReserved")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity_reserved");
+
+                    b.Property<Guid>("ReservationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reservation_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "OrderLineId");
+
+                    b.HasIndex("BusinessId", "VariantId");
+
+                    b.HasIndex("OrderLineId", "BusinessId");
+
+                    b.HasIndex("ReservationId", "BusinessId");
+
+                    b.HasIndex("ReservationId", "OrderLineId")
+                        .IsUnique();
+
+                    b.HasIndex("VariantId", "BusinessId");
+
+                    b.ToTable("inventory_reservation_lines", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_inventory_reservation_lines_quantities", "quantity_reserved > 0 AND quantity_consumed >= 0 AND quantity_released >= 0 AND quantity_consumed + quantity_released <= quantity_reserved");
+                        });
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.Invoice", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2708,6 +2929,20 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("text")
                         .HasColumnName("note");
 
+                    b.Property<Guid?>("SourceOrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_order_id");
+
+                    b.Property<string>("SourcePayloadHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("source_payload_hash");
+
+                    b.Property<string>("SourceRequestKey")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("source_request_key");
+
                     b.Property<Guid?>("SourceSaleId")
                         .HasColumnType("uuid")
                         .HasColumnName("source_sale_id");
@@ -2755,6 +2990,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("BusinessId", "IssueDate");
 
+                    b.HasIndex("BusinessId", "SourceRequestKey")
+                        .IsUnique()
+                        .HasFilter("source_request_key IS NOT NULL");
+
                     b.HasIndex("BusinessId", "Status");
 
                     b.HasIndex("CustomerId", "BusinessId");
@@ -2762,6 +3001,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("InvoiceSequenceId", "BusinessId");
 
                     b.HasIndex("LocationId", "BusinessId");
+
+                    b.HasIndex("SourceOrderId", "BusinessId");
 
                     b.HasIndex("SourceSaleId", "BusinessId");
 
@@ -2819,15 +3060,30 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("quantity");
 
+                    b.Property<decimal>("RevenueBaseAmount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("revenue_base_amount");
+
                     b.Property<string>("SkuSnapshot")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
                         .HasColumnName("sku_snapshot");
 
+                    b.Property<Guid?>("SourceDeliveryLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_delivery_line_id");
+
                     b.Property<decimal>("TaxAmount")
                         .HasPrecision(18, 4)
                         .HasColumnType("numeric(18,4)")
                         .HasColumnName("tax_amount");
+
+                    b.Property<string>("TaxMode")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("tax_mode");
 
                     b.Property<decimal>("TaxRate")
                         .HasPrecision(18, 4)
@@ -2858,12 +3114,16 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasKey("Id");
 
+                    b.HasIndex("BusinessId", "SourceDeliveryLineId");
+
                     b.HasIndex("BusinessId", "VariantId");
 
                     b.HasIndex("InvoiceId", "BusinessId");
 
                     b.HasIndex("InvoiceId", "LineNo")
                         .IsUnique();
+
+                    b.HasIndex("SourceDeliveryLineId", "BusinessId");
 
                     b.HasIndex("VariantId", "BusinessId");
 
@@ -4828,6 +5088,167 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         });
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SalesOrderDelivery", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("CreatedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateOnly>("DeliveryDate")
+                        .HasColumnType("date")
+                        .HasColumnName("delivery_date");
+
+                    b.Property<string>("DeliveryNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("delivery_number");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid?>("JournalEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journal_entry_id");
+
+                    b.Property<Guid>("LocationId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("location_id");
+
+                    b.Property<string>("Note")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)")
+                        .HasColumnName("note");
+
+                    b.Property<Guid>("OrderId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_id");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedByUserId");
+
+                    b.HasIndex("BusinessId", "DeliveryNumber")
+                        .IsUnique();
+
+                    b.HasIndex("BusinessId", "IdempotencyKey")
+                        .IsUnique();
+
+                    b.HasIndex("JournalEntryId", "BusinessId");
+
+                    b.HasIndex("LocationId", "BusinessId");
+
+                    b.HasIndex("OrderId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "OrderId", "DeliveryDate");
+
+                    b.ToTable("sales_order_deliveries", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_sales_order_deliveries_key", "length(delivery_number) BETWEEN 1 AND 64 AND length(idempotency_key) BETWEEN 1 AND 128 AND length(payload_hash) = 64");
+                        });
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SalesOrderDeliveryLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<decimal>("CostValue")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("cost_value");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("DeliveryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("delivery_id");
+
+                    b.Property<Guid>("OrderLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("order_line_id");
+
+                    b.Property<decimal>("Quantity")
+                        .HasPrecision(18, 6)
+                        .HasColumnType("numeric(18,6)")
+                        .HasColumnName("quantity");
+
+                    b.Property<Guid?>("ReservationLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("reservation_line_id");
+
+                    b.Property<bool>("TrackStockSnapshot")
+                        .HasColumnType("boolean")
+                        .HasColumnName("track_stock_snapshot");
+
+                    b.Property<decimal>("UnitCost")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("unit_cost");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<Guid?>("VariantId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("variant_id");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("BusinessId", "OrderLineId");
+
+                    b.HasIndex("DeliveryId", "BusinessId");
+
+                    b.HasIndex("DeliveryId", "OrderLineId")
+                        .IsUnique();
+
+                    b.HasIndex("OrderLineId", "BusinessId");
+
+                    b.HasIndex("ReservationLineId", "BusinessId");
+
+                    b.HasIndex("VariantId", "BusinessId");
+
+                    b.ToTable("sales_order_delivery_lines", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_sales_order_delivery_lines_values", "quantity > 0 AND unit_cost >= 0 AND cost_value >= 0 AND (track_stock_snapshot OR cost_value = 0)");
+                        });
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SalesOrderLine", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4936,8 +5357,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnName("variant_id");
 
                     b.HasKey("Id");
-
-                    b.HasAlternateKey("Id", "BusinessId");
 
                     b.HasIndex("BusinessId", "LineKey")
                         .IsUnique();
@@ -6989,6 +7408,13 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Account", null)
                         .WithMany()
+                        .HasForeignKey("DeliveredNotInvoicedAccountId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Account", null)
+                        .WithMany()
                         .HasForeignKey("GrniClearingAccountId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
@@ -7261,6 +7687,36 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeliveryInvoiceAllocation", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrderDeliveryLine", null)
+                        .WithMany()
+                        .HasForeignKey("DeliveryLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.InvoiceLine", null)
+                        .WithMany()
+                        .HasForeignKey("InvoiceLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalEntry", null)
+                        .WithMany()
+                        .HasForeignKey("JournalEntryId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceEnrolmentChallenge", b =>
                 {
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
@@ -7452,6 +7908,64 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.InventoryReservation", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.BusinessLocation", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.InventoryReservationLine", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("OrderLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.InventoryReservation", null)
+                        .WithMany()
+                        .HasForeignKey("ReservationId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.ProductVariant", null)
+                        .WithMany()
+                        .HasForeignKey("VariantId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.Invoice", b =>
                 {
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
@@ -7478,6 +7992,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict);
 
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("SourceOrderId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Sale", null)
                         .WithMany()
                         .HasForeignKey("SourceSaleId", "BusinessId")
@@ -7499,6 +8019,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrderDeliveryLine", null)
+                        .WithMany()
+                        .HasForeignKey("SourceDeliveryLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.ProductVariant", null)
                         .WithMany()
@@ -8035,6 +8561,76 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesQuoteRevision", null)
                         .WithMany()
                         .HasForeignKey("SourceQuoteRevisionId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SalesOrderDelivery", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("CreatedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalEntry", null)
+                        .WithMany()
+                        .HasForeignKey("JournalEntryId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.BusinessLocation", null)
+                        .WithMany()
+                        .HasForeignKey("LocationId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrder", null)
+                        .WithMany()
+                        .HasForeignKey("OrderId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.SalesOrderDeliveryLine", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrderDelivery", null)
+                        .WithMany()
+                        .HasForeignKey("DeliveryId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.SalesOrderLine", null)
+                        .WithMany()
+                        .HasForeignKey("OrderLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.InventoryReservationLine", null)
+                        .WithMany()
+                        .HasForeignKey("ReservationLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.ProductVariant", null)
+                        .WithMany()
+                        .HasForeignKey("VariantId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict);
                 });
