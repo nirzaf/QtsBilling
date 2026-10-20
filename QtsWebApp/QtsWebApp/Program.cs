@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using MudBlazor.Services;
 using OpenTelemetry.Metrics;
 using OpenIddict.Abstractions;
@@ -15,6 +16,7 @@ using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
 using QtsWebApp.Features.Auth;
+using QtsWebApp.Features.Banking;
 using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Audit;
 using QtsWebApp.Features.Catalog;
@@ -283,6 +285,7 @@ builder.Services.AddTransient<LocalApiHandler>();
 // The browser host never captures sales offline (QB-19): the shared point-of-sale component asks this
 // service, so it shows an honest "desktop only" state instead of a fake capture.
 builder.Services.AddScoped<QtsBilling.Contracts.Pos.ILocalPosService, QtsWebApp.Features.Pos.WebLocalPosService>();
+builder.Services.TryAddScoped<IPaymentTerminalProvider, DisabledPaymentTerminalProvider>();
 
 // Key-ring persistence (QB-14): set QTS_DATAPROTECTION_PATH in production so session-cookie and ticket
 // keys survive restarts and rotation is a deliberate, reviewed operation. Unset (development) keeps an
@@ -351,7 +354,9 @@ app.MapProductEndpoints();
 app.MapMasterDataEndpoints();
 app.MapAccountingEndpoints();
 app.MapInventoryEndpoints();
+app.MapBankingEndpoints();
 app.MapSaleEndpoints();
+app.MapPaymentTerminalEndpoints();
 app.MapCashRegisterEndpoints();
 app.MapRefundEndpoints();
 app.MapInvoiceEndpoints();
