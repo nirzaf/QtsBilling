@@ -120,21 +120,21 @@ public static class DevDataSeeder
         ILogger logger,
         CancellationToken cancellationToken)
     {
-        if (!await db.Accounts.AnyAsync(account => account.BusinessId == business.Id, cancellationToken).ConfigureAwait(false))
+        var existingCodes = await db.Accounts
+            .Where(account => account.BusinessId == business.Id)
+            .Select(account => account.Code)
+            .ToHashSetAsync(cancellationToken)
+            .ConfigureAwait(false);
+        foreach (var (code, name, type) in DefaultChart.Where(account => !existingCodes.Contains(account.Code)))
         {
-            foreach (var (code, name, type) in DefaultChart)
+            db.Accounts.Add(new Account
             {
-                db.Accounts.Add(new Account
-                {
-                    BusinessId = business.Id,
-                    Code = code,
-                    Name = name,
-                    AccountType = type,
-                    IsActive = true,
-                });
-            }
-
-            logger.LogInformation("Seeded {Count} chart-of-accounts entries for {Business}.", DefaultChart.Length, business.Name);
+                BusinessId = business.Id,
+                Code = code,
+                Name = name,
+                AccountType = type,
+                IsActive = true,
+            });
         }
 
         var fiscalYear = DateTime.UtcNow.Year;
@@ -154,6 +154,37 @@ public static class DevDataSeeder
         }
 
         await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!await db.BusinessAccountingSettings.AnyAsync(settings => settings.BusinessId == business.Id, cancellationToken).ConfigureAwait(false))
+        {
+            var accounts = await db.Accounts.AsNoTracking()
+                .Where(account => account.BusinessId == business.Id)
+                .ToDictionaryAsync(account => account.Code, cancellationToken)
+                .ConfigureAwait(false);
+            db.BusinessAccountingSettings.Add(new BusinessAccountingSettings
+            {
+                BusinessId = business.Id,
+                SettlementScale = 2,
+                CashAccountId = accounts["1000"].Id,
+                BankClearingAccountId = accounts["1010"].Id,
+                AccountsReceivableAccountId = accounts["1100"].Id,
+                InventoryAssetAccountId = accounts["1200"].Id,
+                InputTaxReceivableAccountId = accounts["1300"].Id,
+                AccountsPayableAccountId = accounts["2000"].Id,
+                OutputTaxPayableAccountId = accounts["2100"].Id,
+                GrniClearingAccountId = accounts["2101"].Id,
+                CustomerDepositsAccountId = accounts["2105"].Id,
+                RetainedEarningsAccountId = accounts["3000"].Id,
+                SalesRevenueAccountId = accounts["4000"].Id,
+                SalesReturnsAccountId = accounts["4010"].Id,
+                CogsAccountId = accounts["5000"].Id,
+                PurchasePriceVarianceAccountId = accounts["5150"].Id,
+                InventoryShrinkageAccountId = accounts["5200"].Id,
+                CashOverShortAccountId = accounts["5300"].Id,
+                RoundingAccountId = accounts["5999"].Id,
+            });
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
     }
 
     private static readonly (string Code, string Name, AccountType Type)[] DefaultChart =
@@ -162,12 +193,20 @@ public static class DevDataSeeder
         ("1010", "Bank", AccountType.Asset),
         ("1100", "Accounts Receivable", AccountType.Asset),
         ("1200", "Inventory", AccountType.Asset),
+        ("1300", "Input Tax Receivable", AccountType.Asset),
         ("2000", "Accounts Payable", AccountType.Liability),
         ("2100", "Tax Payable", AccountType.Liability),
+        ("2101", "Goods Received Not Invoiced", AccountType.Liability),
+        ("2105", "Customer Deposits", AccountType.Liability),
         ("3000", "Owner Equity", AccountType.Equity),
         ("4000", "Sales Revenue", AccountType.Revenue),
+        ("4010", "Sales Returns", AccountType.Revenue),
         ("4100", "Sales Discounts", AccountType.Revenue),
         ("5000", "Cost of Goods Sold", AccountType.Expense),
+        ("5150", "Purchase Price Variance", AccountType.Expense),
+        ("5200", "Inventory Shrinkage", AccountType.Expense),
+        ("5300", "Cash Over Short", AccountType.Expense),
+        ("5999", "Rounding Differences", AccountType.Expense),
         ("5100", "Operating Expenses", AccountType.Expense),
     ];
 }
