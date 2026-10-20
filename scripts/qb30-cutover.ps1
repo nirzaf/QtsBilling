@@ -50,7 +50,10 @@ param(
     [string]$Mapping = "docs/migration/mapping.sample.json",
     [string]$ApprovedDevices = "",
     [string[]]$ReconciliationExceptions = @(),
-    [string]$OutDir = "backups"
+    [string]$OutDir = "backups",
+    [ValidateSet("Docker", "Psql")]
+    [string]$SqlMode = "Docker",
+    [string]$OwnerEmail = "owner@qtsbilling.local"
 )
 
 $ErrorActionPreference = "Continue"
@@ -69,7 +72,13 @@ function Add-Gate([string]$Gate, [bool]$Passed, [string]$Detail) {
 }
 
 function Invoke-Sql([string]$query) {
-    $result = docker exec $Container psql -U $User -d $Database -t -A -c $query 2>&1
+    if ($SqlMode -eq "Psql") {
+        $result = & psql $connection -t -A -c $query 2>&1
+    }
+    else {
+        $result = docker exec $Container psql -U $User -d $Database -t -A -c $query 2>&1
+    }
+
     return ($result | Where-Object { $_ -and $_ -notmatch "^\s*$" } | Select-Object -First 1)
 }
 
@@ -157,14 +166,14 @@ if ([string]::IsNullOrWhiteSpace($Database) -or [string]::IsNullOrWhiteSpace($Da
 
 Add-Gate "environment: the target of this run" $true "$User@${DatabaseHost}:$Port/$Database"
 
-$containerDatabase = Invoke-Sql "select current_database();"
+$servedDatabase = Invoke-Sql "select current_database();"
 
-if ($containerDatabase -ne $Database) {
-    Add-Gate "environment: the backup, the SQL and the CLI name the same database" $false "The container serves '$containerDatabase' but the connection names '$Database'."
+if ($servedDatabase -ne $Database) {
+    Add-Gate "environment: the backup, the SQL and the CLI name the same database" $false "The target serves '$servedDatabase' but the connection names '$Database'."
     Stop-Run 1
 }
 
-Add-Gate "environment: the backup, the SQL and the CLI name the same database" $true "container database: $containerDatabase"
+Add-Gate "environment: the backup, the SQL and the CLI name the same database" $true "target database: $servedDatabase"
 
 # 2. the reachability and the schema (reads only) ---------------------------------------
 $reachable = Invoke-Sql "select 1;"
@@ -307,7 +316,9 @@ Add-Gate "codeword: the business owner's cutover codeword" $true "accepted (cons
 # 8. the fresh backup (a write, before anything else is touched) --------------------------------
 New-Item -ItemType Directory -Force -Path $resolvedOut | Out-Null
 
-$backupOutput = powershell -NoProfile -ExecutionPolicy Bypass -File scripts/backup-postgres.ps1 -Container $Container -Database $Database -User $User -OutDir $resolvedOut 2>&1 | Out-String
+$backupArguments = @("-File", "scripts/backup-postgres.ps1", "-Container", $Container, "-Database", $Database, "-User", $User, "-OutDir", $resolvedOut)
+if ($SqlMode -eq "Psql") { $backupArguments += @("-ConnectionString", $connection) }
+$backupOutput = powershell -NoProfile -ExecutionPolicy Bypass @backupArguments 2>&1 | Out-String
 $backupOk = $backupOutput -match "(?i)manifest" -and $backupOutput -notmatch "(?i)error|failed"
 $backupDetail = (($backupOutput.Trim() -split "`n" | Select-Object -Last 3) -join " | ")
 
@@ -363,6 +374,7 @@ Add-Gate "reconciliation: no unresolved exception" ($unresolved.Count -eq 0) "$(
 Assert-NoFailedGate "The approved execution (reconciliation)"
 
 # 12. the smoke ----------------------------------------------------------------------------------------
+$email = $OwnerEmail
 $session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
 $login = Invoke-WebRequest -Uri "$BaseUrl/api/v1/auth/login" -Method Post -WebSession $session `
     -ContentType "application/json" -Body ('{"email":"' + $email + '","password":"' + $env:QTS_OWNER_PASSWORD + '"}') `
@@ -380,7 +392,6 @@ catch {
 Assert-NoFailedGate "The approved execution (smoke)"
 
 # 13. the identity reset (a write, after the session proved to work) -------------------------------------
-$email = "owner@qtsbilling.local"
 $resetRequested = Invoke-WebRequest -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post `
     -ContentType "application/json" -Body ('{"email":"' + $email + '"}') -TimeoutSec 30 -UseBasicParsing
 Add-Gate "identities: the reset flow is available" ($resetRequested.StatusCode -in @(200, 202, 204)) "POST /api/v1/auth/password-reset/request -> $($resetRequested.StatusCode)"

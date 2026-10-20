@@ -50,7 +50,7 @@ distinction. The ledger is updated with every change of the implementation.
 | R15 trustworthy reporting | PARTIAL | The balance sheet and the income statement read the authoritative journal, and the cost of goods sold is now the movement value (QB-38). Missing: the exact receivables/payables tie-outs, the valuation reports, the six-decimal quantities (tasks 53, 54). |
 | R16 native onboarding and import | MISSING | The import is still the source-specific one; the typed native package does not exist (tasks 18â€“20). |
 | R17 UI and document quality | PARTIAL | The receipt prints the historical snapshot and names an included tax (QB-31). Missing: the shared shell, the paging, the accessibility, the safe exports (tasks 30, 54). |
-| R18 operability and delivery | PARTIAL | **QB-32**: the CI now runs the real PostgreSQL integration suite. Missing: the release promotion gate, the signed artifact, the restore drill, the pilot evidence (tasks 58, 60, 61, 63). |
+| R18 operability and delivery | PARTIAL | **QB-32**: the CI runs the real PostgreSQL integration suite; **QB-39**: it also runs the cutover safety script. Missing: the release promotion gate, the signed artifact, the restore drill, the pilot evidence (tasks 58, 60, 61, 63). |
 
 ## 3. The critical reproductions
 
@@ -65,7 +65,7 @@ A case is `EXERCISED` only when it ran against the real stack and its result is 
 | A cross-business write is refused and changes nothing (T01.02) | **EXERCISED** | `HarnessSafetyTests.T01_02` â€” the owner of business A posting a line of business B is refused; both businesses keep their exact financial state |
 | An exception before the commit leaves no partial effect (T01.03) | **EXERCISED** | `HarnessSafetyTests.T01_03` â€” the audit row is written and abandoned with the transaction; the financial state is byte-identical afterwards |
 | A global cancellation never hides a broken entry (T01.04) | **EXERCISED** | `HarnessSafetyTests.T01_04` â€” the per-entry assertion fails even with a compensating entry elsewhere |
-| The cutover gates are trustworthy (F01, F02, F05) | **EXERCISED** | QB-39: the wrong codeword stops the run; the admission creates no backup, starts no host and leaves the audit trail byte-identical; a failed gate stops the execution before the import; the import is reached only after the backup, the health and the schema gates (scripts/qb39-cutover-safety.ps1, 12 assertions) |
+| The cutover gates are trustworthy (F01, F02, F05) | **EXERCISED** | QB-39: the wrong codeword stops the run; the admission creates no backup, starts no host and leaves the audit trail byte-identical; a failed gate stops the execution before the import; the import is reached only after the backup, the health and the schema gates; the Execute path completes with every gate passed. 14 assertions, and the CI runs them against a real PostgreSQL |
 | The permission policy reads the current membership (F07) | **EXERCISED** | QB-36: a revoked membership is refused with 403 while the session stays alive; a viewer is refused on a sale; the owner keeps the authority |
 | The offline grant is signed and bounded (F10) | **NOT EXERCISED** | task 23 is not done |
 | The settlement subledger exists (F14) | **PARTIALLY EXERCISED** | QB-33: a customer credit no longer creates a confirmed payment and a cheque is no longer bank money (three cases against the real PostgreSQL). The open-item subledger behind the receivable balance is still missing (task 13, the remaining part) |

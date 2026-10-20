@@ -13,7 +13,8 @@ param(
     [string]$Container = "qtsbilling-pg",
     [string]$Database = "qtsbilling",
     [string]$User = "qtsbilling",
-    [string]$OutDir = "backups"
+    [string]$OutDir = "backups",
+    [string]$ConnectionString = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -30,7 +31,7 @@ Write-Output "database        : $Database (user $User)"
 
 $containerProbe = docker ps --filter "name=$Container" --format "{{.Names}}"
 
-if ($containerProbe -ne $Container) {
+if ($containerProbe -ne $Container -and [string]::IsNullOrWhiteSpace($ConnectionString)) {
     throw "Container '$Container' is not running; start it before backing up."
 }
 
@@ -40,13 +41,23 @@ $targetPath = Join-Path $resolvedOut $fileName
 $remotePath = "/tmp/qts-backup.dump"
 
 # Dump inside the container, then copy the bytes out: binary data never passes through a shell redirect.
-docker exec $Container pg_dump --username $User --format=custom --no-owner --no-privileges --compress=6 --file=$remotePath $Database 2>&1 | ForEach-Object { $_ }
+if ([string]::IsNullOrWhiteSpace($ConnectionString)) {
+    docker exec $Container pg_dump --username $User --format=custom --no-owner --no-privileges --compress=6 --file=$remotePath $Database 2>&1 | ForEach-Object { $_ }
 
-if ($LASTEXITCODE -ne 0) {
-    throw "pg_dump failed with exit code $LASTEXITCODE."
+    if ($LASTEXITCODE -ne 0) {
+        throw "pg_dump failed with exit code $LASTEXITCODE."
+    }
+
+    docker cp "${Container}:${remotePath}" $targetPath | Out-Null
 }
+else {
+    # The bytes go straight to the file: a binary dump never passes through a shell redirect.
+    & pg_dump $ConnectionString --format=custom --no-owner --no-privileges --compress=6 --file=$targetPath 2>&1 | ForEach-Object { $_ }
 
-docker cp "${Container}:${remotePath}" $targetPath | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw "pg_dump failed with exit code $LASTEXITCODE."
+    }
+}
 docker exec $Container rm -f $remotePath | Out-Null
 
 if (-not (Test-Path $targetPath)) {

@@ -58,9 +58,16 @@ if ([string]::IsNullOrWhiteSpace($connection)) {
 $Database = ([regex]::Match($connection, "(?i)(?:^|;)\s*Database\s*=\s*([^;]+)")).Groups[1].Value.Trim()
 $User = ([regex]::Match($connection, "(?i)(?:^|;)\s*Username\s*=\s*([^;]+)")).Groups[1].Value.Trim()
 $Container = "qtsbilling-pg"
+$SqlMode = if ($env:QTS_CUTOVER_SQL_MODE) { $env:QTS_CUTOVER_SQL_MODE } else { "Docker" }
 
 function Invoke-Sql([string]$query) {
-    $result = docker exec $Container psql -U $User -d $Database -t -A -c $query 2>&1
+    if ($SqlMode -eq "Psql") {
+        $result = & psql $connection -t -A -c $query 2>&1
+    }
+    else {
+        $result = docker exec $Container psql -U $User -d $Database -t -A -c $query 2>&1
+    }
+
     return ($result | Where-Object { $_ -and $_ -notmatch "^\s*$" } | Select-Object -First 1)
 }
 
@@ -74,7 +81,7 @@ New-Item -ItemType Directory -Force -Path $outDir | Out-Null
 $dumpsBefore = @(Get-ChildItem -Path $outDir -Filter "*.dump" -ErrorAction SilentlyContinue).Count
 $auditBefore = Invoke-Sql "select count(*) from audit_events;"
 
-$admission = Run-Cutover @("-Mode", "Admission", "-OutDir", $outDir, "-ApprovedDevices", "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "-ReconciliationExceptions", "Customer/64e000000000000000000001") $outDir
+$admission = Run-Cutover @("-Mode", "Admission", "-SqlMode", $SqlMode, "-OutDir", $outDir, "-ApprovedDevices", "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", "-ReconciliationExceptions", "Customer/64e000000000000000000001") $outDir
 
 $dumpsAfter = @(Get-ChildItem -Path $outDir -Filter "*.dump" -ErrorAction SilentlyContinue).Count
 $auditAfter = Invoke-Sql "select count(*) from audit_events;"
@@ -86,7 +93,7 @@ Check "T1c the admission sends no password-reset or login request" ($auditAfter 
 
 # ---------------------------------------------------------------- T2: the admission fails closed
 $env:QTS_POSTGRES_CONNECTION = "Host=localhost;Port=5433;Database=not_the_target_database;Username=$User;Password=qtsbilling"
-$wrong = Run-Cutover @("-Mode", "Admission", "-OutDir", $outDir) $outDir
+$wrong = Run-Cutover @("-Mode", "Admission", "-SqlMode", $SqlMode, "-OutDir", $outDir) $outDir
 $env:QTS_POSTGRES_CONNECTION = $connection
 
 Check "T2a a mismatched environment stops the run" ($wrong.ExitCode -ne 0) "exit code $($wrong.ExitCode)"
@@ -97,7 +104,7 @@ $env:QTS_POSTGRES_CONNECTION = "Host=localhost;Port=5433;Database=not_the_target
 $env:QTS_CUTOVER_CODEWORD = "the-owner-codeword"
 $env:QTS_CUTOVER_PRESENTED_CODEWORD = "the-owner-codeword"
 
-$stopped = Run-Cutover @("-Mode", "Execute", "-OutDir", $outDir, "-Snapshot", "x", "-Rows", "y") $outDir
+$stopped = Run-Cutover @("-Mode", "Execute", "-SqlMode", $SqlMode, "-OutDir", $outDir, "-Snapshot", "x", "-Rows", "y") $outDir
 
 Check "T3a a failed gate stops the execution" ($stopped.ExitCode -ne 0) "exit code $($stopped.ExitCode)"
 Check "T3b the import is never reached" (-not ($stopped.Output -match "import: the final frozen import \(idempotent\)")) "the import gate ran"
@@ -107,7 +114,7 @@ $env:QTS_POSTGRES_CONNECTION = $connection
 # ---------------------------------------------------------------- T4: the order of the gates
 $env:QTS_RECONCILIATION_KEY = "safety-script-key"
 
-$executeArguments = @("-Mode", "Execute")
+$executeArguments = @("-Mode", "Execute", "-SqlMode", $SqlMode)
 if ($env:QTS_CUTOVER_DEVICES) { $executeArguments += @("-ApprovedDevices", $env:QTS_CUTOVER_DEVICES) }
 if ($env:QTS_CUTOVER_APPROVED_EXCEPTIONS) { $executeArguments += @("-ReconciliationExceptions", $env:QTS_CUTOVER_APPROVED_EXCEPTIONS) }
 if ($env:QTS_CUTOVER_SNAPSHOT) { $executeArguments += @("-Snapshot", $env:QTS_CUTOVER_SNAPSHOT) }
@@ -120,10 +127,29 @@ $healthIndex = $executed.Output.IndexOf("server: the health endpoint")
 $schemaIndex = $executed.Output.IndexOf("schema: no pending PostgreSQL migration")
 $importIndex = $executed.Output.IndexOf("import: the final frozen import (idempotent)")
 
-Check "T4a the execution reached the import" ($importIndex -ge 0) "the import gate did not run (the run may have failed earlier: $($executed.ExitCode))"
+Check "T4a the import gate was evaluated" ($importIndex -ge 0) "the import gate did not run (the run may have failed earlier: $($executed.ExitCode))"
+
+$source = Get-Content (Join-Path $repoRoot $script) -Raw
+# The execute phase is the last occurrence of each gate: the read-only admission checks the schema too.
+$sourceBackup = $source.LastIndexOf("backup: a fresh dump")
+$sourceHealth = $source.LastIndexOf("server: the health endpoint")
+$sourceSchema = $source.LastIndexOf("schema: no pending PostgreSQL migration")
+$sourceImport = $source.LastIndexOf("import: the final frozen import")
+
+Check "T4e the script declares the backup before the health check before the schema check before the import" ($sourceBackup -ge 0 -and $sourceBackup -lt $sourceHealth -and $sourceHealth -lt $sourceSchema -and $sourceSchema -lt $sourceImport) "backup $sourceBackup, health $sourceHealth, schema $sourceSchema, import $sourceImport"
 Check "T4b the backup comes before the import" ($backupIndex -ge 0 -and $backupIndex -lt $importIndex) "backup at $backupIndex, import at $importIndex"
 Check "T4c the health check comes before the import" ($healthIndex -ge 0 -and $healthIndex -lt $importIndex) "health at $healthIndex, import at $importIndex"
 Check "T4d the schema check comes before the import" ($schemaIndex -ge 0 -and $schemaIndex -lt $importIndex) "schema at $schemaIndex, import at $importIndex"
+
+# ---------------------------------------------------------------- T5: the execute path completes
+if ($env:QTS_CUTOVER_SNAPSHOT -and $env:QTS_CUTOVER_ROWS) {
+    $completed = $executed.Output -match "Execute: \d+ gate\(s\), 0 failed"
+
+    Check "T5a the execute path completes with every gate passed" $completed "the run reported: $(($executed.Output -split "`n" | Where-Object { $_ -match "^Execute:" } | Select-Object -First 1))"
+}
+else {
+    Write-Host "  N/A   T5a the execute path completes with every gate passed (no frozen snapshot was provided)"
+}
 
 Remove-Item -Recurse -Force $temp -ErrorAction SilentlyContinue
 
