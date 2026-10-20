@@ -12,8 +12,12 @@ public sealed class FulfillmentApiClient(HttpClient http) : IFulfillmentApiClien
     public Task<InventoryReservationDto> ReserveAsync(Guid orderId, ReserveSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
         => SendCreateAsync<InventoryReservationDto>($"{Route}/{orderId}/reservations", request, idempotencyKey, cancellationToken);
 
-    public Task<InventoryReservationDto> ReleaseReservationsAsync(Guid orderId, ReleaseSalesOrderReservationRequest request, CancellationToken cancellationToken = default)
-        => SendJsonAsync<InventoryReservationDto>(HttpMethod.Post, $"{Route}/{orderId}/reservations/release", request, cancellationToken);
+    public async Task ReleaseReservationsAsync(Guid orderId, ReleaseSalesOrderReservationRequest request, CancellationToken cancellationToken = default)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, $"{Route}/{orderId}/reservations/release") { Content = JsonContent.Create(request, options: ContractJson.Options) };
+        using var response = await http.SendAsync(message, cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+    }
 
     public Task<SalesOrderDeliveryDto> DeliverAsync(Guid orderId, DeliverSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
         => SendCreateAsync<SalesOrderDeliveryDto>($"{Route}/{orderId}/deliveries", request, idempotencyKey, cancellationToken);
