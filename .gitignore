@@ -395,3 +395,6 @@ appsettings.*.local.json
 # JetBrains Rider / IntelliJ IDE settings — not part of the source
 .idea/
 .idea.*/
+
+# Local scratch space: page captures and publish output used for manual verification
+/tmp/
