@@ -22,6 +22,10 @@ public sealed class LocalStoreDbContext : DbContext
 
     public DbSet<CachedCustomer> CachedCustomers => Set<CachedCustomer>();
 
+    public DbSet<CachedCategory> CachedCategories => Set<CachedCategory>();
+
+    public DbSet<CachedUnit> CachedUnits => Set<CachedUnit>();
+
     public DbSet<CachedStock> CachedStock => Set<CachedStock>();
 
     public DbSet<CacheTombstone> CacheTombstones => Set<CacheTombstone>();
@@ -85,6 +89,32 @@ public sealed class LocalStoreDbContext : DbContext
             b.HasIndex(x => new { x.BusinessId, x.Revision });
         });
 
+        modelBuilder.Entity<CachedCategory>(b =>
+        {
+            b.ToTable("cached_categories");
+            b.HasKey(x => new { x.BusinessId, x.CategoryId });
+            b.Property(x => x.BusinessId).HasColumnName("business_id");
+            b.Property(x => x.CategoryId).HasColumnName("category_id");
+            b.Property(x => x.Name).HasColumnName("name").HasMaxLength(256).IsRequired();
+            b.Property(x => x.ParentId).HasColumnName("parent_id");
+            b.Property(x => x.Active).HasColumnName("active");
+            b.Property(x => x.Revision).HasColumnName("revision");
+            b.HasIndex(x => new { x.BusinessId, x.Revision });
+        });
+
+        modelBuilder.Entity<CachedUnit>(b =>
+        {
+            b.ToTable("cached_units");
+            b.HasKey(x => new { x.BusinessId, x.UnitId });
+            b.Property(x => x.BusinessId).HasColumnName("business_id");
+            b.Property(x => x.UnitId).HasColumnName("unit_id");
+            b.Property(x => x.Name).HasColumnName("name").HasMaxLength(128).IsRequired();
+            b.Property(x => x.ShortName).HasColumnName("short_name").HasMaxLength(32).IsRequired();
+            b.Property(x => x.AllowDecimals).HasColumnName("allow_decimals");
+            b.Property(x => x.Revision).HasColumnName("revision");
+            b.HasIndex(x => new { x.BusinessId, x.Revision });
+        });
+
         modelBuilder.Entity<CachedStock>(b =>
         {
             b.ToTable("cached_stock");
@@ -115,6 +145,7 @@ public sealed class LocalStoreDbContext : DbContext
             b.Property(x => x.ProvisionalReference).HasColumnName("provisional_reference").HasMaxLength(64);
             b.Property(x => x.UserId).HasColumnName("user_id");
             b.Property(x => x.RegisterId).HasColumnName("register_id");
+            b.Property(x => x.RegisterSessionId).HasColumnName("register_session_id");
             b.Property(x => x.LinesJson).HasColumnName("lines_json").HasMaxLength(4000);
             b.Property(x => x.PaymentMethod).HasColumnName("payment_method").HasMaxLength(16);
             b.Property(x => x.Amount).HasColumnName("amount_scaled").HasConversion(LocalValueConverters.Money);
@@ -161,6 +192,7 @@ public sealed class LocalStoreDbContext : DbContext
             b.HasKey(x => x.OperationId);
             b.Property(x => x.OperationId).HasColumnName("operation_id");
             b.Property(x => x.RegisterId).HasColumnName("register_id");
+            b.Property(x => x.RegisterSessionId).HasColumnName("register_session_id");
             b.Property(x => x.Amount).HasColumnName("amount_scaled").HasConversion(LocalValueConverters.Money);
             b.Property(x => x.Reason).HasColumnName("reason").HasMaxLength(256);
             b.Property(x => x.State).HasColumnName("state").HasConversion<string>().HasMaxLength(16);
@@ -185,15 +217,16 @@ public sealed class LocalStoreDbContext : DbContext
             b.Property(x => x.CanonicalPayload).HasColumnName("canonical_payload");
             b.Property(x => x.Sha256Fingerprint).HasColumnName("sha256_fingerprint").HasMaxLength(64);
             b.Property(x => x.State).HasColumnName("state").HasConversion<string>().HasMaxLength(16);
-            b.Property(x => x.Attempts).HasColumnName("attempts");
-            b.Property(x => x.NextAttemptUtc).HasColumnName("next_attempt_utc");
+            b.Property(x => x.AttemptCount).HasColumnName("attempt_count");
+            b.Property(x => x.NextAttemptAtUtc).HasColumnName("next_attempt_at_utc");
+            b.Property(x => x.LastErrorCode).HasColumnName("last_error_code").HasMaxLength(64);
             b.Property(x => x.CreatedAtUtc).HasColumnName("created_at_utc");
             b.HasIndex(x => new { x.DeviceId, x.OperationId }).IsUnique();
-            b.HasIndex(x => new { x.State, x.NextAttemptUtc, x.CreatedAtUtc });
+            b.HasIndex(x => new { x.State, x.NextAttemptAtUtc, x.CreatedAtUtc });
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_outbox_operations_state",
                 "state IN ('Pending','Sending','Acknowledged','Rejected')"));
-            b.ToTable(t => t.HasCheckConstraint("ck_outbox_operations_attempts", "attempts >= 0"));
+            b.ToTable(t => t.HasCheckConstraint("ck_outbox_operations_attempt_count", "attempt_count >= 0"));
             b.ToTable(t => t.HasCheckConstraint("ck_outbox_operations_payload_version", "payload_version >= 1"));
         });
 
