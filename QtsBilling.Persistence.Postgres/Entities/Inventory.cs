@@ -113,3 +113,31 @@ public sealed class StockTransferLine : TenantEntity
 
     public decimal? ValueAtDispatch { get; set; }
 }
+
+/// <summary>Blind physical count at one location, reconciled as a single auditable ledger operation.</summary>
+public sealed class StockCountSession : TenantEntity
+{
+    public Guid LocationId { get; set; }
+    public string CountNumber { get; set; } = string.Empty;
+    public StockCountStatus Status { get; set; } = StockCountStatus.Open;
+    public DateTimeOffset SnapshotAtUtc { get; set; }
+    public DateTimeOffset? SubmittedAtUtc { get; set; }
+    public DateTimeOffset? ApprovedAtUtc { get; set; }
+    public Guid? ApprovedByUserId { get; set; }
+    public Guid? JournalEntryId { get; set; }
+    public string? Note { get; set; }
+    public string? IdempotencyKey { get; set; }
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>Expected stock is frozen at session creation; counted quantity stays hidden until approval.</summary>
+public sealed class StockCountLine : TenantEntity
+{
+    public Guid StockCountSessionId { get; set; }
+    public Guid VariantId { get; set; }
+    public decimal ExpectedQuantity { get; set; }
+    public decimal ExpectedUnitCost { get; set; }
+    public decimal? CountedQuantity { get; set; }
+    public decimal? VarianceQuantity { get; set; }
+    public decimal? VarianceValue { get; set; }
+}
