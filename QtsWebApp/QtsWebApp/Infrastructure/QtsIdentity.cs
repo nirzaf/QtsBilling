@@ -91,18 +91,78 @@ public sealed class PermissionRequirement(string permission) : IAuthorizationReq
     public string Permission { get; } = permission;
 }
 
-/// <inheritdoc />
+/// <summary>
+/// Authorizes a permission against the **current** authority of the actor, not against the claims that
+/// were issued at sign-in (specification D02, finding F07).
+/// </summary>
+/// <remarks>
+/// A revoked membership, a deactivated user or a locked-out account loses its authority immediately;
+/// the permission is recomputed from the role the membership holds right now. The claims are only used
+/// to identify the actor and the business the request claims to act for — they never grant anything.
+/// </remarks>
 public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
 {
-    protected override Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
+    private readonly BillingDbContext _db;
+
+    public PermissionAuthorizationHandler(BillingDbContext db) => _db = db;
+
+    protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
-        if (context.User.Identity?.IsAuthenticated == true
-            && context.User.FindAll(QtsClaims.Permission).Any(claim => string.Equals(claim.Value, requirement.Permission, StringComparison.Ordinal)))
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return;
+        }
+
+        var actorId = context.User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+        if (actorId is null || !Guid.TryParse(actorId, out var userId))
+        {
+            return;
+        }
+
+        var businessId = context.User.FindFirstValue(QtsClaims.BusinessId);
+
+        if (businessId is null || !Guid.TryParse(businessId, out var scopedBusinessId))
+        {
+            // No active membership means no authority at all.
+            return;
+        }
+
+        var actor = await _db.Users
+            .AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => new { user.IsActive, user.LockoutEnd })
+            .FirstOrDefaultAsync()
+            .ConfigureAwait(false);
+
+        if (actor is null || !actor.IsActive)
+        {
+            return;
+        }
+
+        if (actor.LockoutEnd is { } lockedUntil && lockedUntil > DateTimeOffset.UtcNow)
+        {
+            return;
+        }
+
+        var role = await _db.BusinessMemberships
+            .AsNoTracking()
+            .Where(membership => membership.UserId == userId
+                && membership.BusinessId == scopedBusinessId
+                && membership.IsActive)
+            .Select(membership => (MembershipRole?)membership.Role)
+            .FirstOrDefaultAsync()
+            .ConfigureAwait(false);
+
+        if (role is null)
+        {
+            return;
+        }
+
+        if (RolePermissions.For(role.Value).Contains(requirement.Permission, StringComparer.Ordinal))
         {
             context.Succeed(requirement);
         }
-
-        return Task.CompletedTask;
     }
 }
 

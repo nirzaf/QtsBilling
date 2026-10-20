@@ -73,7 +73,9 @@ builder.Services.Configure<DataProtectionTokenProviderOptions>(options => option
 
 builder.Services.AddAuthentication(IdentityConstants.ApplicationScheme).AddIdentityCookies();
 builder.Services.AddAuthorization(QtsPolicies.Configure);
-builder.Services.AddSingleton<IAuthorizationHandler, PermissionAuthorizationHandler>();
+// The handler reads the current membership of the actor, so it needs a scoped context (never a
+// singleton DbContext).
+builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
 builder.Services.ConfigureApplicationCookie(options =>
 {

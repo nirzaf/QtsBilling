@@ -35,7 +35,7 @@ distinction. The ledger is updated with every change of the implementation.
 |---|---|---|
 | R01 current-source truth and removal | PARTIAL | The runtime has no retired-provider dependency. The source-specific import project and the historical provider traces in the documentation are still there (task 02). |
 | R02 safe production admission | PARTIAL | The cutover script has a codeword gate and a checklist, but the codeword is compared as a string and the admission is not environment-bound (task 21). |
-| R03 identity and tenant/location isolation | PARTIAL | The fixture proves a cross-business write is refused (T01.02). The permission policy still reads the cached claims instead of the current membership, and the composite foreign keys are partial (tasks 04, 05). |
+| R03 identity and tenant/location isolation | PARTIAL | The fixture proves a cross-business write is refused (T01.02), and the permission is now granted by the **current** membership (QB-36). The location scope and the composite tenant foreign keys are still missing (tasks 05, 23). |
 | R04 secure web/native sessions | PARTIAL | The web host has the same-origin cookie policy and the typed 401/403. The native flow is missing: no authorization code with PKCE, no system browser (task 22). |
 | R05 exact pricing and payment truth | PARTIAL | **QB-31**: one shared commercial calculation for the server, the browser and the device; the inclusive-tax journal now balances (verified on PostgreSQL). Missing: the discount approval limits, the settlement scale in the business settings, the settlement subledger (tasks 08, 12, 13). |
 | R06 financial immutability | PARTIAL | The journal entry balances per entry, the posted lines carry their tax composition, and the posted headers are protected in the context. Missing: the database-level protection of every posted document and the state transitions (task 09). |
@@ -66,7 +66,7 @@ A case is `EXERCISED` only when it ran against the real stack and its result is 
 | An exception before the commit leaves no partial effect (T01.03) | **EXERCISED** | `HarnessSafetyTests.T01_03` â€” the audit row is written and abandoned with the transaction; the financial state is byte-identical afterwards |
 | A global cancellation never hides a broken entry (T01.04) | **EXERCISED** | `HarnessSafetyTests.T01_04` â€” the per-entry assertion fails even with a compensating entry elsewhere |
 | The cutover gates are trustworthy (F01, F05) | **NOT EXERCISED** | task 21 is not done; the current script is rehearsed but not fail-closed |
-| The permission policy reads the current membership (F07) | **NOT EXERCISED** | task 04 is not done |
+| The permission policy reads the current membership (F07) | **EXERCISED** | QB-36: a revoked membership is refused with 403 while the session stays alive; a viewer is refused on a sale; the owner keeps the authority |
 | The offline grant is signed and bounded (F10) | **NOT EXERCISED** | task 23 is not done |
 | The settlement subledger exists (F14) | **PARTIALLY EXERCISED** | QB-33: a customer credit no longer creates a confirmed payment and a cheque is no longer bank money (three cases against the real PostgreSQL). The open-item subledger behind the receivable balance is still missing (task 13, the remaining part) |
 | The perpetual valuation is real (F15) | **NOT EXERCISED** | task 15 is not done |
