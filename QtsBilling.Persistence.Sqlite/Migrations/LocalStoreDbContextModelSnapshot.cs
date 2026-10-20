@@ -39,6 +39,41 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                     b.ToTable("cache_tombstones", (string)null);
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.CachedCategory", b =>
+                {
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("business_id");
+
+                    b.Property<Guid>("CategoryId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("category_id");
+
+                    b.Property<bool>("Active")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("active");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<Guid?>("ParentId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("parent_id");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("revision");
+
+                    b.HasKey("BusinessId", "CategoryId");
+
+                    b.HasIndex("BusinessId", "Revision");
+
+                    b.ToTable("cached_categories", (string)null);
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.CachedCustomer", b =>
                 {
                     b.Property<Guid>("BusinessId")
@@ -161,6 +196,43 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                     b.ToTable("cached_stock", (string)null);
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.CachedUnit", b =>
+                {
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("business_id");
+
+                    b.Property<Guid>("UnitId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("unit_id");
+
+                    b.Property<bool>("AllowDecimals")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("allow_decimals");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("name");
+
+                    b.Property<long>("Revision")
+                        .HasColumnType("INTEGER")
+                        .HasColumnName("revision");
+
+                    b.Property<string>("ShortName")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("short_name");
+
+                    b.HasKey("BusinessId", "UnitId");
+
+                    b.HasIndex("BusinessId", "Revision");
+
+                    b.ToTable("cached_units", (string)null);
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Sqlite.Entities.DeviceProfile", b =>
                 {
                     b.Property<Guid>("DeviceId")
@@ -253,6 +325,10 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("register_id");
 
+                    b.Property<Guid?>("RegisterSessionId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("register_session_id");
+
                     b.Property<string>("State")
                         .IsRequired()
                         .HasMaxLength(16)
@@ -308,6 +384,10 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                     b.Property<Guid>("RegisterId")
                         .HasColumnType("TEXT")
                         .HasColumnName("register_id");
+
+                    b.Property<Guid?>("RegisterSessionId")
+                        .HasColumnType("TEXT")
+                        .HasColumnName("register_session_id");
 
                     b.Property<string>("State")
                         .IsRequired()
@@ -397,9 +477,9 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("operation_id");
 
-                    b.Property<int>("Attempts")
+                    b.Property<int>("AttemptCount")
                         .HasColumnType("INTEGER")
-                        .HasColumnName("attempts");
+                        .HasColumnName("attempt_count");
 
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("TEXT")
@@ -418,13 +498,18 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                         .HasColumnType("TEXT")
                         .HasColumnName("device_id");
 
+                    b.Property<string>("LastErrorCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("TEXT")
+                        .HasColumnName("last_error_code");
+
                     b.Property<Guid>("LocationId")
                         .HasColumnType("TEXT")
                         .HasColumnName("location_id");
 
-                    b.Property<DateTime>("NextAttemptUtc")
+                    b.Property<DateTime>("NextAttemptAtUtc")
                         .HasColumnType("TEXT")
-                        .HasColumnName("next_attempt_utc");
+                        .HasColumnName("next_attempt_at_utc");
 
                     b.Property<string>("OperationType")
                         .IsRequired()
@@ -453,11 +538,11 @@ namespace QtsBilling.Persistence.Sqlite.Migrations
                     b.HasIndex("DeviceId", "OperationId")
                         .IsUnique();
 
-                    b.HasIndex("State", "NextAttemptUtc", "CreatedAtUtc");
+                    b.HasIndex("State", "NextAttemptAtUtc", "CreatedAtUtc");
 
                     b.ToTable("outbox_operations", null, t =>
                         {
-                            t.HasCheckConstraint("ck_outbox_operations_attempts", "attempts >= 0");
+                            t.HasCheckConstraint("ck_outbox_operations_attempt_count", "attempt_count >= 0");
 
                             t.HasCheckConstraint("ck_outbox_operations_payload_version", "payload_version >= 1");
 
