@@ -85,6 +85,16 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<StockTransferLine> StockTransferLines => Set<StockTransferLine>();
 
+    public DbSet<StockCountSession> StockCountSessions => Set<StockCountSession>();
+
+    public DbSet<StockCountLine> StockCountLines => Set<StockCountLine>();
+
+    public DbSet<BankAccount> BankAccounts => Set<BankAccount>();
+
+    public DbSet<BankStatementImport> BankStatementImports => Set<BankStatementImport>();
+
+    public DbSet<BankStatementLine> BankStatementLines => Set<BankStatementLine>();
+
     public DbSet<Sale> Sales => Set<Sale>();
 
     public DbSet<SaleLine> SaleLines => Set<SaleLine>();
