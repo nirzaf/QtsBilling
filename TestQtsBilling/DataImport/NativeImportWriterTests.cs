@@ -261,7 +261,7 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
                 {
                     PartyExternalId = builder.CustomerExternalId,
                     Amount = 50m,
-                    Reference = "INV-OPEN-1",
+                    Reference = builder.ReceivableReference,
                 },
             ],
             Payables =
@@ -270,7 +270,7 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
                 {
                     PartyExternalId = builder.SupplierExternalId,
                     Amount = 30m,
-                    Reference = "BILL-OPEN-1",
+                    Reference = builder.PayableReference,
                 },
             ],
         });
@@ -343,7 +343,7 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
                 && movement.ReferenceType == "native_opening"
                 && movement.Memo == $"Native opening {builder.OpeningExternalId}"));
             Assert.False(await db.OpenItems.AnyAsync(item =>
-                item.BusinessId == businessId && item.Reference == "INV-OPEN-1"));
+                item.BusinessId == businessId && item.Reference == builder.ReceivableReference));
         });
 
     private Task<ImportSnapshot> SnapshotAsync(NativeTestPackage builder, Guid journalEntryId) =>
