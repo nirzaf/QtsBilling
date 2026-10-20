@@ -11,8 +11,8 @@ public sealed class OutboxCaptureTests
         await using var harness = LocalStoreHarness.Create();
         var startup = await harness.Store.InitializeAsync();
 
-        Assert.Equal(4, startup.AppliedMigrations.Count);
-        Assert.Equal(4, startup.SchemaVersion);
+        Assert.Equal(5, startup.AppliedMigrations.Count);
+        Assert.Equal(5, startup.SchemaVersion);
         Assert.Equal("wal", startup.JournalMode);
         Assert.True(startup.IntegrityCheckPassed);
         Assert.Null(startup.PreMigrationBackupPath);
@@ -36,7 +36,7 @@ public sealed class OutboxCaptureTests
         var due = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow.AddMinutes(1));
         Assert.Single(due);
         Assert.Equal(operationId, due[0].OperationId);
-        Assert.Equal(0, due[0].Attempts);
+        Assert.Equal(0, due[0].AttemptCount);
 
         var summary = await harness.Store.GetPendingSummaryAsync();
         Assert.Equal(1, summary.PendingOperations);
@@ -174,7 +174,7 @@ public sealed class OutboxCaptureTests
 
         Assert.Equal(1, startup.RecoveredSendingOperations);
         Assert.Equal("Pending", harness.ScalarString("SELECT state FROM outbox_operations;"));
-        Assert.Equal(1L, harness.ScalarLong("SELECT attempts FROM outbox_operations;"));
+        Assert.Equal(1L, harness.ScalarLong("SELECT attempt_count FROM outbox_operations;"));
 
         var due = await harness.Store.GetDueOutboxAsync(DateTime.UtcNow.AddMinutes(1));
         Assert.Single(due);
