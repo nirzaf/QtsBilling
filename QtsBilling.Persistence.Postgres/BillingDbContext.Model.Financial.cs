@@ -372,7 +372,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
                 .HasPrincipalKey(i => new { i.Id, i.BusinessId })
                 .OnDelete(DeleteBehavior.Cascade);
-            b.HasOne<ProductVariant>().WithMany().HasForeignKey(e => e.VariantId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductVariant>()
+                .WithMany()
+                .HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(v => new { v.Id, v.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.InvoiceId, e.LineNo }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.VariantId });
             b.ToTable(t => t.HasCheckConstraint(

@@ -132,7 +132,11 @@ public partial class BillingDbContext
             RequireTenantKey(b);
             HasBusinessFk(b);
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
-            b.HasOne<Category>().WithMany().HasForeignKey(e => e.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Category>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ParentId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
         });
 
@@ -198,11 +202,31 @@ public partial class BillingDbContext
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
             b.Property(e => e.Sku).HasMaxLength(64);
             b.Property(e => e.AlertQuantity).HasPrecision(18, 6);
-            b.HasOne<Category>().WithMany().HasForeignKey(e => e.CategoryId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<Brand>().WithMany().HasForeignKey(e => e.BrandId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<ProductGroup>().WithMany().HasForeignKey(e => e.ProductGroupId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<Unit>().WithMany().HasForeignKey(e => e.UnitId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<TaxRate>().WithMany().HasForeignKey(e => e.TaxRateId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Category>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CategoryId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Brand>()
+                .WithMany()
+                .HasForeignKey(e => new { e.BrandId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductGroup>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ProductGroupId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Unit>()
+                .WithMany()
+                .HasForeignKey(e => new { e.UnitId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<TaxRate>()
+                .WithMany()
+                .HasForeignKey(e => new { e.TaxRateId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.Sku })
                 .IsUnique()
                 .HasFilter("\"sku\" IS NOT NULL");
@@ -218,7 +242,11 @@ public partial class BillingDbContext
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
             b.Property(e => e.Sku).HasMaxLength(64);
             b.Property(e => e.Barcode).HasMaxLength(64);
-            b.HasOne<Product>().WithMany().HasForeignKey(e => e.ProductId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Product>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ProductId, e.BusinessId })
+                .HasPrincipalKey(p => new { p.Id, p.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.ProductId, e.Name }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.Barcode })
                 .IsUnique()
