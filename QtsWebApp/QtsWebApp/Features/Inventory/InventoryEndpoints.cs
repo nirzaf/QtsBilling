@@ -278,16 +278,6 @@ public static class InventoryEndpoints
             errors["unitCost"] = ["Unit cost must not be negative."];
         }
 
-        if (request.AllowNegative && movementType != MovementType.StockAdjustment)
-        {
-            errors["allowNegative"] = ["Only stock adjustments may explicitly allow negative on-hand."];
-        }
-
-        if (request.AllowNegative && string.IsNullOrWhiteSpace(request.Memo))
-        {
-            errors["memo"] = ["Allowing negative on-hand requires a memo explaining the authorized adjustment."];
-        }
-
         if (request.Memo is { Length: > MaxMemoLength })
         {
             errors["memo"] = [$"A memo of at most {MaxMemoLength} characters is supported."];
@@ -412,7 +402,6 @@ public static class InventoryEndpoints
                 request.ReferenceId,
                 request.Memo,
                 DateTimeOffset.UtcNow,
-                request.AllowNegative,
                 cancellationToken).ConfigureAwait(false);
 
             await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);

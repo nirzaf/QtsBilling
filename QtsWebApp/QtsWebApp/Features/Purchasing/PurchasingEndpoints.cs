@@ -1126,8 +1126,7 @@ public static class PurchasingEndpoints
                             receiptLine.Id,
                             $"{number} / {lockedOrder.OrderNumber}",
                             now,
-                            allowNegative: false,
-                            cancellationToken)
+                                        cancellationToken)
                         .ConfigureAwait(false);
 
                     // Every receipt moves exactly one line's received quantity; the balance row and the

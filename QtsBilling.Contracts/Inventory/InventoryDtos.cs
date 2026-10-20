@@ -54,8 +54,7 @@ public sealed record RecordMovementRequest(
     decimal UnitCost,
     string ReferenceType,
     Guid ReferenceId,
-    string? Memo,
-    bool AllowNegative);
+   string? Memo);
 
 /// <summary>Balance-versus-movement reconciliation; mismatches are always a defect (the database forbids them).</summary>
 public sealed record InventoryReconciliationDto(

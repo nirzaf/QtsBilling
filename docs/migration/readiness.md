@@ -39,7 +39,7 @@ distinction. The ledger is updated with every change of the implementation.
 | R04 secure web/native sessions | PARTIAL | The web host has the same-origin cookie policy and the typed 401/403. The native flow is missing: no authorization code with PKCE, no system browser (task 22). |
 | R05 exact pricing and payment truth | PARTIAL | **QB-31**: one shared commercial calculation for the server, the browser and the device; the inclusive-tax journal now balances (verified on PostgreSQL). Missing: the discount approval limits, the settlement scale in the business settings, the settlement subledger (tasks 08, 12, 13). |
 | R06 financial immutability | PARTIAL | The journal entry balances per entry, the posted lines carry their tax composition, and the posted headers are protected in the context. Missing: the database-level protection of every posted document and the state transitions (task 09). |
-| R07 stock and cost authority | PARTIAL | The stock quantities tie to the immutable movements (the database guard proves it). The valuation is still the catalog purchase price, not a perpetual average (task 15). |
+| R07 stock and cost authority | PARTIAL | The stock quantities tie to the immutable movements, the balance row is race-safe and negative stock is prohibited (QB-37). The valuation is still the catalog purchase price, not a perpetual average (task 15). |
 | R08 retry and concurrency correctness | PARTIAL | The per-aggregate receipts and `ProcessedOperation` exist. Missing: the receipt for every command, the `409 SAME_KEY_DIFFERENT_PAYLOAD` rule, the unknown-outcome handling (task 11). |
 | R09 safe offline money | PARTIAL | The provisional cash and the durable local rows exist. Missing: the durable terminal outcomes, the cash custody states, the recovery (tasks 24, 25, 29). |
 | R10 correct synchronization | PARTIAL | The commit-ordered feed exists. Missing: the device-bound baseline, the epoch/floor, the atomic cache and cursor commit (tasks 26, 27). |
@@ -69,6 +69,7 @@ A case is `EXERCISED` only when it ran against the real stack and its result is 
 | The permission policy reads the current membership (F07) | **EXERCISED** | QB-36: a revoked membership is refused with 403 while the session stays alive; a viewer is refused on a sale; the owner keeps the authority |
 | The offline grant is signed and bounded (F10) | **NOT EXERCISED** | task 23 is not done |
 | The settlement subledger exists (F14) | **PARTIALLY EXERCISED** | QB-33: a customer credit no longer creates a confirmed payment and a cheque is no longer bank money (three cases against the real PostgreSQL). The open-item subledger behind the receivable balance is still missing (task 13, the remaining part) |
+| The stock balance is race-safe and negative stock is prohibited (F17, F18) | **EXERCISED** | QB-37: two concurrent movements on a variant without a balance produce one row and the correct total; a negative movement is refused and changes nothing |
 | The perpetual valuation is real (F15) | **NOT EXERCISED** | task 15 is not done |
 | The receipt posts a journal (F16) | **EXERCISED** | QB-35: a receipt of 10 pieces at 60 posts DR inventory 600 / CR goods received not invoiced 600, leaves the payables untouched and balances on every entry |
 | The device baseline and the atomic cache commit (F27) | **NOT EXERCISED** | tasks 26, 27 are not done |

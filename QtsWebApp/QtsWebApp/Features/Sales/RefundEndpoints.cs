@@ -347,8 +347,7 @@ public static class RefundEndpoints
                         line.Id,
                         $"Refund {refundNumber}",
                         now,
-                        allowNegative: false,
-                        cancellationToken).ConfigureAwait(false);
+                                cancellationToken).ConfigureAwait(false);
                 }
 
                 db.CashRegisterMovements.Add(new CashRegisterMovement

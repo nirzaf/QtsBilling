@@ -530,8 +530,7 @@ internal static class SalePosting
                         saleLine.Id,
                         $"Sale {saleNumber}",
                         now,
-                        allowNegative: false,
-                        cancellationToken).ConfigureAwait(false);
+                                cancellationToken).ConfigureAwait(false);
                 }
             }
 

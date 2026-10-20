@@ -27,9 +27,14 @@ internal static class InventoryLedger
         Guid referenceId,
         string? memo,
         DateTimeOffset now,
-        bool allowNegative,
         CancellationToken cancellationToken)
     {
+        // The balance row is created with a scoped database upsert and only then locked. Creating it as a
+        // tracked entity instead would let two concurrent transactions both believe they created it, and
+        // the loser would fail late with a uniqueness error instead of serializing on the row
+        // (specification D06, finding F17).
+        await EnsureBalanceRowAsync(db, businessId, locationId, variantId, now, cancellationToken).ConfigureAwait(false);
+
         var balance = await db.InventoryBalances
             .FromSql($"SELECT * FROM inventory_balances WHERE business_id = {businessId} AND location_id = {locationId} AND variant_id = {variantId} FOR UPDATE")
             .FirstOrDefaultAsync(cancellationToken)
@@ -37,27 +42,24 @@ internal static class InventoryLedger
 
         if (balance is null)
         {
-            balance = new InventoryBalance
-            {
-                BusinessId = businessId,
-                LocationId = locationId,
-                VariantId = variantId,
-                OnHand = 0,
-                LastMovementAtUtc = now,
-            };
-
-            db.InventoryBalances.Add(balance);
+            throw new DomainRuleException(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.Conflict,
+                "The stock balance could not be prepared.",
+                "The balance row for this location and variant could not be created. Retry the movement.");
         }
 
         var resulting = balance.OnHand + quantityDelta;
 
-        if (resulting < 0 && !allowNegative)
+        // Negative stock is prohibited in this release, adjustments included: the database check and the
+        // application now agree (specification D06, finding F18).
+        if (resulting < 0)
         {
             throw new DomainRuleException(
                 StatusCodes.Status409Conflict,
                 ApiErrorCodes.InsufficientStock,
                 "Not enough stock on hand.",
-                $"On hand is {balance.OnHand}; the requested change is {quantityDelta}.");
+                $"On hand is {balance.OnHand}; the requested change is {quantityDelta}. Negative stock is not permitted.");
         }
 
         balance.OnHand = resulting;
@@ -86,5 +88,61 @@ internal static class InventoryLedger
         db.InventoryMovements.Add(movement);
 
         return movement;
+    }
+
+    /// <summary>
+    /// Creates the balance row if it does not exist yet, without touching a row another transaction is
+    /// holding. The insert is a no-op when the row is already there, so the following row lock is the
+    /// only place where the transactions serialize.
+    /// </summary>
+    private static async Task EnsureBalanceRowAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid locationId,
+        Guid variantId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        var connection = db.Database.GetDbConnection();
+        var wasOpen = connection.State == System.Data.ConnectionState.Open;
+
+        if (!wasOpen)
+        {
+            await connection.OpenAsync(cancellationToken).ConfigureAwait(false);
+        }
+
+        try
+        {
+            await using var command = connection.CreateCommand();
+            command.CommandText = """
+                INSERT INTO inventory_balances
+                    (id, business_id, location_id, variant_id, on_hand, last_movement_at_utc, created_at_utc, updated_at_utc, version)
+                VALUES
+                    (gen_random_uuid(), @business_id, @location_id, @variant_id, 0, @now, @now, @now, 1)
+                ON CONFLICT (business_id, location_id, variant_id) DO NOTHING;
+                """;
+
+            AddParameter(command, "business_id", businessId);
+            AddParameter(command, "location_id", locationId);
+            AddParameter(command, "variant_id", variantId);
+            AddParameter(command, "now", now);
+
+            await command.ExecuteNonQueryAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (!wasOpen)
+            {
+                await connection.CloseAsync().ConfigureAwait(false);
+            }
+        }
+    }
+
+    private static void AddParameter(System.Data.Common.DbCommand command, string name, object value)
+    {
+        var parameter = command.CreateParameter();
+        parameter.ParameterName = name;
+        parameter.Value = value;
+        command.Parameters.Add(parameter);
     }
 }
