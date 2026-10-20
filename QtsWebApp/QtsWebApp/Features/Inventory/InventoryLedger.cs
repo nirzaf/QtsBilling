@@ -34,21 +34,7 @@ internal static class InventoryLedger
         // tracked entity instead would let two concurrent transactions both believe they created it, and
         // the loser would fail late with a uniqueness error instead of serializing on the row
         // (specification D06, finding F17).
-        await EnsureBalanceRowAsync(db, businessId, locationId, variantId, now, cancellationToken).ConfigureAwait(false);
-
-        var balance = await db.InventoryBalances
-            .FromSql($"SELECT * FROM inventory_balances WHERE business_id = {businessId} AND location_id = {locationId} AND variant_id = {variantId} FOR UPDATE")
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        if (balance is null)
-        {
-            throw new DomainRuleException(
-                StatusCodes.Status409Conflict,
-                ApiErrorCodes.Conflict,
-                "The stock balance could not be prepared.",
-                "The balance row for this location and variant could not be created. Retry the movement.");
-        }
+        var balance = await LockBalanceAsync(db, businessId, locationId, variantId, now, cancellationToken).ConfigureAwait(false);
 
         var resulting = balance.OnHand + quantityDelta;
 
@@ -126,6 +112,27 @@ internal static class InventoryLedger
         db.InventoryMovements.Add(movement);
 
         return movement;
+    }
+
+    /// <summary>Prepares and locks the authoritative balance for a compound inventory decision.</summary>
+    public static async Task<InventoryBalance> LockBalanceAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid locationId,
+        Guid variantId,
+        DateTimeOffset now,
+        CancellationToken cancellationToken)
+    {
+        await EnsureBalanceRowAsync(db, businessId, locationId, variantId, now, cancellationToken).ConfigureAwait(false);
+        var balance = await db.InventoryBalances
+            .FromSql($"SELECT * FROM inventory_balances WHERE business_id = {businessId} AND location_id = {locationId} AND variant_id = {variantId} FOR UPDATE")
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        return balance ?? throw new DomainRuleException(
+            StatusCodes.Status409Conflict,
+            ApiErrorCodes.Conflict,
+            "The stock balance could not be prepared.",
+            "The balance row for this location and variant could not be created. Retry the movement.");
     }
 
     /// <summary>
