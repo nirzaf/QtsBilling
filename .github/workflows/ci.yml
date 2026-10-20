@@ -41,37 +41,63 @@ jobs:
           --health-retries 10
 
     env:
-      QTS_TEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Username=qtsbilling;Password=qtsbilling;Database=postgres
+      QTS_TEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Username=qts_migrator;Password=qtsbilling;Database=postgres
+      QTS_TEST_POSTGRES_RUNTIME_CONNECTION: Host=localhost;Port=5432;Username=qts_app;Password=qtsbilling;Database=postgres
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Scan tracked files for secrets and double-encoded UTF-8
+        run: pwsh -File scripts/secret-scan.ps1
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
 
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Provision migration and runtime roles
+        run: >
+          pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Provision
+          -HostName postgres -Port 5432 -Database postgres -AdminUser qtsbilling
+          -AdminPassword qtsbilling -MigratorUser qts_migrator -MigratorPassword qtsbilling
+          -AppUser qts_app -AppPassword qtsbilling
+
       - name: Build web host + WASM client + libraries (MAUI excluded on Linux)
         run: dotnet build QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release
 
-      - name: Test domain, contracts and the PostgreSQL/API integration suite
-        run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
+      - name: Publish and inspect the WASM bundle
+        run: |
+          dotnet publish QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release --no-restore -o out/wasm-verify
+          pwsh -File scripts/verify-wasm-bundle.ps1 -PublishRoot out/wasm-verify
 
-      - name: Test device store (SQLite, no external services)
-        run: dotnet test QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj -c Release
-
-      # The cutover safety is part of the release controls, so it runs on every build: the read-only
-      # admission must write nothing, and a failed gate must stop the execution before the import.
-      - name: Install the PostgreSQL client (the cutover script)
-        run: sudo apt-get update && sudo apt-get install -y postgresql-client
-
-      - name: Restore the EF tool and apply the migrations to the test database
+      - name: Apply migrations using the DDL owner
         run: |
           dotnet tool restore
           dotnet ef database update --project QtsBilling.Persistence.Postgres --context BillingDbContext
         env:
           QTS_POSTGRES_CONNECTION: ${{ env.QTS_TEST_POSTGRES_CONNECTION }}
 
+      - name: Verify runtime role has DML privileges only
+        run: >
+          pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Verify
+          -HostName postgres -Port 5432 -Database postgres -AppUser qts_app -AppPassword qtsbilling
+
+      - name: Test domain, contracts and the PostgreSQL/API integration suite
+        run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
+        env:
+          ConnectionStrings__BillingDb: Host=localhost;Port=5432;Username=qts_app;Password=qtsbilling;Database=postgres
+
+      - name: Test device store (SQLite, no external services)
+        run: dotnet test QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj -c Release
+
+      - name: Test migration tooling
+        run: dotnet test QtsBilling.Migration.Tests/QtsBilling.Migration.Tests.csproj -c Release
+
+      # The cutover safety is part of the release controls, so it runs on every build: the read-only
+      # admission must write nothing, and a failed gate must stop the execution before the import.
       - name: Prove the cutover safety
         run: pwsh -File scripts/qb39-cutover-safety.ps1
         env:
