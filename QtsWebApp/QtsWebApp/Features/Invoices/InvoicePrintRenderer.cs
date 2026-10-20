@@ -2,7 +2,6 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using QtsBilling.Contracts.Invoices;
-using QtsBilling.Persistence.Postgres.Entities;
 
 namespace QtsWebApp.Features.Invoices;
 
@@ -14,9 +13,8 @@ namespace QtsWebApp.Features.Invoices;
 /// </summary>
 public static class InvoicePrintRenderer
 {
-    public static string RenderHtml(Business business, Customer? customer, InvoiceDetailDto detail)
+    public static string RenderHtml(InvoiceDetailDto detail)
     {
-        ArgumentNullException.ThrowIfNull(business);
         ArgumentNullException.ThrowIfNull(detail);
 
         var invoice = detail.Invoice;
@@ -56,11 +54,11 @@ public static class InvoicePrintRenderer
 
         builder.AppendLine("<div class=\"head\">");
         builder.AppendLine("<div>");
-        builder.Append("<h1>").Append(Encode(business.Name)).AppendLine("</h1>");
+        builder.Append("<h1>").Append(Encode(detail.PartySnapshot?.BusinessName ?? "Historical business name unavailable")).AppendLine("</h1>");
 
-        if (!string.IsNullOrWhiteSpace(business.LegalName))
+        if (!string.IsNullOrWhiteSpace(detail.PartySnapshot?.BusinessLegalName))
         {
-            builder.Append("<p class=\"muted\">").Append(Encode(business.LegalName)).AppendLine("</p>");
+            builder.Append("<p class=\"muted\">").Append(Encode(detail.PartySnapshot.BusinessLegalName)).AppendLine("</p>");
         }
 
         builder.AppendLine("</div>");
@@ -74,21 +72,21 @@ public static class InvoicePrintRenderer
 
         builder.AppendLine("<div class=\"party\">");
         builder.AppendLine("<h2>Bill to</h2>");
-        builder.Append("<p><strong>").Append(Encode(customer?.Name ?? "Unknown customer")).AppendLine("</strong>");
+        builder.Append("<p><strong>").Append(Encode(detail.PartySnapshot?.CustomerName ?? "Historical customer name unavailable")).AppendLine("</strong>");
 
-        if (!string.IsNullOrWhiteSpace(customer?.Address))
+        if (!string.IsNullOrWhiteSpace(detail.PartySnapshot?.CustomerAddress))
         {
-            builder.Append("<br />").Append(Encode(customer!.Address));
+            builder.Append("<br />").Append(Encode(detail.PartySnapshot.CustomerAddress));
         }
 
-        if (!string.IsNullOrWhiteSpace(customer?.Phone))
+        if (!string.IsNullOrWhiteSpace(detail.PartySnapshot?.CustomerPhone))
         {
-            builder.Append("<br />").Append(Encode(customer!.Phone));
+            builder.Append("<br />").Append(Encode(detail.PartySnapshot.CustomerPhone));
         }
 
-        if (!string.IsNullOrWhiteSpace(customer?.Email))
+        if (!string.IsNullOrWhiteSpace(detail.PartySnapshot?.CustomerEmail))
         {
-            builder.Append("<br />").Append(Encode(customer!.Email));
+            builder.Append("<br />").Append(Encode(detail.PartySnapshot.CustomerEmail));
         }
 
         builder.AppendLine("</p>");

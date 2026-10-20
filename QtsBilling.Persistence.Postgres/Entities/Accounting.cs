@@ -130,6 +130,8 @@ public sealed class InvoiceSequence : TenantEntity
 /// <summary>Controlled invoice issuance; lines always carry historical snapshots.</summary>
 public sealed class Invoice : TenantEntity
 {
+    public string RecognitionMode { get; set; } = "LegacyHistorical";
+
     public Guid? LocationId { get; set; }
 
     public Guid? CustomerId { get; set; }
@@ -143,6 +145,22 @@ public sealed class Invoice : TenantEntity
     public string? SourcePayloadHash { get; set; }
 
     public Guid? InvoiceSequenceId { get; set; }
+
+    public string? BusinessNameSnapshot { get; set; }
+
+    public string? BusinessLegalNameSnapshot { get; set; }
+
+    public string? LocationAddressSnapshot { get; set; }
+
+    public string? CustomerNameSnapshot { get; set; }
+
+    public string? CustomerAddressSnapshot { get; set; }
+
+    public string? CustomerPhoneSnapshot { get; set; }
+
+    public string? CustomerEmailSnapshot { get; set; }
+
+    public int? PaymentTermsDaysSnapshot { get; set; }
 
     public string InvoiceNumber { get; set; } = string.Empty;
 
@@ -187,6 +205,8 @@ public sealed class InvoiceLine : Entity, ITenantScoped
 
     public Guid? SourceDeliveryLineId { get; set; }
 
+    public Guid? SourceSaleLineId { get; set; }
+
     public string ProductNameSnapshot { get; set; } = string.Empty;
 
     public string? SkuSnapshot { get; set; }
@@ -212,6 +232,10 @@ public sealed class InvoiceLine : Entity, ITenantScoped
     public decimal UnitCostSnapshot { get; set; }
 
     public bool TrackStockSnapshot { get; set; }
+
+    public long? ProductVersionSnapshot { get; set; }
+
+    public long? VariantVersionSnapshot { get; set; }
 }
 
 /// <summary>Partial or full credit note referencing the original invoice (QB-11).</summary>

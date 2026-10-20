@@ -175,6 +175,7 @@ public sealed class SupplierBillPostingTests : IClassFixture<PostgresApiFixture>
                 ["1010"] = ("Bank", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1100"] = ("Accounts receivable", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1200"] = ("Inventory", QtsBilling.Persistence.Postgres.AccountType.Asset),
+                ["1250"] = ("Delivered not invoiced", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1300"] = ("Input VAT", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["2000"] = ("Accounts payable", QtsBilling.Persistence.Postgres.AccountType.Liability),
                 ["2100"] = ("Output VAT", QtsBilling.Persistence.Postgres.AccountType.Liability),
@@ -212,6 +213,7 @@ public sealed class SupplierBillPostingTests : IClassFixture<PostgresApiFixture>
             settings.BankClearingAccountId = accounts["1010"].Id;
             settings.AccountsReceivableAccountId = accounts["1100"].Id;
             settings.InventoryAssetAccountId = accounts["1200"].Id;
+            settings.DeliveredNotInvoicedAccountId = accounts["1250"].Id;
             settings.InputTaxReceivableAccountId = accounts["1300"].Id;
             settings.AccountsPayableAccountId = accounts["2000"].Id;
             settings.OutputTaxPayableAccountId = accounts["2100"].Id;

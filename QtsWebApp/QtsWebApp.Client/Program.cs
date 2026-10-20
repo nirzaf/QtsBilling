@@ -8,6 +8,7 @@ using QtsBilling.Contracts.Banking;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Contracts.Orders;
+using QtsBilling.Contracts.Invoices;
 using QtsWebApp.Client.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
@@ -26,6 +27,8 @@ builder.Services.AddScoped<IPaymentTerminalApiClient, PaymentTerminalApiClient>(
 builder.Services.AddScoped<IQuoteApiClient, QuoteApiClient>();
 builder.Services.AddScoped<ISalesOrderApiClient, SalesOrderApiClient>();
 builder.Services.AddScoped<IFulfillmentApiClient, FulfillmentApiClient>();
+builder.Services.AddScoped<IInvoiceApiClient, InvoiceApiClient>();
+builder.Services.AddScoped<IPaymentApiClient, PaymentApiClient>();
 builder.Services.AddScoped<IPosCheckoutOrchestrator, WebPosCheckoutOrchestrator>();
 
 builder.Services.AddBlazoredLocalStorage();

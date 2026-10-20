@@ -10,6 +10,16 @@ public enum InvoiceState
     Void,
 }
 
+/// <summary>The sole economic recognition source for an invoice.</summary>
+public enum InvoiceRecognitionMode
+{
+    Service,
+    DirectGoods,
+    SaleRepresentation,
+    Delivery,
+    HistoricalUnknown,
+}
+
 /// <summary>
 /// Draft line. When <see cref="VariantId"/> is set the server snapshots the catalog name/SKU; ad-hoc lines
 /// (services) require an explicit <see cref="ProductName"/> (spec §3.2/§3.5).
@@ -29,7 +39,12 @@ public sealed record SaveInvoiceRequest(
     DateOnly IssueDate,
     DateOnly? DueDate,
     string? Note,
-    IReadOnlyList<InvoiceLineRequest> Lines);
+    IReadOnlyList<InvoiceLineRequest> Lines,
+    InvoiceRecognitionMode? RecognitionMode = null,
+    Guid? SourceSaleId = null,
+    long? ExpectedVersion = null);
+
+public sealed record CreateSaleInvoiceRequest(Guid SaleId);
 
 public sealed record InvoiceSummaryDto(
     Guid Id,
@@ -49,9 +64,14 @@ public sealed record InvoiceSummaryDto(
     decimal BalanceDue,
     string? Note,
     DateTimeOffset? IssuedAtUtc,
-    DateTimeOffset? VoidedAtUtc);
+    DateTimeOffset? VoidedAtUtc,
+    long Version = 0,
+    InvoiceRecognitionMode RecognitionMode = InvoiceRecognitionMode.Service,
+    Guid? SourceSaleId = null,
+    Guid? SourceOrderId = null);
 
 public sealed record InvoiceLineDto(
+    Guid Id,
     int LineNo,
     Guid? VariantId,
     string ProductName,
@@ -102,7 +122,19 @@ public sealed record InvoiceDetailDto(
     IReadOnlyList<InvoiceLineDto> Lines,
     IReadOnlyList<InvoicePaymentDto> Payments,
     InvoiceCreditNoteDto? CreditNote,
-    IReadOnlyList<InvoiceCreditNoteDto>? CreditNotes = null);
+    IReadOnlyList<InvoiceCreditNoteDto>? CreditNotes = null,
+    Guid? LocationId = null,
+    InvoicePartySnapshotDto? PartySnapshot = null);
+
+public sealed record InvoicePartySnapshotDto(
+    string BusinessName,
+    string? BusinessLegalName,
+    string? LocationAddress,
+    string? CustomerName,
+    string? CustomerAddress,
+    string? CustomerPhone,
+    string? CustomerEmail,
+    int? PaymentTermsDays);
 
 /// <summary>
 /// Payment allocation against an issued invoice. Cash may name a register with an open drawer session;

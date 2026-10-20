@@ -13,6 +13,7 @@ using System.Text.Json;
 using System.Threading.RateLimiting;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Orders;
+using QtsBilling.Contracts.Invoices;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
@@ -316,6 +317,12 @@ builder.Services.AddHttpClient<ISalesOrderApiClient, SalesOrderApiClient>(client
 builder.Services.AddHttpClient<IFulfillmentApiClient, FulfillmentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+builder.Services.AddHttpClient<IInvoiceApiClient, InvoiceApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
+builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddSingleton(serviceProvider =>
 {
     var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
@@ -328,15 +335,13 @@ var app = builder.Build();
 
 app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
-// The approved native public client is registered once and only when missing; the operation is
-// idempotent, so a restart never rotates credentials or redirect addresses.
-await NativeAuthorizationEndpoints.EnsureNativeClientAsync(app.Services);
-
 if (app.Environment.IsDevelopment())
 {
     app.UseWebAssemblyDebugging();
     app.MapOpenApi();
 
+    // The dev seeder applies the schema first. Ensure the native client only after OpenIddict's
+    // tables exist on a brand-new local database.
     await DevDataSeeder.SeedAsync(app.Services, app.Configuration, app.Logger, isDevelopment: true);
 }
 else
@@ -344,6 +349,11 @@ else
     app.UseExceptionHandler("/Error", createScopeForErrors: true);
     app.UseHsts();
 }
+
+// The approved native public client is registered once and only when missing; the operation is
+// idempotent, so a restart never rotates credentials or redirect addresses. Production schema
+// application remains a deployment responsibility.
+await NativeAuthorizationEndpoints.EnsureNativeClientAsync(app.Services);
 
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ApiExceptionMiddleware>();

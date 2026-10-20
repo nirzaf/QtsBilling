@@ -1,0 +1,213 @@
+@page "/invoices"
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Identity
+@using QtsBilling.Contracts.Invoices
+
+<PageTitle>Invoices - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Invoices</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Review draft and issued invoices, balances, and due dates.</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add" OnClick="CreateDraft" Disabled="@(!_canManage || _busy)">
+        New invoice
+    </MudButton>
+</MudStack>
+
+@if (_loadingSession)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (!_canRead)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">Your current role cannot view invoices.</MudAlert>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@_error</MudAlert>
+    }
+
+    <MudPaper Class="pa-3 mb-3" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="5">
+                <MudTextField @bind-Value="_search" Label="Invoice number or customer" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChanged" />
+            </MudItem>
+            <MudItem xs="12" sm="4" md="3">
+                <MudSelect T="InvoiceState?" Label="Status" Value="_status" ValueChanged="StatusChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)null)">All statuses</MudSelectItem>
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)InvoiceState.Draft)">Draft</MudSelectItem>
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)InvoiceState.Issued)">Issued</MudSelectItem>
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)InvoiceState.PartiallyPaid)">Partially paid</MudSelectItem>
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)InvoiceState.Paid)">Paid</MudSelectItem>
+                    <MudSelectItem T="InvoiceState?" Value="@((InvoiceState?)InvoiceState.Void)">Void</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="2" md="2">
+                <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" Disabled="@_busy">Refresh</MudButton>
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudText Typo="Typo.caption" Align="Align.Right" Class="pb-2">@_rows.Count invoices on this page</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudTable Items="_rows" Loading="_busy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Invoices">
+        <HeaderContent>
+            <MudTh>Invoice</MudTh>
+            <MudTh>Customer</MudTh>
+            <MudTh>Status</MudTh>
+            <MudTh>Issue date</MudTh>
+            <MudTh>Due date</MudTh>
+            <MudTh Style="text-align:right">Total</MudTh>
+            <MudTh Style="text-align:right">Balance due</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Invoice">
+                <MudLink Href="@($"invoices/{context.Id:D}")" Underline="Underline.Hover">@(context.InvoiceNumber ?? "Draft")</MudLink>
+            </MudTd>
+            <MudTd DataLabel="Customer">@(string.IsNullOrWhiteSpace(context.CustomerName) ? "Walk-in / service" : context.CustomerName)</MudTd>
+            <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Outlined">@StatusLabel(context.Status)</MudChip></MudTd>
+            <MudTd DataLabel="Issue date">@context.IssueDate.ToString("d")</MudTd>
+            <MudTd DataLabel="Due date">@(context.DueDate?.ToString("d") ?? "—")</MudTd>
+            <MudTd DataLabel="Total" Style="text-align:right">@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
+            <MudTd DataLabel="Balance due" Style="text-align:right">@context.BalanceDue.ToString("N2") @context.Currency</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenInvoice(context.Id))">Open</MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No invoices match these filters.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-3">
+        <MudButton Variant="Variant.Outlined" OnClick="PreviousAsync" Disabled="@(_busy || _cursorStack.Count == 0)">Previous</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="NextAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_nextCursor))">Next</MudButton>
+    </MudStack>
+}
+
+@code {
+    [Inject] private IInvoiceApiClient InvoiceApi { get; set; } = default!;
+    [Inject] private IAccountApiClient Accounts { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+
+    private readonly List<InvoiceSummaryDto> _rows = [];
+    private readonly Stack<string?> _cursorStack = new();
+    private InvoiceState? _status;
+    private string _search = string.Empty;
+    private string? _cursor;
+    private string? _nextCursor;
+    private string? _error;
+    private bool _loadingSession = true;
+    private bool _canRead;
+    private bool _canManage;
+    private bool _busy;
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender) return;
+        try
+        {
+            var session = await Accounts.GetSessionAsync();
+            _canRead = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true;
+            _canManage = session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
+            if (_canRead) await LoadAsync();
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+        }
+        finally
+        {
+            _loadingSession = false;
+            StateHasChanged();
+        }
+    }
+
+    private Task SearchChanged(string _) => ResetAndLoadAsync();
+    private Task StatusChanged(InvoiceState? status)
+    {
+        _status = status;
+        return ResetAndLoadAsync();
+    }
+    private Task ReloadAsync() => LoadAsync();
+    private void CreateDraft() => Navigation.NavigateTo("invoices/new");
+    private void OpenInvoice(Guid id) => Navigation.NavigateTo($"invoices/{id:D}");
+
+    private async Task ResetAndLoadAsync()
+    {
+        _cursor = null;
+        _nextCursor = null;
+        _cursorStack.Clear();
+        await LoadAsync();
+    }
+
+    private async Task LoadAsync()
+    {
+        _busy = true;
+        _error = null;
+        try
+        {
+            var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: _cursor, pageSize: 25);
+            _rows.Clear();
+            _rows.AddRange(page.Items);
+            _nextCursor = page.NextCursor;
+        }
+        catch (ApiException exception)
+        {
+            _error = exception.Message;
+            if (exception.IsConflict && _cursor is not null)
+            {
+                _cursor = null;
+                _nextCursor = null;
+                _cursorStack.Clear();
+                _error = "The invoice list changed while paging. Showing the first page again.";
+                var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: null, pageSize: 25);
+                _rows.Clear();
+                _rows.AddRange(page.Items);
+                _nextCursor = page.NextCursor;
+            }
+        }
+        finally
+        {
+            _busy = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task NextAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_nextCursor)) return;
+        _cursorStack.Push(_cursor);
+        _cursor = _nextCursor;
+        await LoadAsync();
+    }
+
+    private async Task PreviousAsync()
+    {
+        if (_cursorStack.Count == 0) return;
+        _cursor = _cursorStack.Pop();
+        await LoadAsync();
+    }
+
+    private static string StatusLabel(InvoiceState state) => state switch
+    {
+        InvoiceState.PartiallyPaid => "Partially paid",
+        _ => state.ToString(),
+    };
+
+    private static Color StatusColor(InvoiceState state) => state switch
+    {
+        InvoiceState.Draft => Color.Default,
+        InvoiceState.Issued => Color.Info,
+        InvoiceState.PartiallyPaid => Color.Warning,
+        InvoiceState.Paid => Color.Success,
+        InvoiceState.Void => Color.Error,
+        _ => Color.Default,
+    };
+}

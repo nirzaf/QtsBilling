@@ -1,0 +1,207 @@
+@page "/invoices/new"
+@page "/invoices/{InvoiceId:guid}"
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Customers
+@using QtsBilling.Contracts.Inventory
+
+<PageTitle>@(_isNew ? "New invoice" : "Invoice") - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">@(_isNew ? "New invoice" : _detail?.Invoice.InvoiceNumber ?? "Invoice")</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Draft details and controlled issue actions.</MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" Href="invoices">Back to invoices</MudButton>
+</MudStack>
+
+@if (_loading)
+{
+    <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+}
+else if (!_canRead)
+{
+    <MudAlert Severity="Severity.Warning">Your current role cannot view invoices.</MudAlert>
+}
+else
+{
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@_error</MudAlert>
+    }
+
+    @if (_detail is not null && _detail.Invoice.Status != InvoiceState.Draft)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+            This invoice is @StatusLabel(_detail.Invoice.Status). Draft fields are locked after issue.
+            @if (!string.IsNullOrWhiteSpace(_detail.Invoice.Note)) { <span> @_detail.Invoice.Note</span> }
+        </MudAlert>
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6"><MudText><b>Customer:</b> @(_detail.Invoice.CustomerName ?? "Walk-in / service")</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Dates:</b> @_detail.Invoice.IssueDate.ToString("d") · due @(_detail.Invoice.DueDate?.ToString("d") ?? "—")</MudText></MudItem>
+                <MudItem xs="12"><MudTable Items="_detail.Lines" Dense="true" Hover="true" aria-label="Invoice lines">
+                    <HeaderContent><MudTh>Item</MudTh><MudTh>Qty</MudTh><MudTh>Unit price</MudTh><MudTh>Tax</MudTh><MudTh>Total</MudTh></HeaderContent>
+                    <RowTemplate><MudTd DataLabel="Item">@context.ProductName</MudTd><MudTd DataLabel="Qty">@context.Quantity</MudTd><MudTd DataLabel="Unit price">@context.UnitPrice.ToString("N2")</MudTd><MudTd DataLabel="Tax">@context.TaxAmount.ToString("N2")</MudTd><MudTd DataLabel="Total">@context.LineTotal.ToString("N2")</MudTd></RowTemplate>
+                </MudTable></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Total:</b> @_detail.Invoice.TotalAmount.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Balance due:</b> @_detail.Invoice.BalanceDue.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
+                @if (_detail.Invoice.Status == InvoiceState.Draft && _canIssue)
+                {
+                    <MudItem xs="12"><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="IssueAsync" Disabled="@_busy">Issue invoice</MudButton></MudItem>
+                }
+                @if (_detail.Invoice.Status != InvoiceState.Draft)
+                {
+                    <MudItem xs="12"><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Href="@($"/api/v1/invoices/{_detail.Invoice.Id:D}/print")" Target="_blank">Print / reprint</MudButton></MudItem>
+                }
+            </MudGrid>
+        </MudPaper>
+    }
+    else if (_isNew || _detail?.Invoice.Status == InvoiceState.Draft)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <EditForm Model="_form" OnValidSubmit="SaveAsync">
+                <DataAnnotationsValidator />
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudSelect T="Guid?" Label="Customer" @bind-Value="_form.CustomerId" Variant="Variant.Outlined" Clearable="true">
+                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Walk-in / service</MudSelectItem>
+                            @foreach (var customer in _customers) { <MudSelectItem T="Guid?" Value="@((Guid?)customer.Id)">@customer.Name</MudSelectItem> }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudSelect T="Guid?" Label="Location" @bind-Value="_form.LocationId" Variant="Variant.Outlined" Clearable="true">
+                            @foreach (var location in _locations) { <MudSelectItem T="Guid?" Value="@((Guid?)location.Id)">@location.Name</MudSelectItem> }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6"><MudDatePicker Label="Issue date" @bind-Date="_issueDate" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12" sm="6"><MudDatePicker Label="Due date" @bind-Date="_dueDate" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12"><MudTextField Label="Note" @bind-Value="_form.Note" Variant="Variant.Outlined" Lines="2" MaxLength="1000" /></MudItem>
+                    <MudItem xs="12"><MudText Typo="Typo.h6">Lines</MudText></MudItem>
+                    @for (var i = 0; i < _form.Lines.Count; i++)
+                    {
+                        var index = i;
+                        <MudItem xs="12" md="4"><MudTextField Label="Description" @bind-Value="_form.Lines[index].ProductName" Variant="Variant.Outlined" Required="true" /></MudItem>
+                        <MudItem xs="6" md="2"><MudNumericField T="decimal" Label="Quantity" @bind-Value="_form.Lines[index].Quantity" Min="0.001m" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="6" md="2"><MudNumericField T="decimal" Label="Unit price" @bind-Value="_form.Lines[index].UnitPrice" Min="0m" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="6" md="2"><MudNumericField T="decimal" Label="Discount" @bind-Value="_form.Lines[index].DiscountAmount" Min="0m" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="6" md="1"><MudNumericField T="decimal" Label="Tax %" @bind-Value="_form.Lines[index].TaxRate" Min="0m" Max="100m" Variant="Variant.Outlined" /></MudItem>
+                        <MudItem xs="12" md="1" Class="d-flex align-center"><MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Remove invoice line" OnClick="@(() => RemoveLine(index))" Disabled="@(_form.Lines.Count <= 1)" /></MudItem>
+                    }
+                    <MudItem xs="12"><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine" Disabled="@_busy">Add line</MudButton></MudItem>
+                    <MudItem xs="12"><MudTextField Label="Invoice total (server calculated)" Value="@EstimatedTotal.ToString("N2")" ReadOnly="true" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12"><MudStack Row="true" Spacing="2"><MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy">@(_busy ? "Saving…" : "Save draft")</MudButton>@if (!_isNew && _detail is not null) { <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync" Disabled="@_busy">Delete draft</MudButton> }</MudStack></MudItem>
+                </MudGrid>
+            </EditForm>
+        </MudPaper>
+    }
+}
+
+@code {
+    [Parameter] public Guid? InvoiceId { get; set; }
+    [Inject] private IInvoiceApiClient InvoiceApi { get; set; } = default!;
+    [Inject] private IAccountApiClient Accounts { get; set; } = default!;
+    [Inject] private ICustomerApiClient CustomersApi { get; set; } = default!;
+    [Inject] private IInventoryApiClient InventoryApi { get; set; } = default!;
+    [Inject] private NavigationManager Navigation { get; set; } = default!;
+    private readonly InvoiceForm _form = new();
+    private readonly List<CustomerDto> _customers = [];
+    private IReadOnlyList<BusinessLocationDto> _locations = [];
+    private InvoiceDetailDto? _detail;
+    private DateTime? _issueDate = DateTime.Today;
+    private DateTime? _dueDate;
+    private bool _loading = true;
+    private bool _busy;
+    private bool _canRead;
+    private bool _canManage;
+    private bool _canIssue;
+    private bool _isNew => InvoiceId is null;
+    private string? _error;
+    private decimal EstimatedTotal => _form.Lines.Sum(x => Math.Max(0, x.Quantity * x.UnitPrice - x.DiscountAmount) * (1 + x.TaxRate / 100));
+
+    protected override async Task OnParametersSetAsync()
+    {
+        _loading = true;
+        try
+        {
+            var session = await Accounts.GetSessionAsync();
+            _canRead = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true || session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
+            _canManage = session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
+            _canIssue = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true;
+            if (!_canRead) return;
+            if (!_canManage) { _error = "Your current role cannot create or edit invoices."; return; }
+            var customers = await CustomersApi.GetCustomersAsync(pageSize: 200);
+            _customers.AddRange(customers.Items);
+            _locations = await InventoryApi.GetLocationsAsync();
+            if (InvoiceId is { } id)
+            {
+                _detail = await InvoiceApi.GetAsync(id);
+                var invoice = _detail.Invoice;
+                _form.CustomerId = invoice.CustomerId;
+                _form.LocationId = _detail.LocationId;
+                _form.Note = invoice.Note;
+                _issueDate = invoice.IssueDate.ToDateTime(TimeOnly.MinValue);
+                _dueDate = invoice.DueDate?.ToDateTime(TimeOnly.MinValue);
+                _form.Lines.Clear();
+                _form.Lines.AddRange(_detail.Lines.Select(line => new InvoiceLineForm { VariantId = line.VariantId, ProductName = line.ProductName, Quantity = line.Quantity, UnitPrice = line.UnitPrice, DiscountAmount = line.DiscountAmount, TaxRate = line.TaxRate }));
+            }
+            else if (_locations.Count == 1) _form.LocationId = _locations[0].Id;
+        }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _loading = false; }
+    }
+
+    private async Task SaveAsync()
+    {
+        if (!_canManage || _busy) return;
+        if (_form.Lines.Count == 0 || _form.Lines.Any(x => string.IsNullOrWhiteSpace(x.ProductName) || x.Quantity <= 0 || x.UnitPrice < 0 || x.DiscountAmount < 0 || x.TaxRate < 0))
+        { _error = "Enter a description and valid quantity, price, discount, and tax for every line."; return; }
+        _busy = true; _error = null;
+        try
+        {
+            var request = new SaveInvoiceRequest(_form.LocationId, _form.CustomerId, DateOnly.FromDateTime(_issueDate ?? DateTime.Today), _dueDate is null ? null : DateOnly.FromDateTime(_dueDate.Value), _form.Note, _form.Lines.Select(x => new InvoiceLineRequest(x.VariantId, x.ProductName.Trim(), x.Quantity, x.UnitPrice, x.DiscountAmount, x.TaxRate)).ToArray(), InvoiceRecognitionMode.Service, ExpectedVersion: _isNew ? null : _detail?.Invoice.Version);
+            var saved = _isNew ? await InvoiceApi.CreateAsync(request) : await InvoiceApi.UpdateAsync(InvoiceId!.Value, request);
+            Navigation.NavigateTo($"invoices/{saved.Invoice.Id:D}", replace: true);
+        }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task IssueAsync()
+    {
+        if (!_canIssue || _detail is null || _busy) return;
+        _busy = true; _error = null;
+        try { _detail = await InvoiceApi.IssueAsync(_detail.Invoice.Id); }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!_canManage || _detail is null || _busy) return;
+        _busy = true; _error = null;
+        try { await InvoiceApi.DeleteAsync(_detail.Invoice.Id); Navigation.NavigateTo("invoices"); }
+        catch (ApiException ex) { _error = ex.Message; }
+        finally { _busy = false; }
+    }
+
+    private void AddLine() => _form.Lines.Add(new InvoiceLineForm());
+    private void RemoveLine(int index) { if (_form.Lines.Count > 1) _form.Lines.RemoveAt(index); }
+    private static string StatusLabel(InvoiceState status) => status == InvoiceState.PartiallyPaid ? "partially paid" : status.ToString().ToLowerInvariant();
+
+    private sealed class InvoiceForm
+    {
+        public Guid? CustomerId { get; set; }
+        public Guid? LocationId { get; set; }
+        public string? Note { get; set; }
+        public List<InvoiceLineForm> Lines { get; } = [new()];
+    }
+    private sealed class InvoiceLineForm
+    {
+        public Guid? VariantId { get; set; }
+        public string ProductName { get; set; } = string.Empty;
+        public decimal Quantity { get; set; } = 1m;
+        public decimal UnitPrice { get; set; }
+        public decimal DiscountAmount { get; set; }
+        public decimal TaxRate { get; set; }
+    }
+}

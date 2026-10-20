@@ -275,6 +275,7 @@ public sealed class BusinessAuthorizationTests : IClassFixture<PostgresApiFixtur
         var bank = Guid.Empty;
         var receivable = Guid.Empty;
         var inventory = Guid.Empty;
+        var deliveredNotInvoiced = Guid.Empty;
         var taxPayable = Guid.Empty;
         var grni = Guid.Empty;
         var revenue = Guid.Empty;
@@ -288,6 +289,7 @@ public sealed class BusinessAuthorizationTests : IClassFixture<PostgresApiFixtur
             bank = accounts.Single(row => row.Code == "1010").Id;
             receivable = accounts.Single(row => row.Code == "1100").Id;
             inventory = accounts.Single(row => row.Code == "1200").Id;
+            deliveredNotInvoiced = accounts.Single(row => row.Code == "1250").Id;
             taxPayable = accounts.Single(row => row.Code == "2100").Id;
             grni = accounts.Single(row => row.Code == "2101").Id;
             revenue = accounts.Single(row => row.Code == "4000").Id;
@@ -320,6 +322,7 @@ public sealed class BusinessAuthorizationTests : IClassFixture<PostgresApiFixtur
             bankClearingAccountId = bank,
             accountsReceivableAccountId = receivable,
             inventoryAssetAccountId = inventory,
+            deliveredNotInvoicedAccountId = deliveredNotInvoiced,
             inputTaxReceivableAccountId = inventory,
             accountsPayableAccountId = grni,
             outputTaxPayableAccountId = taxPayable,

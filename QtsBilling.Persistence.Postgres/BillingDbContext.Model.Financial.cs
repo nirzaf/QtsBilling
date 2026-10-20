@@ -481,7 +481,15 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.InvoiceNumber).HasMaxLength(64).IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.RecognitionMode).HasMaxLength(32).IsRequired();
             b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.BusinessNameSnapshot).HasMaxLength(200);
+            b.Property(e => e.BusinessLegalNameSnapshot).HasMaxLength(300);
+            b.Property(e => e.LocationAddressSnapshot).HasMaxLength(1000);
+            b.Property(e => e.CustomerNameSnapshot).HasMaxLength(200);
+            b.Property(e => e.CustomerAddressSnapshot).HasMaxLength(1000);
+            b.Property(e => e.CustomerPhoneSnapshot).HasMaxLength(64);
+            b.Property(e => e.CustomerEmailSnapshot).HasMaxLength(320);
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_invoices_balance_math",
                 "balance_due = GREATEST(0, total_amount - amount_paid - credited_amount) AND amount_paid >= 0 AND credited_amount >= 0"));
@@ -512,6 +520,9 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.IssueDate });
             b.HasIndex(e => new { e.BusinessId, e.Status });
             b.HasIndex(e => new { e.BusinessId, e.CustomerId, e.IssuedAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.SourceSaleId }).IsUnique()
+                .HasFilter("source_sale_id IS NOT NULL")
+                .HasDatabaseName("ux_invoices_business_source_sale");
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_invoices_amounts_non_negative",
                 "subtotal_amount >= 0 AND discount_amount >= 0 AND tax_amount >= 0 AND total_amount >= 0"));
@@ -526,6 +537,9 @@ public partial class BillingDbContext
             b.Property(e => e.UnitCostSnapshot).HasPrecision(18, 4);
             b.Property(e => e.RevenueBaseAmount).HasPrecision(18, 4);
             b.Property(e => e.TaxMode).HasMaxLength(16).IsRequired();
+            b.HasIndex(e => new { e.BusinessId, e.SourceSaleLineId }).IsUnique()
+                .HasFilter("source_sale_line_id IS NOT NULL")
+                .HasDatabaseName("ux_invoice_lines_business_source_sale_line");
             b.HasOne<Invoice>()
                 .WithMany()
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
@@ -535,6 +549,11 @@ public partial class BillingDbContext
                 .WithMany()
                 .HasForeignKey(e => new { e.VariantId, e.BusinessId })
                 .HasPrincipalKey(v => new { v.Id, v.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<SaleLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SourceSaleLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.InvoiceId, e.LineNo }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.VariantId });

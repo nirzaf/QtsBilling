@@ -331,6 +331,7 @@ public sealed class PaymentTruthTests : IClassFixture<PostgresApiFixture>
         var issueDate = DateOnly.FromDateTime(DateTime.UtcNow);
         var draftResponse = await client.PostAsJsonAsync("/api/v1/invoices", new
         {
+            recognitionMode = "service",
             locationId = _fixture.BusinessA.LocationId,
             customerId,
             issueDate,
@@ -365,6 +366,7 @@ public sealed class PaymentTruthTests : IClassFixture<PostgresApiFixture>
     {
         var response = await client.PostAsJsonAsync("/api/v1/invoices", new
         {
+            recognitionMode = "service",
             locationId = _fixture.BusinessA.LocationId,
             customerId,
             issueDate = DateOnly.FromDateTime(DateTime.UtcNow),
@@ -404,6 +406,7 @@ public sealed class PaymentTruthTests : IClassFixture<PostgresApiFixture>
                 ["1010"] = ("Bank", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1100"] = ("Accounts receivable", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1200"] = ("Inventory", QtsBilling.Persistence.Postgres.AccountType.Asset),
+                ["1250"] = ("Delivered not invoiced", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["1300"] = ("Input VAT", QtsBilling.Persistence.Postgres.AccountType.Asset),
                 ["2000"] = ("Accounts payable", QtsBilling.Persistence.Postgres.AccountType.Liability),
                 ["2100"] = ("Output VAT", QtsBilling.Persistence.Postgres.AccountType.Liability),
@@ -444,6 +447,7 @@ public sealed class PaymentTruthTests : IClassFixture<PostgresApiFixture>
             settings.BankClearingAccountId = accounts["1010"];
             settings.AccountsReceivableAccountId = accounts["1100"];
             settings.InventoryAssetAccountId = accounts["1200"];
+            settings.DeliveredNotInvoicedAccountId = accounts["1250"];
             settings.InputTaxReceivableAccountId = accounts["1300"];
             settings.AccountsPayableAccountId = accounts["2000"];
             settings.OutputTaxPayableAccountId = accounts["2100"];

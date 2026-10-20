@@ -1,6 +1,7 @@
 ﻿using Microsoft.Extensions.Logging;
 using MudBlazor.Services;
 using QtsBilling.Contracts.Clients;
+using QtsBilling.Contracts.Invoices;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sync;
 using QtsBilling.Maui.Services;
@@ -141,6 +142,22 @@ public static class MauiProgram
             {
                 client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
                 client.Timeout = TimeSpan.FromSeconds(60);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<IInvoiceApiClient, InvoiceApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<IPaymentApiClient, PaymentApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 

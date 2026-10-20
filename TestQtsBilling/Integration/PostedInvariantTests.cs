@@ -194,7 +194,7 @@ public sealed class PostedInvariantTests : IClassFixture<PostgresApiFixture>
                     UnitPrice: 115m,
                     DiscountAmount: 0m,
                     TaxRate: 0.15m),
-            ]));
+            ], RecognitionMode: InvoiceRecognitionMode.DirectGoods));
 
         var body = await response.Content.ReadAsStringAsync();
 

@@ -205,7 +205,8 @@ public sealed class PaymentTerminalTests : IClassFixture<PostgresApiFixture>
             DateOnly.FromDateTime(DateTime.UtcNow),
             null,
             "verified terminal invoice",
-            [new InvoiceLineRequest(_fixture.BusinessA.VariantId, null, 1m, 100m, 0m, 0.15m)]);
+            [new InvoiceLineRequest(_fixture.BusinessA.VariantId, null, 1m, 100m, 0m, 0.15m)],
+            InvoiceRecognitionMode.DirectGoods);
         var create = await client.PostAsJsonAsync("/api/v1/invoices", request);
         var createBody = await create.Content.ReadAsStringAsync();
         Assert.True(create.StatusCode == HttpStatusCode.Created, $"Invoice creation returned {(int)create.StatusCode}: {createBody}");

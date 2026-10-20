@@ -41,6 +41,8 @@ public static class InvoiceEndpoints
     private const string ReceivableAccountCode = "1100";
     private const string TaxAccountCode = "2100";
     private const string RevenueAccountCode = "4000";
+    private const string InventoryAccountCode = "1200";
+    private const string CogsAccountCode = "5000";
 
     public static IEndpointRouteBuilder MapInvoiceEndpoints(this IEndpointRouteBuilder app)
     {
@@ -48,6 +50,7 @@ public static class InvoiceEndpoints
 
         group.MapGet("/", ListAsync).RequireAuthorization(Permissions.InvoicesIssue);
         group.MapPost("/", CreateAsync).RequireAuthorization(Permissions.InvoicesManage);
+        group.MapPost("/from-sale", CreateFromSaleAsync).RequireAuthorization(Permissions.InvoicesManage);
         group.MapGet("/{id:guid}", GetAsync).RequireAuthorization(Permissions.InvoicesIssue);
         group.MapPut("/{id:guid}", UpdateAsync).RequireAuthorization(Permissions.InvoicesManage);
         group.MapDelete("/{id:guid}", DeleteAsync).RequireAuthorization(Permissions.InvoicesManage);
@@ -459,7 +462,11 @@ public static class InvoiceEndpoints
                 invoice.BalanceDue,
                 invoice.Note,
                 invoice.IssuedAtUtc,
-                invoice.VoidedAtUtc))
+                invoice.VoidedAtUtc,
+                invoice.Version,
+                invoice.RecognitionMode,
+                invoice.SourceSaleId,
+                invoice.SourceOrderId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -531,27 +538,8 @@ public static class InvoiceEndpoints
             return NotFoundInvoice();
         }
 
-        var business = await db.Businesses.AsNoTracking()
-            .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
-            .ConfigureAwait(false);
-
-        if (business is null)
-        {
-            return BusinessScope.MissingMembership();
-        }
-
-        Customer? customer = null;
-
-        if (invoice.CustomerId is { } customerId)
-        {
-            customer = await db.Customers.AsNoTracking()
-                .FirstOrDefaultAsync(candidate => candidate.Id == customerId, cancellationToken)
-                .ConfigureAwait(false);
-        }
-
         var detail = await ToDetailAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false);
-
-        return Results.Content(InvoicePrintRenderer.RenderHtml(business, customer, detail), "text/html", System.Text.Encoding.UTF8);
+        return Results.Content(InvoicePrintRenderer.RenderHtml(detail), "text/html", System.Text.Encoding.UTF8);
     }
 
     // ---------------------------------------------------------------- draft lifecycle
@@ -567,6 +555,20 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (request.RecognitionMode is null || request.RecognitionMode is InvoiceRecognitionMode.SaleRepresentation or InvoiceRecognitionMode.Delivery or InvoiceRecognitionMode.HistoricalUnknown)
+        {
+            return InvalidRecognitionMode();
+        }
+
+        if (request.SourceSaleId is not null || request.ExpectedVersion is not null)
+        {
+            return ApiResults.ValidationProblem("A new draft cannot claim an existing source or version.", new Dictionary<string, string[]>
+            {
+                ["sourceSaleId"] = ["Use the dedicated sale representation operation for an existing posted sale."],
+                ["expectedVersion"] = ["A new draft has no prior version."],
+            });
+        }
+
         var business = await db.Businesses.AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
             .ConfigureAwait(false);
@@ -576,6 +578,10 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (request.LocationId is { } requestedLocation && TryGetUserId(principal, out var createUserId)
+            && !await BusinessScope.CanAccessLocationAsync(db, createUserId, businessId, requestedLocation, cancellationToken).ConfigureAwait(false))
+            return ForbiddenLocation();
+
         var prepared = await PrepareAsync(db, businessId, request, cancellationToken).ConfigureAwait(false);
 
         if (prepared.Error is not null)
@@ -584,11 +590,14 @@ public static class InvoiceEndpoints
         }
 
         var lines = prepared.Lines!;
+        var modeError = ValidateRecognitionLines(request.RecognitionMode.Value, request.LocationId, lines);
+        if (modeError is not null) return modeError;
         var totals = TotalsOf(lines);
 
         var invoice = new Invoice
         {
             BusinessId = businessId,
+            RecognitionMode = request.RecognitionMode.Value.ToString(),
             LocationId = request.LocationId,
             CustomerId = request.CustomerId,
             InvoiceNumber = string.Empty,
@@ -616,6 +625,141 @@ public static class InvoiceEndpoints
             await ToDetailAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false));
     }
 
+    private static async Task<IResult> CreateFromSaleAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        CreateSaleInvoiceRequest request,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId))
+            return BusinessScope.MissingMembership();
+        if (request.SaleId == Guid.Empty)
+            return ApiResults.ValidationProblem("A posted sale is required.", new Dictionary<string, string[]> { ["saleId"] = ["Select the posted sale to represent."] });
+
+        var strategy = db.Database.CreateExecutionStrategy();
+        try
+        {
+            var result = await strategy.ExecuteAsync(async () =>
+            {
+                db.ChangeTracker.Clear();
+                await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+                var existing = await db.Invoices
+                    .FromSql($"SELECT * FROM invoices WHERE business_id = {businessId} AND source_sale_id = {request.SaleId} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                if (existing is not null)
+                {
+                    await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                    return (Invoice: existing, Replayed: true);
+                }
+
+                var sale = await db.Sales
+                    .FromSql($"SELECT * FROM sales WHERE id = {request.SaleId} AND business_id = {businessId} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                if (sale is null || sale.Status != SaleStatus.Posted)
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                        "Only a posted, unreversed sale can be represented as an invoice.", "Choose a posted sale from this business; reversed or unresolved sales cannot be billed again.");
+                if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, sale.LocationId, cancellationToken).ConfigureAwait(false))
+                    throw new DomainRuleException(StatusCodes.Status403Forbidden, ApiErrorCodes.PermissionDenied,
+                        "This sale belongs to a location the user cannot access.", "Request access to the sale location.");
+
+                var business = await db.Businesses.AsNoTracking().FirstOrDefaultAsync(row => row.Id == businessId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new DomainRuleException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The business is unavailable.", "Verify the active business membership.");
+                var saleLines = await db.SaleLines.AsNoTracking()
+                    .Where(line => line.BusinessId == businessId && line.SaleId == sale.Id)
+                    .OrderBy(line => line.LineNo).ToListAsync(cancellationToken).ConfigureAwait(false);
+                if (saleLines.Count == 0)
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The posted sale has no immutable lines to represent.", "Investigate the sale record before creating a customer document.");
+
+                var customer = sale.CustomerId is { } customerId
+                    ? await db.Customers.AsNoTracking().FirstOrDefaultAsync(row => row.BusinessId == businessId && row.Id == customerId, cancellationToken).ConfigureAwait(false)
+                    : null;
+                var paidAmount = await db.Payments.AsNoTracking()
+                    .Where(payment => payment.BusinessId == businessId && payment.SaleId == sale.Id && payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
+                    .SumAsync(payment => (decimal?)payment.Amount, cancellationToken).ConfigureAwait(false) ?? 0m;
+                paidAmount = Math.Min(sale.TotalAmount, LedgerWriter.Round(paidAmount));
+                var saleLineIds = saleLines.Select(line => line.Id).ToArray();
+                var stockedSaleLines = await db.InventoryMovements.AsNoTracking()
+                    .Where(movement => movement.BusinessId == businessId && movement.ReferenceType == "sale_line"
+                        && saleLineIds.Contains(movement.ReferenceId) && movement.MovementType == MovementType.Sale)
+                    .Select(movement => movement.ReferenceId).Distinct().ToListAsync(cancellationToken).ConfigureAwait(false);
+                var stockedSaleLineSet = stockedSaleLines.ToHashSet();
+                var issueDate = LedgerWriter.LocalDate(business.TimeZone, sale.PostedAtUtc);
+                var invoice = new Invoice
+                {
+                    BusinessId = businessId,
+                    RecognitionMode = InvoiceRecognitionMode.SaleRepresentation.ToString(),
+                    LocationId = sale.LocationId,
+                    CustomerId = sale.CustomerId,
+                    SourceSaleId = sale.Id,
+                    SourceRequestKey = $"sale:{sale.Id:D}",
+                    SourcePayloadHash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes($"sale:{sale.Id:D}"))).ToLowerInvariant(),
+                    InvoiceNumber = await LedgerWriter.AllocateNumberAsync(db, businessId, InvoiceSequenceName, InvoiceSequencePrefix, issueDate.Year, cancellationToken).ConfigureAwait(false),
+                    Status = paidAmount >= sale.TotalAmount ? InvoiceStatus.Paid : paidAmount > 0m ? InvoiceStatus.PartiallyPaid : InvoiceStatus.Issued,
+                    IssueDate = issueDate,
+                    DueDate = customer is null ? null : issueDate.AddDays(Math.Max(0, customer.PaymentTermsDays)),
+                    Currency = sale.Currency,
+                    SubtotalAmount = sale.SubtotalAmount,
+                    DiscountAmount = sale.DiscountAmount,
+                    TaxAmount = sale.TaxAmount,
+                    TotalAmount = sale.TotalAmount,
+                    AmountPaid = paidAmount,
+                    CreditedAmount = 0m,
+                    BalanceDue = Math.Max(0m, sale.TotalAmount - paidAmount),
+                    IssuedAtUtc = sale.PostedAtUtc,
+                    BusinessNameSnapshot = business.Name,
+                    BusinessLegalNameSnapshot = business.LegalName,
+                    CustomerNameSnapshot = customer?.Name,
+                    CustomerAddressSnapshot = customer?.Address,
+                    CustomerPhoneSnapshot = customer?.Phone,
+                    CustomerEmailSnapshot = customer?.Email,
+                    PaymentTermsDaysSnapshot = customer?.PaymentTermsDays,
+                };
+                var invoiceLines = saleLines.Select(line => new InvoiceLine
+                {
+                    BusinessId = businessId,
+                    InvoiceId = invoice.Id,
+                    LineNo = line.LineNo,
+                    VariantId = line.VariantId,
+                    SourceSaleLineId = line.Id,
+                    ProductNameSnapshot = line.ProductNameSnapshot,
+                    SkuSnapshot = line.SkuSnapshot,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountAmount = line.DiscountAmount,
+                    RevenueBaseAmount = LedgerWriter.Round(line.LineTotal - line.TaxAmount),
+                    TaxRate = line.TaxRate,
+                    TaxMode = line.TaxMode,
+                    TaxAmount = line.TaxAmount,
+                    LineTotal = line.LineTotal,
+                    UnitCostSnapshot = line.UnitCostSnapshot,
+                    TrackStockSnapshot = stockedSaleLineSet.Contains(line.Id),
+                }).ToList();
+                db.Invoices.Add(invoice);
+                db.InvoiceLines.AddRange(invoiceLines);
+                db.AuditEvents.Add(new AuditEvent
+                {
+                    BusinessId = businessId,
+                    UserId = userId,
+                    EntityType = "invoice",
+                    EntityId = invoice.Id,
+                    Action = "represented_sale",
+                    OccurredAtUtc = DateTimeOffset.UtcNow,
+                    CorrelationId = http.TraceIdentifier,
+                    Summary = JsonSerializer.Serialize(new { saleId = sale.Id, invoiceNumber = invoice.InvoiceNumber, recognitionMode = invoice.RecognitionMode }),
+                });
+                await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+                return (Invoice: invoice, Replayed: false);
+            }).ConfigureAwait(false);
+
+            var detail = await ToDetailAsync(db, businessId, result.Invoice, cancellationToken).ConfigureAwait(false);
+            return result.Replayed ? Results.Ok(detail) : Results.Created($"/api/v1/invoices/{result.Invoice.Id}", detail);
+        }
+        catch (DomainRuleException exception) { return exception.ToResult(); }
+        catch (PostgresException exception) { return MapPostgresException(exception); }
+    }
+
     private static async Task<IResult> UpdateAsync(
         ClaimsPrincipal principal,
         BillingDbContext db,
@@ -627,6 +771,8 @@ public static class InvoiceEndpoints
         {
             return BusinessScope.MissingMembership();
         }
+
+        if (!TryGetUserId(principal, out var updateUserId)) return BusinessScope.MissingMembership();
 
         var invoice = await db.Invoices
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
@@ -646,6 +792,16 @@ public static class InvoiceEndpoints
                 "Posted invoices are immutable: corrections are a void (no payments) or a credit note referencing the original.");
         }
 
+        if (request.LocationId is { } requestedLocation
+            && !await BusinessScope.CanAccessLocationAsync(db, updateUserId, businessId, requestedLocation, cancellationToken).ConfigureAwait(false))
+            return ForbiddenLocation();
+
+        if (request.RecognitionMode is null || request.RecognitionMode is InvoiceRecognitionMode.SaleRepresentation or InvoiceRecognitionMode.Delivery or InvoiceRecognitionMode.HistoricalUnknown
+            || request.SourceSaleId is not null)
+        {
+            return InvalidRecognitionMode();
+        }
+
         var prepared = await PrepareAsync(db, businessId, request, cancellationToken).ConfigureAwait(false);
 
         if (prepared.Error is not null)
@@ -654,6 +810,8 @@ public static class InvoiceEndpoints
         }
 
         var lines = prepared.Lines!;
+        var modeError = ValidateRecognitionLines(request.RecognitionMode.Value, request.LocationId, lines);
+        if (modeError is not null) return modeError;
         var totals = TotalsOf(lines);
 
         var strategy = db.Database.CreateExecutionStrategy();
@@ -675,6 +833,7 @@ public static class InvoiceEndpoints
                 .ConfigureAwait(false);
 
             target.LocationId = request.LocationId;
+            target.RecognitionMode = request.RecognitionMode.Value.ToString();
             target.CustomerId = request.CustomerId;
             target.IssueDate = prepared.IssueDate;
             target.DueDate = request.DueDate;
@@ -815,6 +974,11 @@ public static class InvoiceEndpoints
                         "This invoice was already issued (or voided/credited).");
                 }
 
+                if (invoice.LocationId is { } issueLocationId
+                    && !await BusinessScope.CanAccessLocationAsync(db, userId, businessId, issueLocationId, cancellationToken).ConfigureAwait(false))
+                    throw new DomainRuleException(StatusCodes.Status403Forbidden, ApiErrorCodes.PermissionDenied,
+                        "This invoice belongs to a location the user cannot access.", "Request access to the invoice location.");
+
                 var lines = await db.InvoiceLines
                     .Where(line => line.BusinessId == businessId && line.InvoiceId == id)
                     .OrderBy(line => line.LineNo)
@@ -830,17 +994,73 @@ public static class InvoiceEndpoints
                         "Add at least one line before issuing the invoice.");
                 }
 
+                var mode = Enum.TryParse<InvoiceRecognitionMode>(invoice.RecognitionMode, out var parsedMode)
+                    ? parsedMode
+                    : InvoiceRecognitionMode.HistoricalUnknown;
+                if (mode is not (InvoiceRecognitionMode.Service or InvoiceRecognitionMode.DirectGoods))
+                {
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                        "This invoice draft has no issuable recognition mode.",
+                        "Recreate the draft with an explicit service or direct-goods mode; source-linked invoices use their dedicated workflow.");
+                }
+                if (mode == InvoiceRecognitionMode.Service && lines.Any(line => line.VariantId is not null)
+                    || mode == InvoiceRecognitionMode.DirectGoods && (invoice.LocationId is null || lines.Any(line => line.VariantId is null || !line.TrackStockSnapshot)))
+                {
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                        "The invoice lines do not match the selected recognition mode.",
+                        "Services cannot consume catalog stock; direct-goods invoices require tracked variants and an active location.");
+                }
+
+                var businessSnapshot = await db.Businesses
+                    .FromSql($"SELECT * FROM businesses WHERE id = {businessId} FOR SHARE")
+                    .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                if (businessSnapshot is null)
+                    throw new DomainRuleException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The business is unavailable.", "Verify the active business membership.");
+                Customer? customerSnapshot = null;
+                if (invoice.CustomerId is { } snapshotCustomerId)
+                {
+                    customerSnapshot = await db.Customers
+                        .FromSql($"SELECT * FROM customers WHERE id = {snapshotCustomerId} AND business_id = {businessId} FOR SHARE")
+                        .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                    if (customerSnapshot is null || !customerSnapshot.IsActive)
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                            "The invoice customer is no longer active in this business.", "Select an active customer and save the draft again.");
+                }
+                BusinessLocation? locationSnapshot = null;
+                if (invoice.LocationId is { } snapshotLocationId)
+                {
+                    locationSnapshot = await db.BusinessLocations
+                        .FromSql($"SELECT * FROM business_locations WHERE id = {snapshotLocationId} AND business_id = {businessId} FOR SHARE")
+                        .FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+                    if (locationSnapshot is null || !locationSnapshot.IsActive)
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                            "The invoice location is no longer active.", "Choose an active location and save the draft again.");
+                }
+                invoice.BusinessNameSnapshot = businessSnapshot.Name;
+                invoice.BusinessLegalNameSnapshot = businessSnapshot.LegalName;
+                invoice.LocationAddressSnapshot = locationSnapshot?.Address;
+                invoice.CustomerNameSnapshot = customerSnapshot?.Name;
+                invoice.CustomerAddressSnapshot = customerSnapshot?.Address;
+                invoice.CustomerPhoneSnapshot = customerSnapshot?.Phone;
+                invoice.CustomerEmailSnapshot = customerSnapshot?.Email;
+                invoice.PaymentTermsDaysSnapshot = customerSnapshot?.PaymentTermsDays;
+
                 var variantIds = lines.Where(line => line.VariantId.HasValue).Select(line => line.VariantId!.Value).Distinct().ToArray();
                 var issueStockSnapshots = await (from variant in db.ProductVariants.AsNoTracking()
                     join product in db.Products.AsNoTracking() on new { variant.ProductId, variant.BusinessId } equals new { ProductId = product.Id, product.BusinessId }
                     where variant.BusinessId == businessId && variantIds.Contains(variant.Id)
-                    select new { VariantId = variant.Id, variant.PurchasePrice, product.TrackStock })
+                    select new { VariantId = variant.Id, variant.PurchasePrice, variant.Version, product.TrackStock, ProductVersion = product.Version, ProductActive = product.IsActive, VariantActive = variant.IsActive })
                     .ToDictionaryAsync(row => row.VariantId, cancellationToken)
                     .ConfigureAwait(false);
                 foreach (var line in lines)
                 {
                     if (line.VariantId is { } variantId && issueStockSnapshots.TryGetValue(variantId, out var stockSnapshot))
                     {
+                        if (!stockSnapshot.ProductActive || !stockSnapshot.VariantActive
+                            || line.ProductVersionSnapshot != stockSnapshot.ProductVersion
+                            || line.VariantVersionSnapshot != stockSnapshot.Version)
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                                "Catalog terms changed after this invoice draft was saved.", "Refresh product details and save a new draft before issuing.");
                         line.UnitCostSnapshot = LedgerWriter.Round(stockSnapshot.PurchasePrice ?? 0m);
                         line.TrackStockSnapshot = stockSnapshot.TrackStock;
                     }
@@ -857,14 +1077,32 @@ public static class InvoiceEndpoints
                         cancellationToken).ConfigureAwait(false);
                 }
 
+                var requiredAccounts = mode == InvoiceRecognitionMode.DirectGoods
+                    ? new[] { ReceivableAccountCode, RevenueAccountCode, TaxAccountCode, InventoryAccountCode, CogsAccountCode }
+                    : new[] { ReceivableAccountCode, RevenueAccountCode, TaxAccountCode };
                 var accounts = await LedgerWriter.ResolveAccountsAsync(
                         db,
                         businessId,
-                        [ReceivableAccountCode, RevenueAccountCode, TaxAccountCode],
+                        requiredAccounts,
                         cancellationToken)
                     .ConfigureAwait(false);
 
-                RejectMissingAccounts(accounts, ReceivableAccountCode, RevenueAccountCode, TaxAccountCode);
+                RejectMissingAccounts(accounts, requiredAccounts);
+
+                decimal costOfGoodsSold = 0m;
+                if (mode == InvoiceRecognitionMode.DirectGoods)
+                {
+                    foreach (var line in lines.OrderBy(line => line.VariantId))
+                    {
+                        var movement = await InventoryLedger.ApplyAsync(
+                            db, businessId, userId, invoice.LocationId!.Value, line.VariantId!.Value,
+                            MovementType.Sale, -line.Quantity, line.UnitCostSnapshot, "invoice_line", line.Id,
+                            $"Invoice draft {invoice.Id}", now, cancellationToken).ConfigureAwait(false);
+                        costOfGoodsSold -= movement.ValueDelta;
+                        if (line.Quantity > 0m)
+                            line.UnitCostSnapshot = LedgerWriter.Round(costOfGoodsSold == 0m ? -movement.ValueDelta / line.Quantity : -movement.ValueDelta / line.Quantity);
+                    }
+                }
 
                 var number = await LedgerWriter.AllocateNumberAsync(
                         db,
@@ -884,6 +1122,11 @@ public static class InvoiceEndpoints
                 if (invoice.TaxAmount > 0)
                 {
                     journalLines.Add(new JournalLineRequest(accounts[TaxAccountCode].Id, 0m, invoice.TaxAmount, $"Invoice {number} tax", invoice.LocationId));
+                }
+                if (costOfGoodsSold > 0m)
+                {
+                    journalLines.Add(new JournalLineRequest(accounts[CogsAccountCode].Id, costOfGoodsSold, 0m, $"Cost of goods sold {number}", invoice.LocationId));
+                    journalLines.Add(new JournalLineRequest(accounts[InventoryAccountCode].Id, 0m, costOfGoodsSold, $"Inventory relief {number}", invoice.LocationId));
                 }
 
                 var entry = await LedgerWriter.PostWithinTransactionAsync(
@@ -1007,6 +1250,15 @@ public static class InvoiceEndpoints
                         ApiErrorCodes.InvoiceNotIssued,
                         "Draft invoices are deleted, not voided.",
                         "Delete this draft or issue it first.");
+                }
+
+                if (invoice.RecognitionMode != InvoiceRecognitionMode.Service.ToString())
+                {
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                        "This invoice cannot be voided through the service-invoice correction route.",
+                        invoice.RecognitionMode == InvoiceRecognitionMode.SaleRepresentation.ToString()
+                            ? "Correct the original posted sale using its sales-return workflow."
+                            : "Use the source-aware credit or return workflow so inventory and cost effects are reversed exactly once.");
                 }
 
                 if (invoice.Status == InvoiceStatus.Void)
@@ -1218,6 +1470,14 @@ public static class InvoiceEndpoints
                         ApiErrorCodes.InvoiceNotIssued,
                         "Only issued invoices can be credited.",
                         "Draft invoices are simply deleted.");
+                }
+
+                if (invoice.RecognitionMode is var recognitionMode
+                    && recognitionMode is not (nameof(InvoiceRecognitionMode.Service) or nameof(InvoiceRecognitionMode.DirectGoods)))
+                {
+                    throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
+                        "This source-linked invoice cannot be credited through the generic invoice route.",
+                        "Correct its original sale or order delivery through the corresponding return workflow.");
                 }
 
                 if (invoice.Status == InvoiceStatus.Void)
@@ -1953,6 +2213,8 @@ public static class InvoiceEndpoints
                 }
 
                 var gross = LedgerWriter.Round(line.Quantity * line.UnitPrice);
+                var net = LedgerWriter.Round(gross - Math.Max(0m, line.DiscountAmount));
+                var tax = LedgerWriter.Round(net * line.TaxRate);
 
                 if (line.DiscountAmount < 0 || line.DiscountAmount > gross)
                 {
@@ -1973,7 +2235,7 @@ public static class InvoiceEndpoints
                 {
                     var variant = await db.ProductVariants.AsNoTracking()
                         .Where(candidate => candidate.BusinessId == businessId && candidate.Id == variantId)
-                        .Select(candidate => new { candidate.Id, candidate.ProductId, candidate.Sku, candidate.IsActive, candidate.PurchasePrice })
+                        .Select(candidate => new { candidate.Id, candidate.ProductId, candidate.Sku, candidate.IsActive, candidate.PurchasePrice, candidate.Version })
                         .FirstOrDefaultAsync(cancellationToken)
                         .ConfigureAwait(false);
 
@@ -1985,7 +2247,7 @@ public static class InvoiceEndpoints
                     {
                         var product = await db.Products.AsNoTracking()
                             .Where(candidate => candidate.BusinessId == businessId && candidate.Id == variant.ProductId)
-                            .Select(candidate => new { candidate.Name, candidate.IsActive, candidate.TrackStock })
+                            .Select(candidate => new { candidate.Name, candidate.IsActive, candidate.TrackStock, candidate.Version })
                             .FirstOrDefaultAsync(cancellationToken)
                             .ConfigureAwait(false);
 
@@ -1999,6 +2261,9 @@ public static class InvoiceEndpoints
                             sku = variant.Sku;
                             unitCost = LedgerWriter.Round(variant.PurchasePrice ?? 0m);
                             trackStock = product.TrackStock;
+                            lines.Add(new PricedLine(line.VariantId, name, sku, line.Quantity, line.UnitPrice, Math.Max(0m, line.DiscountAmount), line.TaxRate, tax, LedgerWriter.Round(net + tax), unitCost, trackStock, product.Version, variant.Version));
+                            lineNo++;
+                            continue;
                         }
                     }
                 }
@@ -2006,9 +2271,6 @@ public static class InvoiceEndpoints
                 {
                     errors[$"{key}.productName"] = [$"A line without a variant requires a product name of 1-{MaxNameLength} characters."];
                 }
-
-                var net = LedgerWriter.Round(gross - Math.Max(0, line.DiscountAmount));
-                var tax = LedgerWriter.Round(net * line.TaxRate);
 
                 lines.Add(new PricedLine(
                     line.VariantId,
@@ -2021,7 +2283,9 @@ public static class InvoiceEndpoints
                     tax,
                     LedgerWriter.Round(net + tax),
                     unitCost,
-                    trackStock));
+                    trackStock,
+                    null,
+                    null));
 
                 lineNo++;
             }
@@ -2036,6 +2300,30 @@ public static class InvoiceEndpoints
 
         return new PreparedInvoice(null, lines, issueDate);
     }
+
+    private static IResult? ValidateRecognitionLines(InvoiceRecognitionMode mode, Guid? locationId, IReadOnlyList<PricedLine> lines)
+    {
+        var valid = mode switch
+        {
+            InvoiceRecognitionMode.Service => lines.All(line => line.VariantId is null),
+            InvoiceRecognitionMode.DirectGoods => locationId is not null && lines.All(line => line.VariantId is not null && line.TrackStockSnapshot),
+            _ => false,
+        };
+        return valid ? null : ApiResults.ValidationProblem(
+            "Invoice lines do not match the selected recognition mode.",
+            new Dictionary<string, string[]>
+            {
+                ["recognitionMode"] = [mode == InvoiceRecognitionMode.Service
+                    ? "Service invoices must contain only ad-hoc, non-stock lines."
+                    : "Direct-goods invoices require tracked variants and an active location."],
+            });
+    }
+
+    private static IResult InvalidRecognitionMode()
+        => ApiResults.ValidationProblem("An explicit invoice recognition mode is required.", new Dictionary<string, string[]>
+        {
+            ["recognitionMode"] = ["Choose Service or DirectGoods. Sale and delivery representations use their source workflows."],
+        });
 
     private static void AddLines(BillingDbContext db, Guid businessId, Guid invoiceId, IReadOnlyList<PricedLine> lines)
     {
@@ -2061,6 +2349,8 @@ public static class InvoiceEndpoints
                 LineTotal = line.LineTotal,
                 UnitCostSnapshot = line.UnitCostSnapshot,
                 TrackStockSnapshot = line.TrackStockSnapshot,
+                ProductVersionSnapshot = line.ProductVersion,
+                VariantVersionSnapshot = line.VariantVersion,
             });
         }
     }
@@ -2241,6 +2531,7 @@ public static class InvoiceEndpoints
             .Where(line => line.BusinessId == businessId && line.InvoiceId == invoice.Id)
             .OrderBy(line => line.LineNo)
             .Select(line => new InvoiceLineDto(
+                line.Id,
                 line.LineNo,
                 line.VariantId,
                 line.ProductNameSnapshot,
@@ -2313,7 +2604,17 @@ public static class InvoiceEndpoints
             lines,
             payments.Select(ToPaymentDto).ToList(),
             creditDto,
-            creditDtos);
+            creditDtos,
+            invoice.LocationId,
+            new InvoicePartySnapshotDto(
+                invoice.BusinessNameSnapshot ?? "Historical business name unavailable",
+                invoice.BusinessLegalNameSnapshot,
+                invoice.LocationAddressSnapshot,
+                invoice.CustomerNameSnapshot,
+                invoice.CustomerAddressSnapshot,
+                invoice.CustomerPhoneSnapshot,
+                invoice.CustomerEmailSnapshot,
+                invoice.PaymentTermsDaysSnapshot));
     }
 
     private static async Task<InvoiceSummaryDto> ToSummaryAsync(
@@ -2351,7 +2652,11 @@ public static class InvoiceEndpoints
                 invoice.BalanceDue,
                 invoice.Note,
                 invoice.IssuedAtUtc,
-                invoice.VoidedAtUtc),
+                invoice.VoidedAtUtc,
+                invoice.Version,
+                invoice.RecognitionMode,
+                invoice.SourceSaleId,
+                invoice.SourceOrderId),
             customerName);
     }
 
@@ -2374,7 +2679,13 @@ public static class InvoiceEndpoints
             row.BalanceDue,
             row.Note,
             row.IssuedAtUtc,
-            row.VoidedAtUtc);
+            row.VoidedAtUtc,
+            row.Version,
+            Enum.TryParse<InvoiceRecognitionMode>(row.RecognitionMode, ignoreCase: false, out var mode)
+                ? mode
+                : InvoiceRecognitionMode.HistoricalUnknown,
+            row.SourceSaleId,
+            row.SourceOrderId);
 
     private static InvoicePaymentDto ToPaymentDto(Payment payment)
         => new(
@@ -2453,7 +2764,9 @@ public static class InvoiceEndpoints
         decimal TaxAmount,
         decimal LineTotal,
         decimal UnitCostSnapshot,
-        bool TrackStockSnapshot);
+        bool TrackStockSnapshot,
+        long? ProductVersion,
+        long? VariantVersion);
 
     private sealed record InvoiceTotals(decimal Subtotal, decimal Discount, decimal Tax, decimal Total);
 
@@ -2489,7 +2802,11 @@ public static class InvoiceEndpoints
         decimal BalanceDue,
         string? Note,
         DateTimeOffset? IssuedAtUtc,
-        DateTimeOffset? VoidedAtUtc);
+        DateTimeOffset? VoidedAtUtc,
+        long Version,
+        string RecognitionMode,
+        Guid? SourceSaleId,
+        Guid? SourceOrderId);
 
     private sealed record RegisterSession(Guid RegisterId, Guid SessionId);
 

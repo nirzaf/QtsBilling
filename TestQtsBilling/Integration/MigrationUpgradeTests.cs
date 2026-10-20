@@ -158,11 +158,18 @@ public sealed class MigrationUpgradeTests : IClassFixture<PostgresApiFixture>
             JOIN accounts account ON account.id = settings.accounts_receivable_account_id AND account.business_id = settings.business_id
             WHERE settings.business_id = '{businessId}';
             """);
+        var deliveredNotInvoicedCode = await database.ScalarAsync<string>($"""
+            SELECT account.code
+            FROM business_accounting_settings settings
+            JOIN accounts account ON account.id = settings.delivered_not_invoiced_account_id AND account.business_id = settings.business_id
+            WHERE settings.business_id = '{businessId}';
+            """);
 
-        Assert.Equal(17, accountCount);
+        Assert.Equal(18, accountCount);
         Assert.Equal(1, settingsCount);
         Assert.Equal("Inventory In Transit", transitAccountName);
         Assert.Equal("1100", receivableCode);
+        Assert.Equal("1250", deliveredNotInvoicedCode);
     }
 
     [Fact]

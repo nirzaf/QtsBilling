@@ -153,7 +153,7 @@ public sealed class NativePackageTests
         opening.AddRaw(
             NativeResources.Openings,
             """
-            {"externalId":"open-secret","entryDate":"2026-10-20","currency":"QAR","inventoryAccountCode":"1200","lines":[{"accountCode":"1200","debit":1,"credit":0,"cvv":"987"},{"accountCode":"4000","debit":0,"credit":1}],"stock":[]}
+            {"externalId":"open-secret","entryDate":"2026-10-20","currency":"QAR","inventoryAccountCode":"1200","lines":[{"accountCode":"1200","debit":1,"credit":0,"cvv":"cvv-secret-marker-87654"},{"accountCode":"4000","debit":0,"credit":1}],"stock":[]}
             """);
         opening.Rebuild();
 
@@ -162,7 +162,7 @@ public sealed class NativePackageTests
         Assert.Contains("PROHIBITED_FIELD", openingResult.Report.Rejections.Select(rejection => rejection.Reason));
 
         var openingJson = JsonSerializer.Serialize(openingResult.Report);
-        Assert.DoesNotContain("987", openingJson, StringComparison.Ordinal);
+        Assert.DoesNotContain("cvv-secret-marker-87654", openingJson, StringComparison.Ordinal);
         Assert.Null(openingResult.Package);
     }
 

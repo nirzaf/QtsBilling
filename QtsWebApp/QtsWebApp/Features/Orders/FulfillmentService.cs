@@ -139,6 +139,7 @@ public static class FulfillmentEndpoints
         var fingerprint = RequestFingerprint.Compute(new { OrderId = id, DeliveryId = deliveryId, request.IssueDate, request.DueDate, request.Note, request.Lines });
         var now = DateTimeOffset.UtcNow;
         var strategy = db.Database.CreateExecutionStrategy();
+        var replayed = false;
         try
         {
             var invoice = await strategy.ExecuteAsync(async () =>
@@ -150,6 +151,7 @@ public static class FulfillmentEndpoints
                 if (replay is not null)
                 {
                     if (replay.SourceOrderId != id || replay.SourcePayloadHash != fingerprint) throw IdempotencyReuseException();
+                    replayed = true;
                     await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                     return replay;
                 }
@@ -192,9 +194,16 @@ public static class FulfillmentEndpoints
                 var invoicedByOrderLine = priorOrderAllocations.GroupBy(row => row.OrderLineId)
                     .ToDictionary(group => group.Key, group => group.Sum(row => row.Quantity));
 
+                var snapshotBusiness = await db.Businesses.AsNoTracking().FirstOrDefaultAsync(row => row.Id == businessId, cancellationToken).ConfigureAwait(false)
+                    ?? throw new DomainRuleException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The business is unavailable.", "Verify the active business membership.");
+                var snapshotCustomer = order.CustomerId is { } sourceCustomerId
+                    ? await db.Customers.AsNoTracking().FirstOrDefaultAsync(row => row.BusinessId == businessId && row.Id == sourceCustomerId, cancellationToken).ConfigureAwait(false)
+                    : null;
+                var snapshotLocation = await db.BusinessLocations.AsNoTracking().FirstOrDefaultAsync(row => row.BusinessId == businessId && row.Id == order.LocationId, cancellationToken).ConfigureAwait(false);
                 var invoice = new Invoice
                 {
                     BusinessId = businessId,
+                    RecognitionMode = InvoiceRecognitionMode.Delivery.ToString(),
                     LocationId = order.LocationId,
                     CustomerId = order.CustomerId,
                     SourceOrderId = order.Id,
@@ -205,6 +214,14 @@ public static class FulfillmentEndpoints
                     IssueDate = request.IssueDate,
                     DueDate = request.DueDate,
                     Currency = order.Currency,
+                    BusinessNameSnapshot = snapshotBusiness.Name,
+                    BusinessLegalNameSnapshot = snapshotBusiness.LegalName,
+                    LocationAddressSnapshot = snapshotLocation?.Address,
+                    CustomerNameSnapshot = snapshotCustomer?.Name,
+                    CustomerAddressSnapshot = snapshotCustomer?.Address,
+                    CustomerPhoneSnapshot = snapshotCustomer?.Phone,
+                    CustomerEmailSnapshot = snapshotCustomer?.Email,
+                    PaymentTermsDaysSnapshot = snapshotCustomer?.PaymentTermsDays,
                     AmountPaid = 0m,
                     CreditedAmount = 0m,
                     Note = NormalizeNote(request.Note),
@@ -321,7 +338,8 @@ public static class FulfillmentEndpoints
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
                 return invoice;
             }).ConfigureAwait(false);
-            return Results.Created($"/api/v1/invoices/{invoice.Id}", await InvoiceEndpoints.ToDetailAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false));
+            var detail = await InvoiceEndpoints.ToDetailAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false);
+            return replayed ? Results.Ok(detail) : Results.Created($"/api/v1/invoices/{invoice.Id}", detail);
         }
         catch (DomainRuleException exception) { return exception.ToResult(); }
         catch (PostgresException exception) { return MapPostgresException(exception); }

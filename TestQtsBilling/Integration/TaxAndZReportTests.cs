@@ -203,7 +203,8 @@ public sealed class TaxAndZReportTests : IClassFixture<PostgresApiFixture>
             Lines:
             [
                 new InvoiceLineRequest(_fixture.BusinessA.VariantId, null, 1m, 100m, 0m, 0.15m),
-            ]);
+            ],
+            RecognitionMode: InvoiceRecognitionMode.DirectGoods);
         var response = await client.PostAsJsonAsync("/api/v1/invoices", request);
         var body = await response.Content.ReadAsStringAsync();
         Assert.True(response.StatusCode == HttpStatusCode.Created, $"Invoice creation failed with {(int)response.StatusCode}: {body}");
