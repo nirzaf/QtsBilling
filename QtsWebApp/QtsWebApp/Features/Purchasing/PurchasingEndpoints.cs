@@ -980,6 +980,15 @@ public static class PurchasingEndpoints
                         "Check the identifier: purchase orders are scoped to the signed-in business.");
                 }
 
+                if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, lockedOrder.LocationId, cancellationToken).ConfigureAwait(false))
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status403Forbidden,
+                        ApiErrorCodes.Forbidden,
+                        "The membership cannot access this goods-receipt location.",
+                        "Ask a business owner to grant access to the purchase order location.");
+                }
+
                 if (lockedOrder.Status is PurchaseOrderStatus.Draft or PurchaseOrderStatus.Cancelled)
                 {
                     throw new DomainRuleException(
