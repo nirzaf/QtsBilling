@@ -339,7 +339,7 @@ public static class AccountingEndpoints
         {
             return ApiResults.Problem(
                 StatusCodes.Status409Conflict,
-                ApiErrorCodes.Conflict,
+                ApiErrorCodes.AccountingPeriodOverlap,
                 "The period overlaps an existing accounting period.");
         }
 
@@ -353,7 +353,20 @@ public static class AccountingEndpoints
         };
 
         db.AccountingPeriods.Add(entity);
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (PostgresException exception) when (exception.SqlState == PostgresErrorCodes.CheckViolation)
+        {
+            // Two concurrent creates can both pass the read above; the database range trigger is the
+            // authority and refuses the loser instead of allowing two overlapping periods.
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.AccountingPeriodOverlap,
+                "The period overlaps an existing accounting period.");
+        }
 
         return Results.Created(
             $"/api/v1/accounting-periods/{entity.Id}",
@@ -371,9 +384,34 @@ public static class AccountingEndpoints
             return BusinessScope.MissingMembership();
         }
 
-        var period = await db.AccountingPeriods
-            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
-            .ConfigureAwait(false);
+        var strategy = db.Database.CreateExecutionStrategy();
+        AccountingPeriod? period = null;
+        var closed = false;
+
+        await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+
+            // Closing takes the exclusive row lock that posting takes in share mode, so a posting either
+            // completes before the close decision or observes the closed status and is refused.
+            period = await db.AccountingPeriods
+                .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND id = {id} FOR UPDATE")
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            if (period is null || period.Status != AccountingPeriodStatus.Open)
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+                return;
+            }
+
+            period.Status = AccountingPeriodStatus.Closed;
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            closed = true;
+        }).ConfigureAwait(false);
 
         if (period is null)
         {
@@ -383,8 +421,13 @@ public static class AccountingEndpoints
                 "The accounting period does not exist in this business.");
         }
 
-        period.Status = AccountingPeriodStatus.Closed;
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        if (!closed)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.AccountingPeriodClosed,
+                "The accounting period is already closed.");
+        }
 
         return Results.Ok(new AccountingPeriodDto(
             period.Id,

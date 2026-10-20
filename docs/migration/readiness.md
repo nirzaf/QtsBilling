@@ -46,7 +46,7 @@ distinction. The ledger is updated with every change of the implementation.
 | R11 usable masters and point of sale | MISSING | Only the customers page and the local point of sale exist; the online browser checkout is still a stub (tasks 30, 34, 35). |
 | R12 order to cash | MISSING | The quotes, the orders, the reservations, the partial deliveries and the receivables do not exist (tasks 38â€“43). |
 | R13 procure to pay | MISSING | The purchase order and the receipt exist; the supplier bills, the input tax, the payables and the credits do not (tasks 45, 46). |
-| R14 operational accounting | PARTIAL | The expenses and the periods exist. Missing: the counts, the paired transfers, the bank reconciliation, the close workflow (tasks 48, 51, 52). |
+| R14 operational accounting | PARTIAL | **QB-44**: the periods exist, a posting requires exactly one open covering period, posting and closing serialize on the period row, periods cannot overlap and a closed period cannot be reopened by an ordinary update. Missing: the counts, the paired transfers, the bank reconciliation (tasks 51, 52). |
 | R15 trustworthy reporting | PARTIAL | The balance sheet and the income statement read the authoritative journal, and the cost of goods sold is now the movement value (QB-38). Missing: the exact receivables/payables tie-outs, the valuation reports, the six-decimal quantities (tasks 53, 54). |
 | R16 native onboarding and import | MISSING | The import is still the source-specific one; the typed native package does not exist (tasks 18â€“20). |
 | R17 UI and document quality | PARTIAL | The receipt prints the historical snapshot and names an included tax (QB-31). Missing: the shared shell, the paging, the accessibility, the safe exports (tasks 30, 54). |
@@ -77,6 +77,7 @@ A case is `EXERCISED` only when it ran against the real stack and its result is 
 | The receipt posts a journal (F16) | **EXERCISED** | QB-35: a receipt of 10 pieces at 60 posts DR inventory 600 / CR goods received not invoiced 600, leaves the payables untouched and balances on every entry |
 | The device baseline and the atomic cache commit (F27) | **NOT EXERCISED** | tasks 26, 27 are not done |
 | The release promotion is gated (F40) | **NOT EXERCISED** | task 61 is not done |
+| Posting always belongs to exactly one open period (F20) | **EXERCISED** | QB-44: `PeriodPostingTests` proves a date before every period is refused with `ACCOUNTING_PERIOD_MISSING`, a posting after the period is closed is refused with `ACCOUNTING_PERIOD_CLOSED`, closing twice is refused, an overlapping period insert and a closed-to-open update are refused by the database, and a posting blocks while a close holds the period row and completes after the lock is released. |
 
 ## 4. The external blockers
 

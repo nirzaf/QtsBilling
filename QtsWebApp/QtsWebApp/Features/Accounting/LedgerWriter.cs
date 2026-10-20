@@ -59,15 +59,24 @@ internal static class LedgerWriter
             }
         }
 
-        var period = await db.AccountingPeriods.AsNoTracking()
-            .Where(candidate => candidate.BusinessId == businessId
-                && candidate.StartDate <= entryDate
-                && candidate.EndDate >= entryDate)
-            .OrderByDescending(candidate => candidate.StartDate)
-            .FirstOrDefaultAsync(cancellationToken)
-            .ConfigureAwait(false);
+        var period = (await db.AccountingPeriods
+                .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND start_date <= {entryDate} AND end_date >= {entryDate} FOR SHARE")
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false))
+            .SingleOrDefault();
 
-        if (period is { Status: not AccountingPeriodStatus.Open })
+        if (period is null)
+        {
+            // A posted fact without a period could never be closed or reported; fail closed instead of
+            // silently writing a null period (specification task 10, finding F20).
+            throw new DomainRuleException(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.AccountingPeriodMissing,
+                "No accounting period covers the posting date.",
+                $"No period covers {entryDate:yyyy-MM-dd}; create and open the period before posting.");
+        }
+
+        if (period.Status != AccountingPeriodStatus.Open)
         {
             throw new DomainRuleException(
                 StatusCodes.Status409Conflict,
@@ -92,11 +101,11 @@ internal static class LedgerWriter
             BusinessId = businessId,
             EntryNumber = entryNumber,
             EntryDate = entryDate,
-            AccountingPeriodId = period?.Id,
+            AccountingPeriodId = period.Id,
             Memo = string.IsNullOrWhiteSpace(memo) ? null : memo.Trim(),
             SourceType = sourceType,
             SourceId = sourceId,
-            Status = EntryStatus.Posted,
+            Status = EntryStatus.Draft,
             Currency = currency,
             TotalDebit = totals.Debit,
             TotalCredit = totals.Credit,
@@ -124,6 +133,14 @@ internal static class LedgerWriter
                 LocationId = line.LocationId,
             });
         }
+
+        // The database only accepts lines while the entry is draft, so the entry is persisted as a draft
+        // first and then marked posted in the same caller-owned transaction. The deferred balance trigger
+        // still evaluates the posted entry at COMMIT.
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        entry.Status = EntryStatus.Posted;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
 
         return entry;
     }

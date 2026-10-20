@@ -41,6 +41,10 @@ public static class ApiErrorCodes
     public const string PermissionDenied = "PERMISSION_DENIED";
     public const string NeedsReview = "NEEDS_REVIEW";
     public const string AccountingPeriodClosed = "ACCOUNTING_PERIOD_CLOSED";
+
+    public const string AccountingPeriodMissing = "ACCOUNTING_PERIOD_MISSING";
+
+    public const string AccountingPeriodOverlap = "ACCOUNTING_PERIOD_OVERLAP";
     public const string UnbalancedJournal = "UNBALANCED_JOURNAL";
     public const string DuplicatePhone = "DUPLICATE_PHONE";
     public const string DuplicateSku = "DUPLICATE_SKU";
