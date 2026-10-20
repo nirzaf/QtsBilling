@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 concurrency:
   group: release-${{ github.ref }}
@@ -17,9 +17,82 @@ env:
   DOTNET_CLI_TELEMETRY_OPTOUT: 1
 
 jobs:
+  verify:
+    name: Verify release candidate
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_USER: qtsbilling
+          POSTGRES_PASSWORD: qtsbilling
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U qtsbilling"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      QTS_TEST_POSTGRES_CONNECTION: Host=localhost;Port=5432;Username=qts_migrator;Password=qtsbilling;Database=postgres
+      QTS_TEST_POSTGRES_RUNTIME_CONNECTION: Host=localhost;Port=5432;Username=qts_app;Password=qtsbilling;Database=postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Scan tracked files for secrets and double-encoded UTF-8
+        run: pwsh -File scripts/secret-scan.ps1
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Install PostgreSQL client
+        run: sudo apt-get update && sudo apt-get install -y postgresql-client
+
+      - name: Provision migration and runtime roles
+        run: >
+          pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Provision
+          -HostName postgres -Port 5432 -Database postgres -AdminUser qtsbilling
+          -AdminPassword qtsbilling -MigratorUser qts_migrator -MigratorPassword qtsbilling
+          -AppUser qts_app -AppPassword qtsbilling
+
+      - name: Build and publish web host + WASM client
+        run: dotnet publish QtsWebApp/QtsWebApp/QtsWebApp.csproj -c Release -o out/wasm-verify
+
+      - name: Inspect WASM bundle for server assemblies
+        run: pwsh -File scripts/verify-wasm-bundle.ps1 -PublishRoot out/wasm-verify
+
+      - name: Apply migrations using the DDL owner
+        run: |
+          dotnet tool restore
+          dotnet ef database update --project QtsBilling.Persistence.Postgres --context BillingDbContext
+        env:
+          QTS_POSTGRES_CONNECTION: ${{ env.QTS_TEST_POSTGRES_CONNECTION }}
+
+      - name: Verify runtime role has DML privileges only
+        run: >
+          pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Verify
+          -HostName postgres -Port 5432 -Database postgres -AppUser qts_app -AppPassword qtsbilling
+
+      - name: Test PostgreSQL/API integration suite
+        run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
+        env:
+          ConnectionStrings__BillingDb: Host=localhost;Port=5432;Username=qts_app;Password=qtsbilling;Database=postgres
+
+      - name: Test SQLite device store
+        run: dotnet test QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj -c Release
+
+      - name: Test migration tooling
+        run: dotnet test QtsBilling.Migration.Tests/QtsBilling.Migration.Tests.csproj -c Release
+
   release:
     name: Build & publish versioned assets
     runs-on: windows-latest
+    needs: [verify]
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
         with:
