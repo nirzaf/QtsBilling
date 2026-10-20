@@ -524,6 +524,8 @@ public partial class BillingDbContext
             b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
             b.Property(e => e.SkuSnapshot).HasMaxLength(64);
             b.Property(e => e.UnitCostSnapshot).HasPrecision(18, 4);
+            b.Property(e => e.RevenueBaseAmount).HasPrecision(18, 4);
+            b.Property(e => e.TaxMode).HasMaxLength(16).IsRequired();
             b.HasOne<Invoice>()
                 .WithMany()
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
