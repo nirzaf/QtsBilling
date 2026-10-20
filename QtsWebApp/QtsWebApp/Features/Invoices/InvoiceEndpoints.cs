@@ -7,18 +7,18 @@ using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Invoices;
+using QtsBilling.Contracts.Pos;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Features.Accounting;
+using QtsWebApp.Features.Inventory;
 using QtsWebApp.Infrastructure;
 
 namespace QtsWebApp.Features.Invoices;
 
 /// <summary>
-/// Immutable invoice and credit workflow (QB-11). Drafts are editable; issuing allocates the number inside
-/// the posting transaction (row-locked sequence + partial unique index), snapshots every line and posts the
-/// receivable entry. Posted financial terms are never edited: corrections are void (no payments) or a credit
-/// note that references the original invoice and reverses its entry (F-10, spec §3.7).
+/// Immutable invoice and credit workflow (QB-11). Drafts are editable; issued invoices retain their original
+/// terms and partial credit notes record separate line snapshots and journals.
 /// </summary>
 public static class InvoiceEndpoints
 {
@@ -54,7 +54,338 @@ public static class InvoiceEndpoints
         group.MapPost("/{id:guid}/credit-notes", CreditAsync).RequireAuthorization(Permissions.InvoicesManage);
         group.MapGet("/{id:guid}/print", PrintAsync).RequireAuthorization(Permissions.InvoicesIssue);
 
+        app.MapPost("/api/v1/payments/{id:guid}/clear", ClearPaymentAsync)
+            .WithTags("Payments")
+            .RequireAuthorization(Permissions.AccountingPost);
+        app.MapPost("/api/v1/payments/{id:guid}/bounce", BouncePaymentAsync)
+            .WithTags("Payments")
+            .RequireAuthorization(Permissions.AccountingPost);
+
         return app;
+    }
+
+    private static async Task<IResult> ClearPaymentAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var key = http.Request.Headers[IdempotencyHeader].ToString().Trim();
+        if (key.Length is 0 or > 128)
+        {
+            return ApiResults.ValidationProblem("An idempotency key is required.", new Dictionary<string, string[]>
+            {
+                [IdempotencyHeader] = ["Send a client-generated key of 1-128 characters."],
+            });
+        }
+
+        try
+        {
+            var execution = await IdempotencyExecutor.ExecuteAsync(
+                db,
+                businessId,
+                "payment.clear",
+                key,
+                new { PaymentId = id, Action = "clear" },
+                async () =>
+                {
+                    var payment = await db.Payments
+                        .FromSql($"SELECT * FROM payments WHERE id = {id} AND business_id = {businessId} FOR UPDATE")
+                        .FirstOrDefaultAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    if (payment is null)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The payment does not exist in this business.", "Check the identifier and signed-in business.");
+                    }
+
+                    if (payment.Status != PaymentStatus.Pending
+                        || payment.Method is not (PaymentMethod.Cheque or PaymentMethod.BankTransfer))
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "Only a pending cheque or bank transfer can be cleared.", "Clear each pending tender once after it is confirmed by the bank.");
+                    }
+
+                    if (payment.InvoiceId is null && payment.SaleId is null && payment.CustomerId is null)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "This payment is not linked to an open receivable.", "Only invoice and POS receivable payments can be cleared through this route.");
+                    }
+
+                    var customerDeposit = payment.CustomerId is not null && payment.InvoiceId is null && payment.SaleId is null;
+                    var accountCodes = customerDeposit
+                        ? new[] { BankAccountCode, ReceivableAccountCode, "2105" }
+                        : new[] { BankAccountCode, ReceivableAccountCode };
+                    var accounts = await LedgerWriter.ResolveAccountsAsync(db, businessId, accountCodes, cancellationToken)
+                        .ConfigureAwait(false);
+                    RejectMissingAccounts(accounts, BankAccountCode, ReceivableAccountCode);
+                    var bankAccount = accounts[BankAccountCode];
+                    if (payment.BankAccountId is { } bankAccountId)
+                    {
+                        bankAccount = await db.Accounts.AsNoTracking()
+                            .FirstOrDefaultAsync(account => account.BusinessId == businessId && account.Id == bankAccountId && account.IsActive && account.AccountType == AccountType.Asset, cancellationToken)
+                            .ConfigureAwait(false)
+                            ?? throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The selected bank account is unavailable.", "Choose an active asset account in this business.");
+                    }
+
+                    Invoice? invoice = null;
+                    var invoiceAllocations = new List<(Invoice Invoice, decimal Amount)>();
+                    Guid? locationId = null;
+                    if (payment.InvoiceId is { } invoiceId)
+                    {
+                        invoice = await db.Invoices
+                            .FromSql($"SELECT * FROM invoices WHERE id = {invoiceId} AND business_id = {businessId} FOR UPDATE")
+                            .FirstOrDefaultAsync(cancellationToken)
+                            .ConfigureAwait(false)
+                            ?? throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The receivable invoice no longer exists.", "The payment cannot be cleared against a missing invoice.");
+                        if (invoice.BalanceDue < payment.Amount)
+                        {
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The invoice balance is below the pending payment amount.", "Reconcile the invoice balance before clearing this tender.");
+                        }
+                        locationId = invoice.LocationId;
+                    }
+
+                    if (customerDeposit)
+                    {
+                        var allocationRows = await db.PaymentAllocations.AsNoTracking()
+                            .Where(allocation => allocation.BusinessId == businessId && allocation.PaymentId == payment.Id)
+                            .OrderBy(allocation => allocation.InvoiceId)
+                            .ToListAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        var allocatedTotal = LedgerWriter.Round(allocationRows.Sum(allocation => allocation.AllocatedAmount));
+                        if (LedgerWriter.Round(allocatedTotal + payment.UnallocatedAmount) != payment.Amount)
+                        {
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The customer receipt allocations do not reconcile to the payment amount.", "Reconcile the customer payment before clearing it.");
+                        }
+
+                        var invoiceIds = allocationRows.Select(allocation => allocation.InvoiceId).Distinct().Order().ToArray();
+                        var lockedInvoices = invoiceIds.Length == 0
+                            ? new List<Invoice>()
+                            : await db.Invoices
+                                .FromSql($"SELECT * FROM invoices WHERE business_id = {businessId} AND id = ANY({invoiceIds}) ORDER BY id FOR UPDATE")
+                                .ToListAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        var invoiceById = lockedInvoices.ToDictionary(candidate => candidate.Id);
+                        if (invoiceById.Count != invoiceIds.Length)
+                        {
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "A customer receipt invoice no longer exists.", "The receipt cannot be cleared until its allocations are reconciled.");
+                        }
+
+                        foreach (var allocation in allocationRows)
+                        {
+                            var allocatedInvoice = invoiceById[allocation.InvoiceId];
+                            if (allocatedInvoice.CustomerId != payment.CustomerId
+                                || allocatedInvoice.Currency != payment.Currency
+                                || allocatedInvoice.BalanceDue < allocation.AllocatedAmount
+                                || allocatedInvoice.Status is InvoiceStatus.Draft or InvoiceStatus.Void)
+                            {
+                                throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "A customer receipt allocation is no longer valid.", "Reconcile the invoice before clearing this receipt.");
+                            }
+                            invoiceAllocations.Add((allocatedInvoice, allocation.AllocatedAmount));
+                        }
+                        accounts.TryGetValue("2105", out var depositAccount);
+                        if (payment.UnallocatedAmount > 0
+                            && (depositAccount is null || !depositAccount.IsActive || depositAccount.AccountType != AccountType.Liability))
+                        {
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The customer deposits account is unavailable.", "Configure an active customer deposits liability account before clearing unallocated receipts.");
+                        }
+                    }
+
+                    Sale? sale = null;
+                    if (payment.SaleId is { } saleId)
+                    {
+                        sale = await db.Sales
+                            .FromSql($"SELECT * FROM sales WHERE id = {saleId} AND business_id = {businessId} FOR UPDATE")
+                            .FirstOrDefaultAsync(cancellationToken)
+                            .ConfigureAwait(false)
+                            ?? throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The receivable sale no longer exists.", "The payment cannot be cleared against a missing sale.");
+                        locationId ??= sale.LocationId;
+                    }
+
+                    var now = DateTimeOffset.UtcNow;
+                    payment.Status = PaymentStatus.Confirmed;
+                    payment.ClearedAtUtc = now;
+                    payment.BankAccountId = bankAccount.Id;
+                    if (invoice is not null)
+                    {
+                        invoice.AmountPaid = LedgerWriter.Round(invoice.AmountPaid + payment.Amount);
+                        invoice.BalanceDue = LedgerWriter.Round(invoice.BalanceDue - payment.Amount);
+                        invoice.Status = invoice.BalanceDue == 0m ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+                    }
+                    foreach (var allocation in invoiceAllocations)
+                    {
+                        allocation.Invoice.AmountPaid = LedgerWriter.Round(allocation.Invoice.AmountPaid + allocation.Amount);
+                        allocation.Invoice.BalanceDue = LedgerWriter.Round(allocation.Invoice.BalanceDue - allocation.Amount);
+                        allocation.Invoice.Status = allocation.Invoice.BalanceDue == 0m ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+                    }
+                    if (sale is not null)
+                    {
+                        sale.PaymentStatus = PaymentStatus.Confirmed;
+                    }
+
+                    var paymentLines = new List<JournalLineRequest>
+                    {
+                        new(bankAccount.Id, payment.Amount, 0m, "Payment cleared to bank", locationId),
+                    };
+                    if (invoice is not null)
+                    {
+                        paymentLines.Add(new JournalLineRequest(accounts[ReceivableAccountCode].Id, 0m, payment.Amount, "Clear open receivable", locationId));
+                    }
+                    else if (invoiceAllocations.Count > 0)
+                    {
+                        paymentLines.AddRange(invoiceAllocations.Select(allocation =>
+                            new JournalLineRequest(accounts[ReceivableAccountCode].Id, 0m, allocation.Amount, $"Clear receipt for {allocation.Invoice.InvoiceNumber}", allocation.Invoice.LocationId)));
+                    }
+                    else if (!customerDeposit)
+                    {
+                        paymentLines.Add(new JournalLineRequest(accounts[ReceivableAccountCode].Id, 0m, payment.Amount, "Clear POS receivable", locationId));
+                    }
+                    if (customerDeposit && payment.UnallocatedAmount > 0)
+                    {
+                        paymentLines.Add(new JournalLineRequest(accounts["2105"].Id, 0m, payment.UnallocatedAmount, "Clear customer deposit receipt", null));
+                    }
+
+                    await LedgerWriter.PostWithinTransactionAsync(
+                        db,
+                        businessId,
+                        userId,
+                        payment.Currency,
+                        LedgerWriter.LocalDate(null, now),
+                        $"Clear {payment.Method} payment {payment.Reference}",
+                        JournalSourceType.Payment,
+                        payment.Id,
+                        reversalOfEntryId: null,
+                        paymentLines,
+                        cancellationToken).ConfigureAwait(false);
+
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        BusinessId = businessId,
+                        UserId = userId,
+                        EntityType = "payment",
+                        EntityId = payment.Id,
+                        Action = "cleared",
+                        OccurredAtUtc = now,
+                        CorrelationId = http.TraceIdentifier,
+                        Summary = JsonSerializer.Serialize(new { payment.Method, payment.Amount, payment.Reference, bankAccountId = bankAccount.Id }),
+                    });
+
+                    return (StatusCodes.Status200OK, new PaymentTransitionDto(payment.Id, payment.Status.ToString(), now, null, null));
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Json(execution.Body, statusCode: execution.StatusCode);
+        }
+        catch (DomainRuleException exception)
+        {
+            return exception.ToResult();
+        }
+        catch (PostgresException exception)
+        {
+            return MapPostgresException(exception);
+        }
+    }
+
+    private static async Task<IResult> BouncePaymentAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        PaymentBounceRequest request,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var reason = request.Reason?.Trim();
+        if (string.IsNullOrWhiteSpace(reason) || reason.Length > 500)
+        {
+            return ApiResults.ValidationProblem("A bounce reason of 1-500 characters is required.", new Dictionary<string, string[]>
+            {
+                [nameof(request.Reason)] = ["Enter a short reason for the returned payment."],
+            });
+        }
+
+        var key = http.Request.Headers[IdempotencyHeader].ToString().Trim();
+        if (key.Length is 0 or > 128)
+        {
+            return ApiResults.ValidationProblem("An idempotency key is required.", new Dictionary<string, string[]>
+            {
+                [IdempotencyHeader] = ["Send a client-generated key of 1-128 characters."],
+            });
+        }
+
+        try
+        {
+            var execution = await IdempotencyExecutor.ExecuteAsync(
+                db,
+                businessId,
+                "payment.bounce",
+                key,
+                new { PaymentId = id, Reason = reason },
+                async () =>
+                {
+                    var payment = await db.Payments
+                        .FromSql($"SELECT * FROM payments WHERE id = {id} AND business_id = {businessId} FOR UPDATE")
+                        .FirstOrDefaultAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    if (payment is null)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The payment does not exist in this business.", "Check the identifier and signed-in business.");
+                    }
+                    if (payment.Status != PaymentStatus.Pending
+                        || payment.Method is not (PaymentMethod.Cheque or PaymentMethod.BankTransfer))
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "Only a pending cheque or bank transfer can be bounced.", "Bounce each pending tender once after the return is confirmed.");
+                    }
+
+                    var now = DateTimeOffset.UtcNow;
+                    payment.Status = PaymentStatus.Bounced;
+                    payment.BouncedAtUtc = now;
+                    payment.BounceReason = reason;
+                    if (payment.SaleId is { } saleId)
+                    {
+                        var sale = await db.Sales
+                            .FromSql($"SELECT * FROM sales WHERE id = {saleId} AND business_id = {businessId} FOR UPDATE")
+                            .FirstOrDefaultAsync(cancellationToken)
+                            .ConfigureAwait(false);
+                        if (sale is not null)
+                        {
+                            sale.PaymentStatus = PaymentStatus.Bounced;
+                        }
+                    }
+
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        BusinessId = businessId,
+                        UserId = userId,
+                        EntityType = "payment",
+                        EntityId = payment.Id,
+                        Action = "bounced",
+                        OccurredAtUtc = now,
+                        CorrelationId = http.TraceIdentifier,
+                        Summary = JsonSerializer.Serialize(new { payment.Method, payment.Amount, payment.Reference, reason }),
+                    });
+
+                    return (StatusCodes.Status200OK, new PaymentTransitionDto(payment.Id, payment.Status.ToString(), null, now, reason));
+                },
+                cancellationToken).ConfigureAwait(false);
+
+            return Results.Json(execution.Body, statusCode: execution.StatusCode);
+        }
+        catch (DomainRuleException exception)
+        {
+            return exception.ToResult();
+        }
+        catch (PostgresException exception)
+        {
+            return MapPostgresException(exception);
+        }
     }
 
     // ---------------------------------------------------------------- queries
@@ -120,6 +451,9 @@ public static class InvoiceEndpoints
                 invoice.DiscountAmount,
                 invoice.TaxAmount,
                 invoice.TotalAmount,
+                invoice.AmountPaid,
+                invoice.CreditedAmount,
+                invoice.BalanceDue,
                 invoice.Note,
                 invoice.IssuedAtUtc,
                 invoice.VoidedAtUtc))
@@ -134,28 +468,6 @@ public static class InvoiceEndpoints
             nextCursor = CursorPaging.Encode(rows[^1].Id);
         }
 
-        var ids = rows.Select(row => row.Id).ToArray();
-
-        var paid = await db.Payments.AsNoTracking()
-            .Where(payment => payment.BusinessId == businessId
-                && payment.InvoiceId != null
-                && ids.Contains(payment.InvoiceId!.Value)
-                && payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
-            .GroupBy(payment => payment.InvoiceId!.Value)
-            .Select(group => new { InvoiceId = group.Key, Amount = group.Sum(payment => payment.Amount) })
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var credited = await db.CreditNotes.AsNoTracking()
-            .Where(note => note.BusinessId == businessId && ids.Contains(note.InvoiceId))
-            .GroupBy(note => note.InvoiceId)
-            .Select(group => new { InvoiceId = group.Key, Amount = group.Sum(note => note.Amount) })
-            .ToListAsync(cancellationToken)
-            .ConfigureAwait(false);
-
-        var paidByInvoice = paid.ToDictionary(row => row.InvoiceId, row => row.Amount);
-        var creditedByInvoice = credited.ToDictionary(row => row.InvoiceId, row => row.Amount);
-
         var customerIds = rows.Where(row => row.CustomerId is not null).Select(row => row.CustomerId!.Value).Distinct().ToArray();
 
         var customers = await db.Customers.AsNoTracking()
@@ -167,9 +479,7 @@ public static class InvoiceEndpoints
         var page = rows
             .Select(row => ToSummary(
                 row,
-                row.CustomerId is { } id && customers.TryGetValue(id, out var name) ? name : null,
-                paidByInvoice.TryGetValue(row.Id, out var paidAmount) ? paidAmount : 0m,
-                creditedByInvoice.TryGetValue(row.Id, out var creditedAmount) ? creditedAmount : 0m))
+                row.CustomerId is { } id && customers.TryGetValue(id, out var name) ? name : null))
             .ToList();
 
         return Results.Ok(new PagedResult<InvoiceSummaryDto>(page, nextCursor, size));
@@ -287,6 +597,9 @@ public static class InvoiceEndpoints
             DiscountAmount = totals.Discount,
             TaxAmount = totals.Tax,
             TotalAmount = totals.Total,
+            AmountPaid = 0m,
+            CreditedAmount = 0m,
+            BalanceDue = totals.Total,
             Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
         };
 
@@ -366,6 +679,9 @@ public static class InvoiceEndpoints
             target.DiscountAmount = totals.Discount;
             target.TaxAmount = totals.Tax;
             target.TotalAmount = totals.Total;
+            target.AmountPaid = 0m;
+            target.CreditedAmount = 0m;
+            target.BalanceDue = totals.Total;
             target.Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim();
 
             AddLines(db, businessId, id, lines);
@@ -496,7 +812,7 @@ public static class InvoiceEndpoints
                         "This invoice was already issued (or voided/credited).");
                 }
 
-                var lines = await db.InvoiceLines.AsNoTracking()
+                var lines = await db.InvoiceLines
                     .Where(line => line.BusinessId == businessId && line.InvoiceId == id)
                     .OrderBy(line => line.LineNo)
                     .ToListAsync(cancellationToken)
@@ -509,6 +825,33 @@ public static class InvoiceEndpoints
                         ApiErrorCodes.ValidationFailed,
                         "The draft has no lines to issue.",
                         "Add at least one line before issuing the invoice.");
+                }
+
+                var variantIds = lines.Where(line => line.VariantId.HasValue).Select(line => line.VariantId!.Value).Distinct().ToArray();
+                var issueStockSnapshots = await (from variant in db.ProductVariants.AsNoTracking()
+                    join product in db.Products.AsNoTracking() on new { variant.ProductId, variant.BusinessId } equals new { ProductId = product.Id, product.BusinessId }
+                    where variant.BusinessId == businessId && variantIds.Contains(variant.Id)
+                    select new { VariantId = variant.Id, variant.PurchasePrice, product.TrackStock })
+                    .ToDictionaryAsync(row => row.VariantId, cancellationToken)
+                    .ConfigureAwait(false);
+                foreach (var line in lines)
+                {
+                    if (line.VariantId is { } variantId && issueStockSnapshots.TryGetValue(variantId, out var stockSnapshot))
+                    {
+                        line.UnitCostSnapshot = LedgerWriter.Round(stockSnapshot.PurchasePrice ?? 0m);
+                        line.TrackStockSnapshot = stockSnapshot.TrackStock;
+                    }
+                }
+
+                if (invoice.CustomerId is { } customerId)
+                {
+                    await CustomerCreditLimitGuard.EnsureWithinLimitAsync(
+                        db,
+                        businessId,
+                        customerId,
+                        invoice.Currency,
+                        invoice.BalanceDue,
+                        cancellationToken).ConfigureAwait(false);
                 }
 
                 var accounts = await LedgerWriter.ResolveAccountsAsync(
@@ -612,6 +955,13 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (request is null)
+        {
+            return ApiResults.ValidationProblem(
+                "The void payload is invalid.",
+                new Dictionary<string, string[]> { ["request"] = ["A void payload is required."] });
+        }
+
         var reason = request?.Reason?.Trim() ?? string.Empty;
 
         if (reason.Length is 0 or > MaxReasonLength)
@@ -621,6 +971,7 @@ public static class InvoiceEndpoints
                 new Dictionary<string, string[]> { ["reason"] = [$"A void reason of 1-{MaxReasonLength} characters is required (audited with the actor and time)."] });
         }
 
+        var note = request?.Note;
         var strategy = db.Database.CreateExecutionStrategy();
         var now = DateTimeOffset.UtcNow;
 
@@ -664,20 +1015,21 @@ public static class InvoiceEndpoints
                         "Voiding is a one-time transition; the original entries remain in the ledger.");
                 }
 
-                var paid = await db.Payments.AsNoTracking()
+                var collectedOrPending = await db.Payments.AsNoTracking()
                     .Where(payment => payment.BusinessId == businessId
                         && payment.InvoiceId == id
-                        && payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
+                        && (payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed
+                            || payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Pending))
                     .SumAsync(payment => (decimal?)payment.Amount, cancellationToken)
                     .ConfigureAwait(false) ?? 0m;
 
-                if (paid > 0)
+                if (collectedOrPending > 0)
                 {
                     throw new DomainRuleException(
                         StatusCodes.Status409Conflict,
                         ApiErrorCodes.InvoiceHasPayments,
-                        "An invoice with confirmed payments cannot be voided.",
-                        "Record the return as a credit note referencing this invoice instead.");
+                        "An invoice with confirmed or pending payments cannot be voided.",
+                        "Clear or bounce pending tenders before voiding, or record a return as a credit note.");
                 }
 
                 var entry = await ReverseInvoiceEntryAsync(
@@ -685,6 +1037,8 @@ public static class InvoiceEndpoints
                     .ConfigureAwait(false);
 
                 invoice.Status = InvoiceStatus.Void;
+                invoice.CreditedAmount = invoice.TotalAmount;
+                invoice.BalanceDue = 0m;
                 invoice.VoidedAtUtc = now;
 
                 db.AuditEvents.Add(new AuditEvent
@@ -701,7 +1055,7 @@ public static class InvoiceEndpoints
                         invoiceNumber = invoice.InvoiceNumber,
                         reversalEntry = entry.EntryNumber,
                         reason,
-                        note = request.Note,
+                        note,
                     }),
                 });
 
@@ -741,6 +1095,35 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        var idempotencyKey = http.Request.Headers[IdempotencyHeader].ToString().Trim();
+        if (idempotencyKey.Length is 0 or > 64)
+        {
+            return ApiResults.ValidationProblem(
+                "An idempotency key is required.",
+                new Dictionary<string, string[]> { [IdempotencyHeader] = ["Send a client-generated key of 1-64 characters in the Idempotency-Key header."] });
+        }
+
+        var payloadHash = RequestFingerprint.Compute(new { InvoiceId = id, Request = request });
+        var replay = await db.CreditNotes.AsNoTracking()
+            .FirstOrDefaultAsync(note => note.BusinessId == businessId && note.IdempotencyKey == idempotencyKey, cancellationToken)
+            .ConfigureAwait(false);
+        if (replay is not null)
+        {
+            if (!string.Equals(replay.PayloadHash, payloadHash, StringComparison.Ordinal))
+            {
+                return ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.SameKeyDifferentPayload,
+                    "This idempotency key was used for a different credit note payload.",
+                    "Retry the original payload with the same key or create a new key for a new credit.");
+            }
+
+            var replayInvoice = await db.Invoices.AsNoTracking()
+                .FirstAsync(invoice => invoice.BusinessId == businessId && invoice.Id == replay.InvoiceId, cancellationToken)
+                .ConfigureAwait(false);
+            return Results.Ok(await ToDetailAsync(db, businessId, replayInvoice, cancellationToken).ConfigureAwait(false));
+        }
+
         var reason = request?.Reason?.Trim() ?? string.Empty;
 
         if (reason.Length is 0 or > MaxReasonLength)
@@ -757,6 +1140,23 @@ public static class InvoiceEndpoints
                 new Dictionary<string, string[]> { ["note"] = [$"A note of at most {MaxNoteLength} characters is supported."] });
         }
 
+        if (request?.Lines is { Count: > 0 } creditLines)
+        {
+            if (creditLines.Any(line => line.InvoiceLineId == Guid.Empty || line.Quantity <= 0m || decimal.Round(line.Quantity, 6) != line.Quantity))
+            {
+                return ApiResults.ValidationProblem(
+                    "The credit note payload is invalid.",
+                    new Dictionary<string, string[]> { ["lines"] = ["Each line needs an invoice line id and a positive quantity with at most six decimal places."] });
+            }
+
+            if (creditLines.Select(line => line.InvoiceLineId).Distinct().Count() != creditLines.Count)
+            {
+                return ApiResults.ValidationProblem(
+                    "The credit note payload is invalid.",
+                    new Dictionary<string, string[]> { ["lines"] = ["An invoice line may appear at most once in a credit note."] });
+            }
+        }
+
         var business = await db.Businesses.AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
             .ConfigureAwait(false);
@@ -771,7 +1171,7 @@ public static class InvoiceEndpoints
 
         try
         {
-            var creditNote = await strategy.ExecuteAsync(async () =>
+            var creditNoteOperation = await strategy.ExecuteAsync(async () =>
             {
                 db.ChangeTracker.Clear();
 
@@ -791,17 +1191,21 @@ public static class InvoiceEndpoints
                         "Check the identifier: invoices are scoped to the signed-in business.");
                 }
 
-                var existing = await db.CreditNotes.AsNoTracking()
-                    .FirstOrDefaultAsync(note => note.BusinessId == businessId && note.InvoiceId == id, cancellationToken)
+                var existingKey = await db.CreditNotes.AsNoTracking()
+                    .FirstOrDefaultAsync(note => note.BusinessId == businessId && note.IdempotencyKey == idempotencyKey, cancellationToken)
                     .ConfigureAwait(false);
-
-                if (existing is not null)
+                if (existingKey is not null)
                 {
-                    throw new DomainRuleException(
-                        StatusCodes.Status409Conflict,
-                        ApiErrorCodes.InvoiceAlreadyCredited,
-                        "This invoice already has a credit note.",
-                        "A full credit note can be issued at most once per invoice (partial credits are not implemented).");
+                    if (!string.Equals(existingKey.PayloadHash, payloadHash, StringComparison.Ordinal))
+                    {
+                        throw new DomainRuleException(
+                            StatusCodes.Status409Conflict,
+                            ApiErrorCodes.SameKeyDifferentPayload,
+                            "This idempotency key was used for a different credit note payload.",
+                            "Retry the original payload with the same key or create a new key for a new credit.");
+                    }
+
+                    return new CreditNoteOperation(existingKey, Replayed: true);
                 }
 
                 if (invoice.Status == InvoiceStatus.Draft)
@@ -822,9 +1226,117 @@ public static class InvoiceEndpoints
                         "Void or credited invoices cannot be credited again.");
                 }
 
-                var entry = await ReverseInvoiceEntryAsync(
-                        db, businessId, userId, invoice, $"Credit note for {invoice.InvoiceNumber}", cancellationToken)
+                var pendingPayments = await db.Payments.AsNoTracking()
+                    .Where(payment => payment.BusinessId == businessId
+                        && payment.InvoiceId == id
+                        && payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Pending)
+                    .SumAsync(payment => (decimal?)payment.Amount, cancellationToken)
+                    .ConfigureAwait(false) ?? 0m;
+                if (pendingPayments > 0m)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.InvoiceHasPayments,
+                        "An invoice with a pending payment cannot receive a credit note.",
+                        "Clear or bounce pending payments before changing the credited invoice balance.");
+                }
+
+                var invoiceLines = await db.InvoiceLines
+                    .FromSql($"SELECT * FROM invoice_lines WHERE business_id = {businessId} AND invoice_id = {id} ORDER BY line_no FOR UPDATE")
+                    .OrderBy(line => line.LineNo)
+                    .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
+
+                var priorCreditLines = await (from creditLine in db.CreditNoteLines.AsNoTracking()
+                    join priorNote in db.CreditNotes.AsNoTracking() on new { creditLine.CreditNoteId, creditLine.BusinessId } equals new { CreditNoteId = priorNote.Id, priorNote.BusinessId }
+                    where priorNote.BusinessId == businessId && priorNote.InvoiceId == id
+                    select new PriorCreditLine(creditLine.InvoiceLineId, creditLine.QuantityCredited, creditLine.TaxAmount, creditLine.LineTotal))
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                var creditedByLine = priorCreditLines.GroupBy(line => line.InvoiceLineId)
+                    .ToDictionary(group => group.Key, group => new PriorCreditTotals(
+                        group.Sum(line => line.Quantity),
+                        group.Sum(line => line.TaxAmount),
+                        group.Sum(line => line.LineTotal)));
+                var invoiceLineById = invoiceLines.ToDictionary(line => line.Id);
+                var requestedLines = request?.Lines is null or { Count: 0 }
+                    ? invoiceLines
+                        .Where(line => !creditedByLine.TryGetValue(line.Id, out var prior) || prior.Quantity < line.Quantity)
+                        .Select(line => new InvoiceCreditLineRequest(
+                            line.Id,
+                            line.Quantity - (creditedByLine.TryGetValue(line.Id, out var prior) ? prior.Quantity : 0m)))
+                        .ToList()
+                    : request.Lines;
+
+                var calculatedLines = new List<CalculatedCreditLine>(requestedLines.Count);
+                foreach (var requested in requestedLines.OrderBy(line => invoiceLineById.TryGetValue(line.InvoiceLineId, out var matched) ? matched.LineNo : int.MaxValue))
+                {
+                    if (!invoiceLineById.TryGetValue(requested.InvoiceLineId, out var invoiceLine))
+                    {
+                        throw new DomainRuleException(
+                            StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed,
+                            "The credit note lines are invalid.",
+                            "Every credit line must refer to a line on this invoice.");
+                    }
+
+                    var prior = creditedByLine.GetValueOrDefault(requested.InvoiceLineId) ?? new PriorCreditTotals(0m, 0m, 0m);
+                    var remaining = LedgerWriter.Round(invoiceLine.Quantity - prior.Quantity);
+                    if (requested.Quantity <= 0m || requested.Quantity > remaining)
+                    {
+                        throw new DomainRuleException(
+                            StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed,
+                            "The credit note quantities are invalid.",
+                            $"The remaining uncredited quantity for invoice line {invoiceLine.LineNo} is {remaining}.");
+                    }
+
+                    var amounts = CalculateCreditAmounts(invoiceLine, requested.Quantity, remaining, prior);
+                    if (requested.RestockInventory && invoiceLine.TrackStockSnapshot
+                        && (invoiceLine.VariantId is null || invoice.LocationId is null))
+                    {
+                        throw new DomainRuleException(
+                            StatusCodes.Status400BadRequest,
+                            ApiErrorCodes.ValidationFailed,
+                            "The credit note inventory disposition is invalid.",
+                            $"Invoice line {invoiceLine.LineNo} has no stock variant or invoice location to restock.");
+                    }
+
+                    calculatedLines.Add(new CalculatedCreditLine(
+                        invoiceLine,
+                        requested.Quantity,
+                        requested.RestockInventory,
+                        amounts.TaxAmount,
+                        amounts.LineTotal));
+                }
+
+                if (calculatedLines.Count == 0)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.InvoiceAlreadyCredited,
+                        "The invoice has no remaining quantity to credit.",
+                        "All invoice line quantities have already been credited.");
+                }
+
+                var creditAmount = LedgerWriter.Round(calculatedLines.Sum(line => line.LineTotal));
+                var previouslyCredited = LedgerWriter.Round(priorCreditLines.Sum(line => line.LineTotal));
+                if (creditAmount <= 0m || creditAmount > LedgerWriter.Round(invoice.TotalAmount - previouslyCredited))
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status400BadRequest,
+                        ApiErrorCodes.ValidationFailed,
+                        "The credit note amount is invalid.",
+                        "The requested amount must be positive and cannot exceed the invoice's remaining amount.");
+                }
+
+                var accounts = await LedgerWriter.ResolveAccountsAsync(
+                    db,
+                    businessId,
+                    [ReceivableAccountCode, TaxAccountCode, "4010", "1200", "2105", "5000"],
+                    cancellationToken).ConfigureAwait(false);
+                RejectMissingAccounts(accounts, ReceivableAccountCode, TaxAccountCode, "4010", "1200", "2105", "5000");
 
                 var creditNumber = await LedgerWriter.AllocateNumberAsync(
                         db,
@@ -843,18 +1355,123 @@ public static class InvoiceEndpoints
                     CreditNumber = creditNumber,
                     IssueDate = LedgerWriter.LocalDate(business.TimeZone, now),
                     Currency = invoice.Currency,
-                    Amount = invoice.TotalAmount,
+                    Amount = creditAmount,
                     Reason = reason,
                     Note = string.IsNullOrWhiteSpace(request?.Note) ? null : request!.Note!.Trim(),
-                    JournalEntryId = entry.Id,
                     IssuedAtUtc = now,
                     IssuedByUserId = userId,
+                    IdempotencyKey = idempotencyKey,
+                    PayloadHash = payloadHash,
                 };
 
-                db.CreditNotes.Add(creditNote);
+                var creditNoteLineEntities = new Dictionary<Guid, CreditNoteLine>();
+                var lineNo = 1;
+                foreach (var calculated in calculatedLines)
+                {
+                    var creditLine = new CreditNoteLine
+                    {
+                        BusinessId = businessId,
+                        CreditNoteId = creditNote.Id,
+                        InvoiceLineId = calculated.InvoiceLine.Id,
+                        VariantId = calculated.InvoiceLine.VariantId,
+                        LineNo = lineNo++,
+                        QuantityCredited = calculated.Quantity,
+                        UnitPrice = calculated.InvoiceLine.UnitPrice,
+                        TaxAmount = calculated.TaxAmount,
+                        LineTotal = calculated.LineTotal,
+                        RestockInventory = calculated.RestockInventory,
+                        UnitCostRestocked = calculated.RestockInventory && calculated.InvoiceLine.TrackStockSnapshot
+                            ? calculated.InvoiceLine.UnitCostSnapshot
+                            : 0m,
+                    };
+                    creditNoteLineEntities.Add(calculated.InvoiceLine.Id, creditLine);
+                }
 
-                invoice.Status = InvoiceStatus.Void;
-                invoice.VoidedAtUtc = now;
+                decimal restockedCost = 0m;
+                if (invoice.LocationId is { } locationId)
+                {
+                    foreach (var calculated in calculatedLines.Where(line => line.RestockInventory && line.InvoiceLine.TrackStockSnapshot)
+                        .OrderBy(line => line.InvoiceLine.VariantId))
+                    {
+                        var movement = await InventoryLedger.ApplyAsync(
+                            db,
+                            businessId,
+                            userId,
+                            locationId,
+                            calculated.InvoiceLine.VariantId!.Value,
+                            MovementType.SaleReversal,
+                            calculated.Quantity,
+                            calculated.InvoiceLine.UnitCostSnapshot,
+                            "credit_note_line",
+                            creditNoteLineEntities[calculated.InvoiceLine.Id].Id,
+                            $"Credit note {creditNumber}",
+                            now,
+                            cancellationToken).ConfigureAwait(false);
+                        restockedCost = LedgerWriter.Round(restockedCost + movement.ValueDelta);
+                    }
+                }
+
+                var creditedTax = LedgerWriter.Round(calculatedLines.Sum(line => line.TaxAmount));
+                var creditedRevenue = LedgerWriter.Round(creditAmount - creditedTax);
+                var creditToReceivable = Math.Min(creditAmount, invoice.BalanceDue);
+                var customerCredit = LedgerWriter.Round(creditAmount - creditToReceivable);
+                var journalLines = new List<JournalLineRequest>();
+                if (creditedRevenue > 0m)
+                {
+                    journalLines.Add(new(accounts["4010"].Id, creditedRevenue, 0m, "Sales returns", invoice.LocationId));
+                }
+                if (creditedTax > 0m)
+                {
+                    journalLines.Add(new(accounts[TaxAccountCode].Id, creditedTax, 0m, "Tax credited", invoice.LocationId));
+                }
+                if (creditToReceivable > 0m)
+                {
+                    journalLines.Add(new(accounts[ReceivableAccountCode].Id, 0m, creditToReceivable, $"Credit {creditNumber}", invoice.LocationId));
+                }
+                if (customerCredit > 0m)
+                {
+                    journalLines.Add(new(accounts["2105"].Id, 0m, customerCredit, $"Customer credit {creditNumber}", invoice.LocationId));
+                }
+                if (restockedCost > 0m)
+                {
+                    journalLines.Add(new(accounts["1200"].Id, restockedCost, 0m, "Restocked inventory", invoice.LocationId));
+                    journalLines.Add(new(accounts["5000"].Id, 0m, restockedCost, "COGS reversal", invoice.LocationId));
+                }
+                var entry = await LedgerWriter.PostWithinTransactionAsync(
+                    db,
+                    businessId,
+                    userId,
+                    invoice.Currency,
+                    LedgerWriter.LocalDate(business.TimeZone, now),
+                    $"Credit note for {invoice.InvoiceNumber}",
+                    JournalSourceType.CreditNote,
+                    creditNote.Id,
+                    reversalOfEntryId: null,
+                    journalLines,
+                    cancellationToken).ConfigureAwait(false);
+                creditNote.JournalEntryId = entry.Id;
+                db.CreditNotes.Add(creditNote);
+                foreach (var creditLine in creditNoteLineEntities.Values)
+                {
+                    db.CreditNoteLines.Add(creditLine);
+                }
+
+                invoice.CreditedAmount = LedgerWriter.Round(invoice.CreditedAmount + creditAmount);
+                invoice.BalanceDue = LedgerWriter.Round(Math.Max(0m, invoice.TotalAmount - invoice.AmountPaid - invoice.CreditedAmount));
+                var fullyCredited = invoice.CreditedAmount >= invoice.TotalAmount;
+                if (fullyCredited && invoice.AmountPaid == 0m)
+                {
+                    invoice.Status = InvoiceStatus.Void;
+                    invoice.VoidedAtUtc = now;
+                }
+                else if (invoice.BalanceDue == 0m && invoice.AmountPaid > 0m)
+                {
+                    invoice.Status = InvoiceStatus.Paid;
+                }
+                else if (invoice.AmountPaid > 0m)
+                {
+                    invoice.Status = InvoiceStatus.PartiallyPaid;
+                }
 
                 db.AuditEvents.Add(new AuditEvent
                 {
@@ -869,7 +1486,8 @@ public static class InvoiceEndpoints
                     {
                         creditNumber,
                         invoiceNumber = invoice.InvoiceNumber,
-                        amount = invoice.TotalAmount,
+                        amount = creditAmount,
+                        lines = calculatedLines.Count,
                         reversalEntry = entry.EntryNumber,
                         reason,
                     }),
@@ -878,16 +1496,22 @@ public static class InvoiceEndpoints
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
-                return creditNote;
+                return new CreditNoteOperation(creditNote, Replayed: false);
             }).ConfigureAwait(false);
 
             var refreshed = await db.Invoices.AsNoTracking()
                 .FirstAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
                 .ConfigureAwait(false);
+            var detail = await ToDetailAsync(db, businessId, refreshed, cancellationToken).ConfigureAwait(false);
+
+            if (creditNoteOperation.Replayed)
+            {
+                return Results.Ok(detail);
+            }
 
             return Results.Created(
-                $"/api/v1/invoices/{id}/credit-notes/{creditNote.Id}",
-                await ToDetailAsync(db, businessId, refreshed, cancellationToken).ConfigureAwait(false));
+                $"/api/v1/invoices/{id}/credit-notes/{creditNoteOperation.CreditNote.Id}",
+                detail);
         }
         catch (DomainRuleException exception)
         {
@@ -1058,14 +1682,24 @@ public static class InvoiceEndpoints
                             : "Issue the invoice before allocating payments.");
                 }
 
-                var paid = await db.Payments
+                var pendingDirect = await db.Payments
                     .Where(candidate => candidate.BusinessId == businessId
                         && candidate.InvoiceId == id
-                        && candidate.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
+                        && candidate.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Pending)
                     .SumAsync(candidate => (decimal?)candidate.Amount, cancellationToken)
                     .ConfigureAwait(false) ?? 0m;
 
-                var remaining = LedgerWriter.Round(lockedInvoice.TotalAmount - paid);
+                var pendingAllocations = await (
+                    from allocation in db.PaymentAllocations
+                    join candidate in db.Payments on new { allocation.PaymentId, allocation.BusinessId } equals new { PaymentId = candidate.Id, candidate.BusinessId }
+                    where allocation.BusinessId == businessId
+                        && allocation.InvoiceId == id
+                        && candidate.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Pending
+                    select (decimal?)allocation.AllocatedAmount)
+                    .SumAsync(cancellationToken)
+                    .ConfigureAwait(false) ?? 0m;
+
+                var remaining = LedgerWriter.Round(lockedInvoice.BalanceDue - pendingDirect - pendingAllocations);
 
                 if (amount > remaining)
                 {
@@ -1113,7 +1747,9 @@ public static class InvoiceEndpoints
                     Method = method,
                     Amount = amount,
                     Currency = lockedInvoice.Currency,
-                    Status = QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed,
+                    Status = method is PaymentMethod.Cash
+                        ? QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed
+                        : QtsBilling.Persistence.Postgres.PaymentStatus.Pending,
                     Reference = reference,
                     ReceivedAtUtc = now,
                     CreatedByUserId = userId,
@@ -1124,7 +1760,9 @@ public static class InvoiceEndpoints
 
                 db.Payments.Add(payment);
 
-                await LedgerWriter.PostWithinTransactionAsync(
+                if (method is PaymentMethod.Cash)
+                {
+                    await LedgerWriter.PostWithinTransactionAsync(
                         db,
                         businessId,
                         userId,
@@ -1140,6 +1778,7 @@ public static class InvoiceEndpoints
                         ],
                         cancellationToken)
                     .ConfigureAwait(false);
+                }
 
                 if (method is PaymentMethod.Cash && lockedSession is not null)
                 {
@@ -1157,8 +1796,12 @@ public static class InvoiceEndpoints
                     });
                 }
 
-                var totalPaid = LedgerWriter.Round(paid + amount);
-                lockedInvoice.Status = totalPaid >= lockedInvoice.TotalAmount ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+                if (payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
+                {
+                    lockedInvoice.AmountPaid = LedgerWriter.Round(lockedInvoice.AmountPaid + amount);
+                    lockedInvoice.BalanceDue = LedgerWriter.Round(lockedInvoice.BalanceDue - amount);
+                    lockedInvoice.Status = lockedInvoice.BalanceDue == 0m ? InvoiceStatus.Paid : InvoiceStatus.PartiallyPaid;
+                }
 
                 db.AuditEvents.Add(new AuditEvent
                 {
@@ -1175,7 +1818,8 @@ public static class InvoiceEndpoints
                         amount,
                         method = method.ToString(),
                         reference,
-                        totalPaid,
+                        amountPaid = lockedInvoice.AmountPaid,
+                        balanceDue = lockedInvoice.BalanceDue,
                         status = lockedInvoice.Status.ToString(),
                     }),
                 });
@@ -1294,12 +1938,14 @@ public static class InvoiceEndpoints
 
                 var name = line.ProductName?.Trim();
                 string? sku = null;
+                var unitCost = 0m;
+                var trackStock = false;
 
                 if (line.VariantId is { } variantId)
                 {
                     var variant = await db.ProductVariants.AsNoTracking()
                         .Where(candidate => candidate.BusinessId == businessId && candidate.Id == variantId)
-                        .Select(candidate => new { candidate.Id, candidate.ProductId, candidate.Sku, candidate.IsActive })
+                        .Select(candidate => new { candidate.Id, candidate.ProductId, candidate.Sku, candidate.IsActive, candidate.PurchasePrice })
                         .FirstOrDefaultAsync(cancellationToken)
                         .ConfigureAwait(false);
 
@@ -1311,7 +1957,7 @@ public static class InvoiceEndpoints
                     {
                         var product = await db.Products.AsNoTracking()
                             .Where(candidate => candidate.BusinessId == businessId && candidate.Id == variant.ProductId)
-                            .Select(candidate => new { candidate.Name, candidate.IsActive })
+                            .Select(candidate => new { candidate.Name, candidate.IsActive, candidate.TrackStock })
                             .FirstOrDefaultAsync(cancellationToken)
                             .ConfigureAwait(false);
 
@@ -1323,6 +1969,8 @@ public static class InvoiceEndpoints
                         {
                             name = product.Name;
                             sku = variant.Sku;
+                            unitCost = LedgerWriter.Round(variant.PurchasePrice ?? 0m);
+                            trackStock = product.TrackStock;
                         }
                     }
                 }
@@ -1343,7 +1991,9 @@ public static class InvoiceEndpoints
                     Math.Max(0, line.DiscountAmount),
                     line.TaxRate,
                     tax,
-                    LedgerWriter.Round(net + tax)));
+                    LedgerWriter.Round(net + tax),
+                    unitCost,
+                    trackStock));
 
                 lineNo++;
             }
@@ -1379,6 +2029,8 @@ public static class InvoiceEndpoints
                 TaxRate = line.TaxRate,
                 TaxAmount = line.TaxAmount,
                 LineTotal = line.LineTotal,
+                UnitCostSnapshot = line.UnitCostSnapshot,
+                TrackStockSnapshot = line.TrackStockSnapshot,
             });
         }
     }
@@ -1453,6 +2105,40 @@ public static class InvoiceEndpoints
                 originalLines,
                 cancellationToken)
             .ConfigureAwait(false);
+    }
+
+    private static (decimal TaxAmount, decimal LineTotal) CalculateCreditAmounts(
+        InvoiceLine invoiceLine,
+        decimal requestedQuantity,
+        decimal remainingQuantity,
+        PriorCreditTotals prior)
+    {
+        if (requestedQuantity == remainingQuantity)
+        {
+            return (
+                LedgerWriter.Round(invoiceLine.TaxAmount - prior.TaxAmount),
+                LedgerWriter.Round(invoiceLine.LineTotal - prior.LineTotal));
+        }
+
+        var discount = LedgerWriter.Round(invoiceLine.DiscountAmount * requestedQuantity / invoiceLine.Quantity);
+        if (invoiceLine.TaxRate == 1m)
+        {
+            // Invoice snapshots accept a 100% exclusive tax rate, while the shared commercial
+            // calculator deliberately supports rates below 100% only. Preserve the issued invoice's
+            // accepted arithmetic when crediting a partial quantity from that historical snapshot.
+            var net = LedgerWriter.Round(requestedQuantity * invoiceLine.UnitPrice - discount);
+            var tax = LedgerWriter.Round(net * invoiceLine.TaxRate);
+            return (tax, LedgerWriter.Round(net + tax));
+        }
+
+        var amounts = CommercialAmountCalculator.ComputeLine(
+            requestedQuantity,
+            invoiceLine.UnitPrice,
+            QtsModels.ValueObjects.CommercialTaxMode.Exclusive,
+            invoiceLine.TaxRate,
+            discount,
+            field: "lines");
+        return (amounts.TaxAmount, amounts.PayableAmount);
     }
 
     private static async Task<RegisterContext> ResolveRegisterAsync(
@@ -1544,13 +2230,13 @@ public static class InvoiceEndpoints
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var creditNote = await db.CreditNotes.AsNoTracking()
-            .FirstOrDefaultAsync(note => note.BusinessId == businessId && note.InvoiceId == invoice.Id, cancellationToken)
+        var creditNotes = await db.CreditNotes.AsNoTracking()
+            .Where(note => note.BusinessId == businessId && note.InvoiceId == invoice.Id)
+            .OrderBy(note => note.IssuedAtUtc)
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
-
-        InvoiceCreditNoteDto? creditDto = null;
-
-        if (creditNote is not null)
+        var creditDtos = new List<InvoiceCreditNoteDto>(creditNotes.Count);
+        foreach (var creditNote in creditNotes)
         {
             string? journalNumber = null;
 
@@ -1563,21 +2249,41 @@ public static class InvoiceEndpoints
                     .ConfigureAwait(false);
             }
 
-            creditDto = new InvoiceCreditNoteDto(
+            var creditLines = await db.CreditNoteLines.AsNoTracking()
+                .Where(line => line.BusinessId == businessId && line.CreditNoteId == creditNote.Id)
+                .OrderBy(line => line.LineNo)
+                .Select(line => new InvoiceCreditNoteLineDto(
+                    line.InvoiceLineId,
+                    line.LineNo,
+                    line.VariantId,
+                    line.QuantityCredited,
+                    line.UnitPrice,
+                    line.TaxAmount,
+                    line.LineTotal,
+                    line.RestockInventory,
+                    line.UnitCostRestocked))
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            creditDtos.Add(new InvoiceCreditNoteDto(
                 creditNote.Id,
                 creditNote.CreditNumber,
                 creditNote.Amount,
                 creditNote.Reason,
                 creditNote.Note,
                 creditNote.IssuedAtUtc,
-                journalNumber);
+                journalNumber,
+                creditLines));
         }
+
+        var creditDto = creditDtos.LastOrDefault();
 
         return new InvoiceDetailDto(
             await ToSummaryAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false),
             lines,
             payments.Select(ToPaymentDto).ToList(),
-            creditDto);
+            creditDto,
+            creditDtos);
     }
 
     private static async Task<InvoiceSummaryDto> ToSummaryAsync(
@@ -1586,24 +2292,12 @@ public static class InvoiceEndpoints
         Invoice invoice,
         CancellationToken cancellationToken)
     {
-        var paid = await db.Payments.AsNoTracking()
-            .Where(payment => payment.BusinessId == businessId
-                && payment.InvoiceId == invoice.Id
-                && payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
-            .SumAsync(payment => (decimal?)payment.Amount, cancellationToken)
-            .ConfigureAwait(false) ?? 0m;
-
-        var credited = await db.CreditNotes.AsNoTracking()
-            .Where(note => note.BusinessId == businessId && note.InvoiceId == invoice.Id)
-            .SumAsync(note => (decimal?)note.Amount, cancellationToken)
-            .ConfigureAwait(false) ?? 0m;
-
         string? customerName = null;
 
         if (invoice.CustomerId is { } customerId)
         {
             customerName = await db.Customers.AsNoTracking()
-                .Where(candidate => candidate.Id == customerId)
+                .Where(candidate => candidate.BusinessId == businessId && candidate.Id == customerId)
                 .Select(candidate => candidate.Name)
                 .FirstOrDefaultAsync(cancellationToken)
                 .ConfigureAwait(false);
@@ -1622,15 +2316,16 @@ public static class InvoiceEndpoints
                 invoice.DiscountAmount,
                 invoice.TaxAmount,
                 invoice.TotalAmount,
+                invoice.AmountPaid,
+                invoice.CreditedAmount,
+                invoice.BalanceDue,
                 invoice.Note,
                 invoice.IssuedAtUtc,
                 invoice.VoidedAtUtc),
-            customerName,
-            paid,
-            credited);
+            customerName);
     }
 
-    private static InvoiceSummaryDto ToSummary(InvoiceRow row, string? customerName, decimal paid, decimal credited)
+    private static InvoiceSummaryDto ToSummary(InvoiceRow row, string? customerName)
         => new(
             row.Id,
             string.IsNullOrEmpty(row.InvoiceNumber) ? null : row.InvoiceNumber,
@@ -1644,8 +2339,9 @@ public static class InvoiceEndpoints
             row.DiscountAmount,
             row.TaxAmount,
             row.TotalAmount,
-            paid,
-            credited,
+            row.AmountPaid,
+            row.CreditedAmount,
+            row.BalanceDue,
             row.Note,
             row.IssuedAtUtc,
             row.VoidedAtUtc);
@@ -1678,17 +2374,18 @@ public static class InvoiceEndpoints
                     ApiErrorCodes.DuplicateInvoiceNumber,
                     "A concurrent request allocated the same invoice number.",
                     "Retry the issue: the next number is allocated by the locked sequence."),
-            PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_credit_notes_business_invoice" =>
-                ApiResults.Problem(
-                    StatusCodes.Status409Conflict,
-                    ApiErrorCodes.InvoiceAlreadyCredited,
-                    "This invoice already has a credit note."),
             PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_payments_business_idempotency_key" =>
                 ApiResults.Problem(
                     StatusCodes.Status409Conflict,
                     ApiErrorCodes.IdempotencyKeyReused,
                     "A concurrent request with the same key committed first.",
                     "Retry the same payload: the stored payment will be returned instead of charging twice."),
+            PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_credit_notes_business_idempotency_key" =>
+                ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.IdempotencyKeyReused,
+                    "A concurrent request with the same credit-note key committed first.",
+                    "Retry the same payload with the same key to retrieve its result."),
             PostgresErrorCodes.UniqueViolation =>
                 ApiResults.Problem(
                     StatusCodes.Status409Conflict,
@@ -1721,9 +2418,24 @@ public static class InvoiceEndpoints
         decimal DiscountAmount,
         decimal TaxRate,
         decimal TaxAmount,
-        decimal LineTotal);
+        decimal LineTotal,
+        decimal UnitCostSnapshot,
+        bool TrackStockSnapshot);
 
     private sealed record InvoiceTotals(decimal Subtotal, decimal Discount, decimal Tax, decimal Total);
+
+    private sealed record PriorCreditLine(Guid InvoiceLineId, decimal Quantity, decimal TaxAmount, decimal LineTotal);
+
+    private sealed record PriorCreditTotals(decimal Quantity, decimal TaxAmount, decimal LineTotal);
+
+    private sealed record CalculatedCreditLine(
+        InvoiceLine InvoiceLine,
+        decimal Quantity,
+        bool RestockInventory,
+        decimal TaxAmount,
+        decimal LineTotal);
+
+    private sealed record CreditNoteOperation(CreditNote CreditNote, bool Replayed);
 
     private sealed record PreparedInvoice(IResult? Error, IReadOnlyList<PricedLine>? Lines, DateOnly IssueDate);
 
@@ -1739,6 +2451,9 @@ public static class InvoiceEndpoints
         decimal DiscountAmount,
         decimal TaxAmount,
         decimal TotalAmount,
+        decimal AmountPaid,
+        decimal CreditedAmount,
+        decimal BalanceDue,
         string? Note,
         DateTimeOffset? IssuedAtUtc,
         DateTimeOffset? VoidedAtUtc);
