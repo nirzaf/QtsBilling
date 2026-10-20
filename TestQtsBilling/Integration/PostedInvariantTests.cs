@@ -138,7 +138,7 @@ public sealed class PostedInvariantTests : IClassFixture<PostgresApiFixture>
 
         // A stale header total cannot be smuggled in with the issue transition.
         await AssertSequenceRefusedAsync(
-            $"update invoices set total_amount = total_amount + 1 where id = '{draft}';",
+            $"update invoices set total_amount = total_amount + 1, balance_due = balance_due + 1 where id = '{draft}';",
             $"update invoices set status = 'Issued' where id = '{draft}';");
 
         // A draft's lines may be removed while it is still draft; it then has nothing to issue.
