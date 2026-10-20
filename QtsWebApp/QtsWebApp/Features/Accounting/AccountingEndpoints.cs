@@ -31,10 +31,18 @@ public static class AccountingEndpoints
         accounts.MapPost("/", CreateAccountAsync).RequireAuthorization(Permissions.AccountingPost);
         accounts.MapPut("/{id:guid}", UpdateAccountAsync).RequireAuthorization(Permissions.AccountingPost);
 
+        var settings = app.MapGroup("/api/v1/accounting/settings").WithTags("Accounting");
+        settings.MapGet("/", GetBusinessAccountingSettingsAsync).RequireAuthorization(Permissions.ReportsView);
+        settings.MapPut("/", SaveBusinessAccountingSettingsAsync).RequireAuthorization(Permissions.AccountingClose);
+
         var periods = app.MapGroup("/api/v1/accounting-periods").WithTags("Accounting");
         periods.MapGet("/", ListPeriodsAsync).RequireAuthorization(Permissions.ReportsView);
         periods.MapPost("/", CreatePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
         periods.MapPost("/{id:guid}/close", ClosePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
+
+        app.MapPost("/api/v1/accounting/periods/{fiscalYear:int}/close-year", CloseFiscalYearAsync)
+            .WithTags("Accounting")
+            .RequireAuthorization(Permissions.AccountingClose);
 
         var journal = app.MapGroup("/api/v1/journal-entries").WithTags("Accounting");
         journal.MapGet("/", ListJournalAsync).RequireAuthorization(Permissions.ReportsView);
@@ -48,6 +56,147 @@ public static class AccountingEndpoints
 
         return app;
     }
+
+    private static async Task<IResult> GetBusinessAccountingSettingsAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var settings = await db.BusinessAccountingSettings.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.BusinessId == businessId, cancellationToken)
+            .ConfigureAwait(false);
+        return settings is null
+            ? Results.Problem(statusCode: StatusCodes.Status404NotFound, title: "Accounting settings are not configured.")
+            : Results.Ok(ToDto(settings));
+    }
+
+    private static async Task<IResult> SaveBusinessAccountingSettingsAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        SaveBusinessAccountingSettingsRequest request,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        if (request.SettlementScale is not (0 or 2 or 3 or 4))
+        {
+            return Results.ValidationProblem(new Dictionary<string, string[]>
+            {
+                [nameof(request.SettlementScale)] = ["Settlement scale must be 0, 2, 3, or 4."],
+            });
+        }
+
+        var mapping = new (string Field, Guid AccountId, AccountType Type)[]
+        {
+            (nameof(request.CashAccountId), request.CashAccountId, AccountType.Asset),
+            (nameof(request.BankClearingAccountId), request.BankClearingAccountId, AccountType.Asset),
+            (nameof(request.AccountsReceivableAccountId), request.AccountsReceivableAccountId, AccountType.Asset),
+            (nameof(request.InventoryAssetAccountId), request.InventoryAssetAccountId, AccountType.Asset),
+            (nameof(request.InputTaxReceivableAccountId), request.InputTaxReceivableAccountId, AccountType.Asset),
+            (nameof(request.AccountsPayableAccountId), request.AccountsPayableAccountId, AccountType.Liability),
+            (nameof(request.OutputTaxPayableAccountId), request.OutputTaxPayableAccountId, AccountType.Liability),
+            (nameof(request.GrniClearingAccountId), request.GrniClearingAccountId, AccountType.Liability),
+            (nameof(request.CustomerDepositsAccountId), request.CustomerDepositsAccountId, AccountType.Liability),
+            (nameof(request.RetainedEarningsAccountId), request.RetainedEarningsAccountId, AccountType.Equity),
+            (nameof(request.SalesRevenueAccountId), request.SalesRevenueAccountId, AccountType.Revenue),
+            (nameof(request.SalesReturnsAccountId), request.SalesReturnsAccountId, AccountType.Revenue),
+            (nameof(request.CogsAccountId), request.CogsAccountId, AccountType.Expense),
+            (nameof(request.PurchasePriceVarianceAccountId), request.PurchasePriceVarianceAccountId, AccountType.Expense),
+            (nameof(request.InventoryShrinkageAccountId), request.InventoryShrinkageAccountId, AccountType.Expense),
+            (nameof(request.CashOverShortAccountId), request.CashOverShortAccountId, AccountType.Expense),
+        };
+        var ids = mapping.Select(item => item.AccountId)
+            .Concat(request.RoundingAccountId is { } roundingAccountId ? [roundingAccountId] : [])
+            .Distinct().ToArray();
+        var accounts = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == businessId && ids.Contains(account.Id))
+            .ToDictionaryAsync(account => account.Id, cancellationToken)
+            .ConfigureAwait(false);
+        var errors = new Dictionary<string, string[]>();
+        foreach (var (field, accountId, type) in mapping)
+        {
+            if (!accounts.TryGetValue(accountId, out var account) || !account.IsActive)
+            {
+                errors[field] = ["Select an active account from this business."];
+            }
+            else if (account.AccountType != type)
+            {
+                errors[field] = [$"Select an account classified as {type}."];
+            }
+        }
+
+        if (request.RoundingAccountId is { } configuredRoundingAccountId
+            && (!accounts.TryGetValue(configuredRoundingAccountId, out var roundingAccount)
+                || !roundingAccount.IsActive
+                || roundingAccount.AccountType != AccountType.Expense))
+        {
+            errors[nameof(request.RoundingAccountId)] = ["Select an active expense account from this business."];
+        }
+
+        if (errors.Count > 0)
+        {
+            return Results.ValidationProblem(errors);
+        }
+
+        var settings = await db.BusinessAccountingSettings
+            .SingleOrDefaultAsync(row => row.BusinessId == businessId, cancellationToken)
+            .ConfigureAwait(false);
+        if (settings is null)
+        {
+            settings = new BusinessAccountingSettings { BusinessId = businessId };
+            db.BusinessAccountingSettings.Add(settings);
+        }
+
+        settings.SettlementScale = request.SettlementScale;
+        settings.CashAccountId = request.CashAccountId;
+        settings.BankClearingAccountId = request.BankClearingAccountId;
+        settings.AccountsReceivableAccountId = request.AccountsReceivableAccountId;
+        settings.InventoryAssetAccountId = request.InventoryAssetAccountId;
+        settings.InputTaxReceivableAccountId = request.InputTaxReceivableAccountId;
+        settings.AccountsPayableAccountId = request.AccountsPayableAccountId;
+        settings.OutputTaxPayableAccountId = request.OutputTaxPayableAccountId;
+        settings.GrniClearingAccountId = request.GrniClearingAccountId;
+        settings.CustomerDepositsAccountId = request.CustomerDepositsAccountId;
+        settings.RetainedEarningsAccountId = request.RetainedEarningsAccountId;
+        settings.SalesRevenueAccountId = request.SalesRevenueAccountId;
+        settings.SalesReturnsAccountId = request.SalesReturnsAccountId;
+        settings.CogsAccountId = request.CogsAccountId;
+        settings.PurchasePriceVarianceAccountId = request.PurchasePriceVarianceAccountId;
+        settings.InventoryShrinkageAccountId = request.InventoryShrinkageAccountId;
+        settings.CashOverShortAccountId = request.CashOverShortAccountId;
+        settings.RoundingAccountId = request.RoundingAccountId;
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Ok(ToDto(settings));
+    }
+
+    private static BusinessAccountingSettingsDto ToDto(BusinessAccountingSettings settings) => new(
+        settings.SettlementScale,
+        settings.CashAccountId,
+        settings.BankClearingAccountId,
+        settings.AccountsReceivableAccountId,
+        settings.InventoryAssetAccountId,
+        settings.InputTaxReceivableAccountId,
+        settings.AccountsPayableAccountId,
+        settings.OutputTaxPayableAccountId,
+        settings.GrniClearingAccountId,
+        settings.CustomerDepositsAccountId,
+        settings.RetainedEarningsAccountId,
+        settings.SalesRevenueAccountId,
+        settings.SalesReturnsAccountId,
+        settings.CogsAccountId,
+        settings.PurchasePriceVarianceAccountId,
+        settings.InventoryShrinkageAccountId,
+        settings.CashOverShortAccountId,
+        settings.RoundingAccountId);
 
     // ---------------------------------------------------------------- accounts
 
@@ -436,6 +585,192 @@ public static class AccountingEndpoints
             period.EndDate,
             AccountingPeriodState.Closed,
             period.Version));
+    }
+
+    private static async Task<IResult> CloseFiscalYearAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        int fiscalYear,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+        if (fiscalYear is < 1900 or > 9998)
+        {
+            return ApiResults.ValidationProblem("The fiscal year is invalid.", new Dictionary<string, string[]>
+            {
+                [nameof(fiscalYear)] = ["Enter a year from 1900 through 9998."],
+            });
+        }
+
+        var key = http.Request.Headers["Idempotency-Key"].ToString().Trim();
+        if (key.Length is 0 or > 128)
+        {
+            return ApiResults.ValidationProblem("An idempotency key is required.", new Dictionary<string, string[]>
+            {
+                ["Idempotency-Key"] = ["Send a client-generated key of 1-128 characters."],
+            });
+        }
+
+        try
+        {
+            var execution = await IdempotencyExecutor.ExecuteAsync(
+                db,
+                businessId,
+                "accounting.close-year",
+                key,
+                new { fiscalYear },
+                async () =>
+                {
+                    var startDate = new DateOnly(fiscalYear, 1, 1);
+                    var endDate = new DateOnly(fiscalYear, 12, 31);
+                    var periods = await db.AccountingPeriods
+                        .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND start_date <= {endDate} AND end_date >= {startDate} ORDER BY start_date FOR UPDATE")
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
+                    if (periods.Count == 0)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.AccountingPeriodMissing, "No accounting periods cover this fiscal year.", $"Create closed periods covering {startDate:yyyy-MM-dd} through {endDate:yyyy-MM-dd} before closing the year.");
+                    }
+                    if (periods.Any(period => period.Status == AccountingPeriodStatus.Open))
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.AccountingPeriodClosed, "Every accounting period in the fiscal year must be closed first.", "Close each open accounting period before running the year-end close.");
+                    }
+                    if (periods.Any(period => period.Status == AccountingPeriodStatus.Locked))
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "This fiscal year has already been locked.", "The year-end close has already completed or the year requires finance review.");
+                    }
+
+                    var cursor = startDate;
+                    foreach (var period in periods)
+                    {
+                        if (period.StartDate > cursor)
+                        {
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.AccountingPeriodMissing, "The accounting periods do not cover the complete fiscal year.", $"There is a period gap beginning {cursor:yyyy-MM-dd}.");
+                        }
+                        if (period.EndDate >= endDate)
+                        {
+                            cursor = endDate.AddDays(1);
+                            break;
+                        }
+                        cursor = period.EndDate.AddDays(1);
+                    }
+                    if (cursor <= endDate)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.AccountingPeriodMissing, "The accounting periods do not cover the complete fiscal year.", $"The period coverage ends before {endDate:yyyy-MM-dd}.");
+                    }
+
+                    var closingPeriod = periods.SingleOrDefault(period => period.StartDate <= endDate && period.EndDate >= endDate);
+                    if (closingPeriod is null || closingPeriod.Status != AccountingPeriodStatus.Closed)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.AccountingPeriodClosed, "The final accounting period must be closed before the year-end entry can be posted.", "Close the period containing December 31 before running the year-end close.");
+                    }
+
+                    var settings = await LedgerWriter.ResolveSettingsAsync(db, businessId, cancellationToken).ConfigureAwait(false);
+                    var retainedEarnings = settings is null
+                        ? await db.Accounts.AsNoTracking().FirstOrDefaultAsync(account => account.BusinessId == businessId && account.Code == "3000", cancellationToken).ConfigureAwait(false)
+                        : await db.Accounts.AsNoTracking().FirstOrDefaultAsync(account => account.BusinessId == businessId && account.Id == settings.RetainedEarningsAccountId, cancellationToken).ConfigureAwait(false);
+                    if (retainedEarnings is null || !retainedEarnings.IsActive || retainedEarnings.AccountType != AccountType.Equity)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The retained earnings account is unavailable.", "Configure an active equity account for retained earnings before closing the fiscal year.");
+                    }
+
+                    var balances = await (
+                        from line in db.JournalLines.AsNoTracking()
+                        join journalEntry in db.JournalEntries.AsNoTracking()
+                            on new { line.JournalEntryId, line.BusinessId } equals new { JournalEntryId = journalEntry.Id, journalEntry.BusinessId }
+                        join account in db.Accounts.AsNoTracking()
+                            on new { line.AccountId, line.BusinessId } equals new { AccountId = account.Id, account.BusinessId }
+                        where journalEntry.BusinessId == businessId
+                            && journalEntry.Status == EntryStatus.Posted
+                            && journalEntry.EntryDate >= startDate
+                            && journalEntry.EntryDate <= endDate
+                            && (account.AccountType == AccountType.Revenue || account.AccountType == AccountType.Expense)
+                        group line by new { account.Id, account.Code, account.Name, account.AccountType } into accountLines
+                        select new
+                        {
+                            accountLines.Key.Id,
+                            accountLines.Key.Code,
+                            accountLines.Key.Name,
+                            accountLines.Key.AccountType,
+                            NetDebit = accountLines.Sum(line => line.DebitAmount - line.CreditAmount),
+                        })
+                        .ToListAsync(cancellationToken)
+                        .ConfigureAwait(false);
+
+                    var lines = new List<JournalLineRequest>();
+                    foreach (var balance in balances.Where(balance => balance.NetDebit != 0m).OrderBy(balance => balance.Code, StringComparer.Ordinal))
+                    {
+                        var amount = Math.Abs(balance.NetDebit);
+                        lines.Add(balance.NetDebit > 0m
+                            ? new JournalLineRequest(balance.Id, 0m, amount, $"Close {balance.Code} {balance.Name}", null)
+                            : new JournalLineRequest(balance.Id, amount, 0m, $"Close {balance.Code} {balance.Name}", null));
+                    }
+                    if (lines.Count == 0)
+                    {
+                        throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "There are no revenue or expense balances to close.", "Review the trial balance and close the year only after financial activity has been posted.");
+                    }
+
+                    var debit = LedgerWriter.Totals(lines).Debit;
+                    var credit = LedgerWriter.Totals(lines).Credit;
+                    if (debit > credit)
+                    {
+                        lines.Add(new JournalLineRequest(retainedEarnings.Id, 0m, LedgerWriter.Round(debit - credit), "Transfer net income to retained earnings", null));
+                    }
+                    else if (credit > debit)
+                    {
+                        lines.Add(new JournalLineRequest(retainedEarnings.Id, LedgerWriter.Round(credit - debit), 0m, "Transfer net loss to retained earnings", null));
+                    }
+
+                    var entry = await LedgerWriter.PostWithinTransactionAsync(
+                        db,
+                        businessId,
+                        userId,
+                        (await db.Businesses.AsNoTracking().Where(item => item.Id == businessId).Select(item => item.BaseCurrency).SingleAsync(cancellationToken).ConfigureAwait(false)),
+                        endDate,
+                        $"Fiscal year {fiscalYear} closing entry",
+                        JournalSourceType.FiscalYearClose,
+                        Guid.CreateVersion7(),
+                        null,
+                        lines,
+                        cancellationToken,
+                        allowClosedPeriod: true).ConfigureAwait(false);
+
+                    foreach (var period in periods)
+                    {
+                        period.Status = AccountingPeriodStatus.Locked;
+                    }
+                    db.AuditEvents.Add(new AuditEvent
+                    {
+                        BusinessId = businessId,
+                        UserId = userId,
+                        EntityType = "accounting_period",
+                        EntityId = closingPeriod.Id,
+                        Action = "fiscal_year_closed",
+                        OccurredAtUtc = DateTimeOffset.UtcNow,
+                        CorrelationId = http.TraceIdentifier,
+                        Summary = System.Text.Json.JsonSerializer.Serialize(new { fiscalYear, entryNumber = entry.EntryNumber, lockedPeriodCount = periods.Count }),
+                    });
+
+                    var netIncome = LedgerWriter.Round(-balances.Sum(balance => balance.NetDebit));
+                    return (StatusCodes.Status200OK, new FiscalYearCloseDto(fiscalYear, endDate, entry.EntryNumber, netIncome, periods.Count));
+                },
+                cancellationToken).ConfigureAwait(false);
+            return Results.Json(execution.Body, statusCode: execution.StatusCode);
+        }
+        catch (DomainRuleException exception)
+        {
+            return exception.ToResult();
+        }
+        catch (PostgresException exception)
+        {
+            return exception.SqlState is PostgresErrorCodes.CheckViolation or PostgresErrorCodes.UniqueViolation
+                ? ApiResults.Problem(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The fiscal-year close conflicts with the current accounting state.", "Refresh the periods and trial balance before retrying.")
+                : ApiResults.Problem(StatusCodes.Status500InternalServerError, ApiErrorCodes.InternalError, "The fiscal-year close could not be completed.");
+        }
     }
 
     // ---------------------------------------------------------------- journal
