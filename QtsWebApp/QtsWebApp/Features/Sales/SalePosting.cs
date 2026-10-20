@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Diagnostics;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -379,10 +380,14 @@ internal static class SalePosting
         ProcessedOperation? processedOperation = null,
         Action<Sale>? beforeCommit = null)
     {
-        var strategy = db.Database.CreateExecutionStrategy();
+        var startedAt = Stopwatch.GetTimestamp();
 
-        return await strategy.ExecuteAsync(async () =>
+        try
         {
+            var strategy = db.Database.CreateExecutionStrategy();
+
+            return await strategy.ExecuteAsync(async () =>
+            {
             // A retry must not see state tracked by an aborted attempt.
             db.ChangeTracker.Clear();
 
@@ -463,6 +468,17 @@ internal static class SalePosting
             var discount = lines.Sum(line => line.Discount);
             var tax = lines.Sum(line => line.Tax);
             var total = lines.Sum(line => line.LineTotal);
+            if (request.CustomerId is { } customerId && payment.Payment!.Method != PaymentMethod.Cash)
+            {
+                await CustomerCreditLimitGuard.EnsureWithinLimitAsync(
+                    db,
+                    business.Id,
+                    customerId,
+                    business.BaseCurrency,
+                    total,
+                    cancellationToken).ConfigureAwait(false);
+            }
+
             // The cost of goods sold is the value the stock movements consume. It is collected while the
             // movements are applied, because only the movement knows the value that was consumed
             // (specification D06, finding F15).
@@ -648,7 +664,12 @@ internal static class SalePosting
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
             return sale;
-        }).ConfigureAwait(false);
+            }).ConfigureAwait(false);
+        }
+        finally
+        {
+            BillingMetrics.RecordPosSalePostingDuration(Stopwatch.GetElapsedTime(startedAt).TotalMilliseconds);
+        }
     }
 
     /// <summary>
