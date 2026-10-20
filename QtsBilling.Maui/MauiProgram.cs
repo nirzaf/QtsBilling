@@ -36,11 +36,27 @@ public static class MauiProgram
         builder.Services.AddSingleton<IDeviceApiLog, DeviceApiLog>();
         builder.Services.AddTransient<SessionAuthHandler>();
 
+        builder.Services
+            .AddHttpClient<IOidcTokenClient, OidcTokenClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            });
+
+        builder.Services
+            .AddHttpClient<IPkceLoopbackAuthenticator, PkceLoopbackAuthenticator>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromMinutes(5);
+            });
+
         // Device-local store (QB-17): one WAL SQLite file in the private app data directory.
         var localStorePath = Path.Combine(FileSystem.AppDataDirectory, "qtsbilling", "local.db");
+        var localStoreEncryptionKey = LocalDatabaseKeyStore.LoadOrCreateHexKey();
         builder.Services.AddQtsSqliteLocalStore(new SqliteLocalStoreOptions
         {
             DatabasePath = localStorePath,
+            EncryptionKeyHex = localStoreEncryptionKey,
         });
 
         // Device point of sale (QB-19): the local store owns the money, the host owns the permissions
