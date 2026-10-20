@@ -27,6 +27,8 @@ public enum JournalOrigin
     Purchase,
     Expense,
     Payment,
+    PaymentAllocation,
+    FiscalYearClose,
     StockAdjustment,
     Reversal,
     MigrationOpening,
@@ -63,6 +65,48 @@ public sealed record AccountingPeriodDto(
     long Version);
 
 public sealed record SaveAccountingPeriodRequest(string Name, DateOnly StartDate, DateOnly EndDate);
+
+public sealed record FiscalYearCloseDto(int FiscalYear, DateOnly ClosingDate, string JournalEntryNumber, decimal NetIncome, int LockedPeriodCount);
+
+public sealed record BusinessAccountingSettingsDto(
+    int SettlementScale,
+    Guid CashAccountId,
+    Guid BankClearingAccountId,
+    Guid AccountsReceivableAccountId,
+    Guid InventoryAssetAccountId,
+    Guid InputTaxReceivableAccountId,
+    Guid AccountsPayableAccountId,
+    Guid OutputTaxPayableAccountId,
+    Guid GrniClearingAccountId,
+    Guid CustomerDepositsAccountId,
+    Guid RetainedEarningsAccountId,
+    Guid SalesRevenueAccountId,
+    Guid SalesReturnsAccountId,
+    Guid CogsAccountId,
+    Guid PurchasePriceVarianceAccountId,
+    Guid InventoryShrinkageAccountId,
+    Guid CashOverShortAccountId,
+    Guid? RoundingAccountId = null);
+
+public sealed record SaveBusinessAccountingSettingsRequest(
+    int SettlementScale,
+    Guid CashAccountId,
+    Guid BankClearingAccountId,
+    Guid AccountsReceivableAccountId,
+    Guid InventoryAssetAccountId,
+    Guid InputTaxReceivableAccountId,
+    Guid AccountsPayableAccountId,
+    Guid OutputTaxPayableAccountId,
+    Guid GrniClearingAccountId,
+    Guid CustomerDepositsAccountId,
+    Guid RetainedEarningsAccountId,
+    Guid SalesRevenueAccountId,
+    Guid SalesReturnsAccountId,
+    Guid CogsAccountId,
+    Guid PurchasePriceVarianceAccountId,
+    Guid InventoryShrinkageAccountId,
+    Guid CashOverShortAccountId,
+    Guid? RoundingAccountId = null);
 
 /// <summary>One journal line: exactly one of debit/credit must be greater than zero.</summary>
 public sealed record JournalLineRequest(Guid AccountId, decimal Debit, decimal Credit, string? Description, Guid? LocationId);
