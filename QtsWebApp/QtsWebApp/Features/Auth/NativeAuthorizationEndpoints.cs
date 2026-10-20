@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Identity;
 using OpenIddict.Abstractions;
 using OpenIddict.Server.AspNetCore;
+using Microsoft.EntityFrameworkCore;
+using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Infrastructure;
 using static OpenIddict.Abstractions.OpenIddictConstants;
@@ -91,7 +93,8 @@ public static class NativeAuthorizationEndpoints
 
     private static async Task<IResult> AuthorizeAsync(
         HttpContext http,
-        IOpenIddictApplicationManager applications)
+        IOpenIddictApplicationManager applications,
+        BillingDbContext db)
     {
         var request = http.GetOpenIddictServerRequest();
 
@@ -157,6 +160,22 @@ public static class NativeAuthorizationEndpoints
             return InvalidRequest("The session has no active business membership.");
         }
 
+        if (!Guid.TryParse(userId, out var parsedUserId) || !Guid.TryParse(businessId, out var parsedBusinessId))
+        {
+            return InvalidRequest("The session identity is malformed.");
+        }
+
+        var membership = await db.BusinessMemberships.AsNoTracking()
+            .Where(row => row.UserId == parsedUserId && row.BusinessId == parsedBusinessId && row.IsActive)
+            .Select(row => new { row.AuthorizationRevision })
+            .SingleOrDefaultAsync(http.RequestAborted)
+            .ConfigureAwait(false);
+
+        if (membership is null)
+        {
+            return InvalidRequest("The session has no active business membership.");
+        }
+
         // The principal is stored with the authorization and the code; only identity and scope travel
         // to the API. Permissions are deliberately absent: the authorization handler re-reads them.
         var identity = new ClaimsIdentity(
@@ -169,6 +188,7 @@ public static class NativeAuthorizationEndpoints
         identity.AddClaim(new Claim(ClaimTypes.NameIdentifier, userId));
         identity.AddClaim(new Claim(ClaimTypes.Name, session.Principal.FindFirstValue(ClaimTypes.Name) ?? userId));
         identity.AddClaim(new Claim(QtsClaims.BusinessId, businessId));
+        identity.AddClaim(new Claim(QtsClaims.AuthorizationRevision, membership.AuthorizationRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)));
 
         foreach (var claim in identity.Claims)
         {
