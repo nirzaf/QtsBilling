@@ -20,6 +20,9 @@ public interface IServerSettings
     /// <summary>The cash register this device is enrolled to.</summary>
     Guid? RegisterId { get; set; }
 
+    /// <summary>The last server-confirmed open drawer session for this device's register.</summary>
+    Guid? RegisterSessionId { get; set; }
+
     string AppVersion { get; }
 }
 
@@ -30,6 +33,7 @@ public sealed class ServerSettings : IServerSettings
     private const string LocationIdKey = "server.lastLocationId";
     private const string EnrolledLocationKey = "device.locationId";
     private const string EnrolledRegisterKey = "device.registerId";
+    private const string RegisterSessionKey = "device.registerSessionId";
 
     /// <summary>Default API address of the self-hosted server; overridable in the app.</summary>
     public const string DefaultServerBaseUrl = "http://localhost:5188";
@@ -66,6 +70,12 @@ public sealed class ServerSettings : IServerSettings
     {
         get => Parse(Preferences.Default.Get(EnrolledRegisterKey, string.Empty));
         set => Preferences.Default.Set(EnrolledRegisterKey, value?.ToString("D") ?? string.Empty);
+    }
+
+    public Guid? RegisterSessionId
+    {
+        get => Parse(Preferences.Default.Get(RegisterSessionKey, string.Empty));
+        set => Preferences.Default.Set(RegisterSessionKey, value?.ToString("D") ?? string.Empty);
     }
 
     public void SetServerBaseUrl(Uri baseUrl)
