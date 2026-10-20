@@ -35,14 +35,30 @@ internal static class StockTransferEndpoints
         BillingDbContext db,
         CancellationToken cancellationToken)
     {
-        if (!principal.TryGetBusinessId(out var businessId)) return BusinessScope.MissingMembership();
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId)) return BusinessScope.MissingMembership();
+        var allLocations = await db.BusinessMemberships.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.UserId == userId && row.IsActive)
+            .Select(row => (bool?)row.AllLocations)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+        if (allLocations is null) return BusinessScope.MissingMembership();
+        List<Guid> allowedLocations = allLocations.Value
+            ? []
+            : await (
+                from grant in db.BusinessMembershipLocations.AsNoTracking()
+                join membership in db.BusinessMemberships.AsNoTracking()
+                    on new { grant.BusinessId, grant.MembershipId } equals new { membership.BusinessId, MembershipId = membership.Id }
+                where membership.BusinessId == businessId && membership.UserId == userId && membership.IsActive
+                select grant.LocationId)
+                .Distinct()
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
 
-        var rows = await (
+        var query =
             from transfer in db.StockTransfers.AsNoTracking()
             join source in db.BusinessLocations.AsNoTracking() on new { transfer.SourceLocationId, transfer.BusinessId } equals new { SourceLocationId = source.Id, source.BusinessId }
             join destination in db.BusinessLocations.AsNoTracking() on new { transfer.DestinationLocationId, transfer.BusinessId } equals new { DestinationLocationId = destination.Id, destination.BusinessId }
             where transfer.BusinessId == businessId
-            orderby transfer.Id descending
             select new
             {
                 transfer.Id,
@@ -58,7 +74,10 @@ internal static class StockTransferEndpoints
                 transfer.ReceivedAtUtc,
                 TotalQuantity = db.StockTransferLines.Where(line => line.BusinessId == businessId && line.StockTransferId == transfer.Id).Sum(line => (decimal?)line.Quantity) ?? 0m,
                 TotalValue = db.StockTransferLines.Where(line => line.BusinessId == businessId && line.StockTransferId == transfer.Id).Sum(line => line.ValueAtDispatch),
-            })
+            };
+        if (!allLocations.Value) query = query.Where(row => allowedLocations.Contains(row.SourceLocationId) && allowedLocations.Contains(row.DestinationLocationId));
+        var rows = await query
+            .OrderByDescending(row => row.Id)
             .Take(100)
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
@@ -87,7 +106,12 @@ internal static class StockTransferEndpoints
     {
         if (!principal.TryGetBusinessId(out var businessId)) return BusinessScope.MissingMembership();
         var dto = await ToDetailAsync(db, businessId, id, cancellationToken).ConfigureAwait(false);
-        return dto is null ? NotFound() : Results.Ok(dto);
+        if (dto is null) return NotFound();
+        if (!TryGetUserId(principal, out var userId)
+            || !await BusinessScope.CanAccessLocationAsync(db, userId, businessId, dto.SourceLocationId, cancellationToken).ConfigureAwait(false)
+            || !await BusinessScope.CanAccessLocationAsync(db, userId, businessId, dto.DestinationLocationId, cancellationToken).ConfigureAwait(false))
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access both transfer locations.");
+        return Results.Ok(dto);
     }
 
     private static async Task<IResult> CreateAsync(
@@ -166,7 +190,7 @@ internal static class StockTransferEndpoints
         try
         {
             var strategy = db.Database.CreateExecutionStrategy();
-            var transferId = await strategy.ExecuteAsync(async () =>
+            var creation = await strategy.ExecuteAsync(async () =>
             {
                 db.ChangeTracker.Clear();
                 var duplicate = await db.StockTransfers.AsNoTracking()
@@ -176,7 +200,7 @@ internal static class StockTransferEndpoints
                 {
                     if (!string.Equals(duplicate.PayloadHash, payloadHash, StringComparison.Ordinal))
                         throw SameKeyDifferentPayload();
-                    return duplicate.Id;
+                    return (Id: duplicate.Id, Replayed: true);
                 }
 
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
@@ -210,11 +234,13 @@ internal static class StockTransferEndpoints
                     new { transfer.TransferNumber, transfer.SourceLocationId, transfer.DestinationLocationId, lineCount = groupedLines.Count }));
                 await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
                 await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-                return transfer.Id;
+                return (Id: transfer.Id, Replayed: false);
             }).ConfigureAwait(false);
 
-            var dto = await ToDetailAsync(db, businessId, transferId, cancellationToken).ConfigureAwait(false);
-            return Results.Created($"/api/v1/inventory/transfers/{transferId:D}", dto);
+            var dto = await ToDetailAsync(db, businessId, creation.Id, cancellationToken).ConfigureAwait(false);
+            return creation.Replayed
+                ? Results.Ok(dto)
+                : Results.Created($"/api/v1/inventory/transfers/{creation.Id:D}", dto);
         }
         catch (DomainRuleException exception)
         {
