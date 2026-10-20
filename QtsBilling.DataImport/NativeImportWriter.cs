@@ -546,11 +546,20 @@ public sealed class NativeImportWriter
                 if (!productIsNew && defaults == 1)
                 {
                     var productId = await ResolveProductIdAsync(group.Key).ConfigureAwait(false);
+                    var packageDefault = group.Single(variant => variant.IsDefault);
+                    var alreadyLinkedDefaultId = _links.TryGetValue(
+                            (NativeResources.Variants, packageDefault.ExternalId),
+                            out var defaultLink)
+                        && defaultLink.TargetType == VariantTarget
+                        && _variantTargets.Contains(defaultLink.TargetId)
+                            ? defaultLink.TargetId
+                            : (Guid?)null;
 
                     if (await _db.ProductVariants.AnyAsync(
                             variant => variant.BusinessId == _businessId
                                 && variant.ProductId == productId
-                                && variant.IsDefault,
+                                && variant.IsDefault
+                                && variant.Id != alreadyLinkedDefaultId,
                             _ct).ConfigureAwait(false))
                     {
                         throw Abort(NativeResources.Variants, 0, group.Key, "DEFAULT_VARIANT_CONFLICT", "isDefault");
