@@ -22,7 +22,10 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(SaleLine),
         typeof(RefundLine),
         typeof(CreditNote),
+        typeof(CreditNoteLine),
         typeof(PurchaseReceiptLine),
+        typeof(SupplierPayment),
+        typeof(SupplierPaymentAllocation),
         typeof(ExpenseReversal),
         typeof(CashRegisterMovement),
         typeof(AuditEvent),
@@ -31,6 +34,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(LegacyIdentifierMap),
         typeof(ExternalRecordLink),
         typeof(OpenItem),
+        typeof(IdempotencyReceipt),
+        typeof(PaymentAllocation),
     ];
 
     public BillingDbContext(DbContextOptions<BillingDbContext> options)
@@ -43,6 +48,10 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<BusinessLocation> BusinessLocations => Set<BusinessLocation>();
 
     public DbSet<BusinessMembership> BusinessMemberships => Set<BusinessMembership>();
+
+    public DbSet<BusinessMembershipLocation> BusinessMembershipLocations => Set<BusinessMembershipLocation>();
+
+    public DbSet<DeviceEnrolmentChallenge> DeviceEnrolmentChallenges => Set<DeviceEnrolmentChallenge>();
 
     public DbSet<DeviceRegistration> DeviceRegistrations => Set<DeviceRegistration>();
 
@@ -78,6 +87,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<Payment> Payments => Set<Payment>();
 
+    public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
+
     public DbSet<CashRegister> CashRegisters => Set<CashRegister>();
 
     public DbSet<CashRegisterMovement> CashRegisterMovements => Set<CashRegisterMovement>();
@@ -90,15 +101,27 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<CreditNote> CreditNotes => Set<CreditNote>();
 
+    public DbSet<CreditNoteLine> CreditNoteLines => Set<CreditNoteLine>();
+
     public DbSet<PurchaseReceipt> PurchaseReceipts => Set<PurchaseReceipt>();
 
     public DbSet<PurchaseReceiptLine> PurchaseReceiptLines => Set<PurchaseReceiptLine>();
+
+    public DbSet<SupplierBill> SupplierBills => Set<SupplierBill>();
+
+    public DbSet<SupplierBillLine> SupplierBillLines => Set<SupplierBillLine>();
+
+    public DbSet<SupplierPayment> SupplierPayments => Set<SupplierPayment>();
+
+    public DbSet<SupplierPaymentAllocation> SupplierPaymentAllocations => Set<SupplierPaymentAllocation>();
 
     public DbSet<ExpenseReversal> ExpenseReversals => Set<ExpenseReversal>();
 
     public DbSet<Account> Accounts => Set<Account>();
 
     public DbSet<AccountingPeriod> AccountingPeriods => Set<AccountingPeriod>();
+
+    public DbSet<BusinessAccountingSettings> BusinessAccountingSettings => Set<BusinessAccountingSettings>();
 
     public DbSet<JournalEntry> JournalEntries => Set<JournalEntry>();
 
@@ -117,6 +140,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<Expense> Expenses => Set<Expense>();
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
+
+    public DbSet<IdempotencyReceipt> IdempotencyReceipts => Set<IdempotencyReceipt>();
 
     public DbSet<ProcessedOperation> ProcessedOperations => Set<ProcessedOperation>();
 
@@ -257,6 +282,23 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
                     && payment.Status is not (PaymentStatus.Pending or PaymentStatus.Voided):
                     throw new InvalidOperationException(
                         $"Payment {payment.Id} is {payment.Status} and cannot be hard-deleted.");
+
+                case SupplierBill bill when entry.State == EntityState.Deleted && bill.Status != SupplierBillStatus.Draft:
+                    throw new InvalidOperationException(
+                        $"Supplier bill {bill.Id} is {bill.Status} and cannot be hard-deleted.");
+
+                case SupplierBill bill when entry.State == EntityState.Modified && entry.Property(nameof(SupplierBill.Status)).OriginalValue is SupplierBillStatus status && status != SupplierBillStatus.Draft:
+                    EnsureOnlyAllowedPropertiesChanged(
+                        entry,
+                        nameof(SupplierBill.AmountPaid),
+                        nameof(SupplierBill.BalanceDue),
+                        nameof(SupplierBill.Status));
+                    _ = bill;
+                    break;
+
+                case SupplierPayment payment when entry.State is EntityState.Modified or EntityState.Deleted:
+                    throw new InvalidOperationException(
+                        $"Supplier payment {payment.Id} is immutable financial history and cannot be changed or deleted.");
 
                 case Sale sale when entry.State == EntityState.Modified:
                     EnsureOnlyAllowedPropertiesChanged(
