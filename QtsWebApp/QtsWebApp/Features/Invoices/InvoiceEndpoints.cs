@@ -12,7 +12,10 @@ using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Inventory;
+using QtsWebApp.Features.Sales;
 using QtsWebApp.Infrastructure;
+using TerminalCaptureEnvelope = QtsBilling.Contracts.Sales.TerminalCaptureEnvelope;
+using TerminalCaptureVerification = QtsBilling.Contracts.Sales.TerminalCaptureVerification;
 
 namespace QtsWebApp.Features.Invoices;
 
@@ -1528,6 +1531,7 @@ public static class InvoiceEndpoints
     private static async Task<IResult> AddPaymentAsync(
         ClaimsPrincipal principal,
         BillingDbContext db,
+        IPaymentTerminalProvider terminalProvider,
         Guid id,
         InvoicePaymentRequest request,
         HttpContext http,
@@ -1609,16 +1613,7 @@ public static class InvoiceEndpoints
         {
             return ApiResults.ValidationProblem(
                 "The payment payload is invalid.",
-                new Dictionary<string, string[]> { ["method"] = ["Use 'cash', 'cheque' or 'bankTransfer' for invoice payments."] });
-        }
-
-        if (method is PaymentMethod.Card)
-        {
-            return ApiResults.Problem(
-                StatusCodes.Status409Conflict,
-                ApiErrorCodes.PaymentMethodDisabled,
-                "Card payments are disabled.",
-                "No verified PSP integration exists (OPEN-6); accept cash, cheque or bank transfer.");
+                new Dictionary<string, string[]> { ["method"] = ["Use 'cash', 'cheque', 'bankTransfer' or a verified 'card' capture for invoice payments."] });
         }
 
         var amount = LedgerWriter.Round(request.Amount);
@@ -1632,11 +1627,41 @@ public static class InvoiceEndpoints
 
         var reference = request.Reference?.Trim();
 
-        if (method is PaymentMethod.Cheque or PaymentMethod.BankTransfer && reference is null or { Length: 0 })
+        if (reference is { Length: > 128 })
+            return ApiResults.ValidationProblem("The payment payload is invalid.",
+                new Dictionary<string, string[]> { ["reference"] = ["A payment reference is limited to 128 characters."] });
+
+        if ((method is PaymentMethod.Cheque or PaymentMethod.BankTransfer && reference is null or { Length: 0 })
+            || method == PaymentMethod.Card && string.IsNullOrWhiteSpace(reference))
         {
             return ApiResults.ValidationProblem(
                 "The payment payload is invalid.",
-                new Dictionary<string, string[]> { ["reference"] = ["Cheque and bank transfer payments require a processing reference."] });
+                new Dictionary<string, string[]> { ["reference"] = ["Cheque, bank transfer, and card payments require a processing reference."] });
+        }
+
+        TerminalCaptureVerification? terminalCapture = null;
+        if (method == PaymentMethod.Card)
+        {
+            if (invoice.LocationId is not { } invoiceLocationId)
+                return ApiResults.Problem(StatusCodes.Status409Conflict, ApiErrorCodes.PaymentUnconfirmed,
+                    "The card payment is not confirmed.", "The invoice must have a location before a terminal capture can be verified.");
+
+            var capture = await PaymentTerminalEndpoints.VerifyCaptureAsync(
+                provider: terminalProvider,
+                businessId: businessId,
+                locationId: invoiceLocationId,
+                expectedAmount: amount,
+                currency: invoice.Currency,
+                pspReference: reference,
+                capture: request.TerminalCapture,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (capture.Error is not null) return capture.Error;
+            terminalCapture = capture.Verification;
+        }
+        else if (request.TerminalCapture is not null)
+        {
+            return ApiResults.ValidationProblem("The payment payload is invalid.",
+                new Dictionary<string, string[]> { ["terminalCapture"] = ["A PSP capture payload is only valid for a card payment."] });
         }
 
         var registerContext = await ResolveRegisterAsync(db, businessId, invoice, request.RegisterId, cancellationToken).ConfigureAwait(false);
@@ -1747,10 +1772,13 @@ public static class InvoiceEndpoints
                     Method = method,
                     Amount = amount,
                     Currency = lockedInvoice.Currency,
-                    Status = method is PaymentMethod.Cash
+                    Status = method is PaymentMethod.Cash or PaymentMethod.Card
                         ? QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed
                         : QtsBilling.Persistence.Postgres.PaymentStatus.Pending,
-                    Reference = reference,
+                    Reference = method == PaymentMethod.Card ? null : reference,
+                    PspReference = terminalCapture?.PspReference,
+                    CardBrand = terminalCapture?.CardBrand,
+                    CardLast4 = terminalCapture?.CardLast4,
                     ReceivedAtUtc = now,
                     CreatedByUserId = userId,
                     CashRegisterSessionId = lockedSession?.Id,
@@ -1760,7 +1788,7 @@ public static class InvoiceEndpoints
 
                 db.Payments.Add(payment);
 
-                if (method is PaymentMethod.Cash)
+                if (method is PaymentMethod.Cash or PaymentMethod.Card)
                 {
                     await LedgerWriter.PostWithinTransactionAsync(
                         db,
@@ -2354,7 +2382,10 @@ public static class InvoiceEndpoints
             payment.Amount,
             payment.Currency,
             payment.Reference,
-            payment.ReceivedAtUtc);
+            payment.ReceivedAtUtc,
+            payment.PspReference,
+            payment.CardBrand,
+            payment.CardLast4);
 
     private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)
         => Guid.TryParse(principal.FindFirst(ClaimTypes.NameIdentifier)?.Value, out userId);

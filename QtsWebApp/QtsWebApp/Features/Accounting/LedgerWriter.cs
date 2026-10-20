@@ -212,6 +212,7 @@ internal static class LedgerWriter
             ["1010"] = settings.BankClearingAccountId,
             ["1100"] = settings.AccountsReceivableAccountId,
             ["1200"] = settings.InventoryAssetAccountId,
+            ["1250"] = settings.DeliveredNotInvoicedAccountId,
             ["1300"] = settings.InputTaxReceivableAccountId,
             ["2000"] = settings.AccountsPayableAccountId,
             ["2100"] = settings.OutputTaxPayableAccountId,

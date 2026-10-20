@@ -315,6 +315,7 @@ public partial class BillingDbContext
             ConfigureSettingsAccount(b, e => new { e.BankClearingAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.AccountsReceivableAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.InventoryAssetAccountId, e.BusinessId });
+            ConfigureSettingsAccount(b, e => new { e.DeliveredNotInvoicedAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.InputTaxReceivableAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.AccountsPayableAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.OutputTaxPayableAccountId, e.BusinessId });

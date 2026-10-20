@@ -42,7 +42,8 @@ public sealed record PaymentCaptureRequest(
     string Method,
     decimal Amount,
     decimal? CashReceived,
-    string? Reference);
+    string? Reference,
+    TerminalCaptureEnvelope? TerminalCapture = null);
 
 /// <summary>Immutable posted result of a sale capture.</summary>
 public sealed record SaleCaptureResult(
@@ -118,4 +119,6 @@ public sealed record PostedPaymentDto(
     decimal? CashReceived,
     string? Reference,
     string? PspReference,
-    DateTimeOffset ReceivedAtUtc);
+    DateTimeOffset ReceivedAtUtc,
+    string? CardBrand = null,
+    string? CardLast4 = null);

@@ -36,6 +36,12 @@ public static class ApiErrorCodes
     public const string RefundNotSupported = "REFUND_NOT_SUPPORTED";
     public const string AlreadyReversed = "ALREADY_REVERSED";
     public const string CreditLimitExceeded = "CREDIT_LIMIT_EXCEEDED";
+    public const string ApprovalRequired = "APPROVAL_REQUIRED";
+    public const string QuoteNotDraft = "QUOTE_NOT_DRAFT";
+    public const string QuoteExpired = "QUOTE_EXPIRED";
+    public const string QuoteNotAccepted = "QUOTE_NOT_ACCEPTED";
+    public const string SalesOrderNotDraft = "SALES_ORDER_NOT_DRAFT";
+    public const string SalesOrderNotOpen = "SALES_ORDER_NOT_OPEN";
     public const string PurchaseOrderNotDraft = "PURCHASE_ORDER_NOT_DRAFT";
     public const string PurchaseOrderNotOpen = "PURCHASE_ORDER_NOT_OPEN";
     public const string OverReceipt = "OVER_RECEIPT";

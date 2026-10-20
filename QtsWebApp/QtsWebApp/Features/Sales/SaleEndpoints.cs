@@ -40,6 +40,7 @@ public static class SaleEndpoints
     private static async Task<IResult> PostAsync(
         ClaimsPrincipal principal,
         BillingDbContext db,
+        IPaymentTerminalProvider terminalProvider,
         HttpContext http,
         SaleCaptureRequest request,
         CancellationToken cancellationToken)
@@ -136,7 +137,24 @@ public static class SaleEndpoints
             return pricing.Error;
         }
 
-        var payment = SalePosting.ValidatePayment(request, pricing);
+        TerminalCaptureVerification? terminalCapture = null;
+        if (Enum.TryParse<QtsBilling.Persistence.Postgres.PaymentMethod>(request.Payment.Method?.Trim(), true, out var requestedMethod)
+            && requestedMethod == QtsBilling.Persistence.Postgres.PaymentMethod.Card)
+        {
+            var capture = await PaymentTerminalEndpoints.VerifyCaptureAsync(
+                provider: terminalProvider,
+                businessId: businessId,
+                locationId: request.LocationId,
+                expectedAmount: pricing.Lines.Sum(line => line.LineTotal),
+                currency: currency,
+                pspReference: request.Payment.Reference,
+                capture: request.Payment.TerminalCapture,
+                cancellationToken: cancellationToken).ConfigureAwait(false);
+            if (capture.Error is not null) return capture.Error;
+            terminalCapture = capture.Verification;
+        }
+
+        var payment = SalePosting.ValidatePayment(request, pricing, terminalCapture);
 
         if (payment.Error is not null)
         {
@@ -362,6 +380,8 @@ public static class SaleEndpoints
                 payment.CashReceived,
                 payment.Reference,
                 payment.PspReference,
+                payment.CardBrand,
+                payment.CardLast4,
                 payment.ReceivedAtUtc,
             })
             .ToListAsync(cancellationToken)
@@ -394,7 +414,9 @@ public static class SaleEndpoints
                 payment.CashReceived,
                 payment.Reference,
                 payment.PspReference,
-                payment.ReceivedAtUtc)).ToList());
+                payment.ReceivedAtUtc,
+                payment.CardBrand,
+                payment.CardLast4)).ToList());
     }
 
     /// <summary>Receipt content from immutable snapshots; renaming a product or changing a price never alters it.</summary>

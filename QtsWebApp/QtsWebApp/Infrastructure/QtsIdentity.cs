@@ -37,6 +37,7 @@ public static class RolePermissions
                 Permissions.ProductsRead, Permissions.ProductsWrite,
                 Permissions.InventoryAdjust,
                 Permissions.SalesPost, Permissions.SalesVoid, Permissions.SalesRefund,
+                Permissions.OrdersManage, Permissions.InventoryDispatch,
                 Permissions.RegistersManage,
                 Permissions.AccountingPost,
                 Permissions.InvoicesIssue, Permissions.InvoicesManage, Permissions.PurchasingManage,
@@ -48,7 +49,7 @@ public static class RolePermissions
             [
                 Permissions.CustomersRead, Permissions.CustomersWrite,
                 Permissions.ProductsRead,
-                Permissions.SalesPost,
+                Permissions.SalesPost, Permissions.OrdersManage,
                 Permissions.RegistersManage,
                 Permissions.ReportsView,
             ],

@@ -35,6 +35,10 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(ExternalRecordLink),
         typeof(OpenItem),
         typeof(IdempotencyReceipt),
+        typeof(SalesQuoteRevision),
+        typeof(SalesQuoteRevisionLine),
+        typeof(SalesOrderRevision),
+        typeof(SalesOrderRevisionLine),
         typeof(PaymentAllocation),
     ];
 
@@ -169,6 +173,24 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<OpenItem> OpenItems => Set<OpenItem>();
 
+    public DbSet<SalesDocumentSequence> SalesDocumentSequences => Set<SalesDocumentSequence>();
+
+    public DbSet<SalesQuote> SalesQuotes => Set<SalesQuote>();
+
+    public DbSet<SalesQuoteLine> SalesQuoteLines => Set<SalesQuoteLine>();
+
+    public DbSet<SalesQuoteRevision> SalesQuoteRevisions => Set<SalesQuoteRevision>();
+
+    public DbSet<SalesQuoteRevisionLine> SalesQuoteRevisionLines => Set<SalesQuoteRevisionLine>();
+
+    public DbSet<SalesOrder> SalesOrders => Set<SalesOrder>();
+
+    public DbSet<SalesOrderLine> SalesOrderLines => Set<SalesOrderLine>();
+
+    public DbSet<SalesOrderRevision> SalesOrderRevisions => Set<SalesOrderRevision>();
+
+    public DbSet<SalesOrderRevisionLine> SalesOrderRevisionLines => Set<SalesOrderRevisionLine>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // numeric(18,4) money; longer precisions are set explicitly for quantities and rates.
@@ -193,6 +215,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         ConfigureSales(modelBuilder);
         ConfigureAccounting(modelBuilder);
         ConfigurePurchasing(modelBuilder);
+        ConfigureSalesOrders(modelBuilder);
         ConfigurePlatform(modelBuilder);
         ConfigureOpenIddict(modelBuilder);
 

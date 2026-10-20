@@ -270,7 +270,10 @@ internal static class SalePosting
         return new PricingResult(null, computed);
     }
 
-    public static PaymentResult ValidatePayment(SaleCaptureRequest request, PricingResult pricing)
+    public static PaymentResult ValidatePayment(
+        SaleCaptureRequest request,
+        PricingResult pricing,
+        TerminalCaptureVerification? terminalCapture = null)
     {
         var payment = request.Payment!;
         var methodName = payment.Method?.Trim() ?? string.Empty;
@@ -335,13 +338,25 @@ internal static class SalePosting
                 break;
 
             case PaymentMethod.Card:
-                // No verified PSP integration exists (OPEN-6): a card payment can never be substantiated from
-                // this system, so the method is disabled instead of reporting a success it cannot prove (F-09).
-                return new PaymentResult(null!, ApiResults.Problem(
-                    StatusCodes.Status409Conflict,
-                    ApiErrorCodes.PaymentMethodDisabled,
-                    "Card payments are disabled.",
-                    "No verified PSP integration exists (OPEN-6). Accept cash, or cheque/bank transfer with a processing reference."));
+                if (terminalCapture is not { Verified: true })
+                {
+                    return new PaymentResult(null!, ApiResults.Problem(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.PaymentUnconfirmed,
+                        "The card payment is not confirmed.",
+                        "A verified provider capture is required before a card sale can be posted."));
+                }
+
+                if (!string.Equals(reference, terminalCapture.PspReference, StringComparison.Ordinal))
+                {
+                    return new PaymentResult(null!, ApiResults.Problem(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.PaymentUnconfirmed,
+                        "The card payment is not confirmed.",
+                        "The payment reference must match the verified provider capture."));
+                }
+
+                break;
 
             default:
                 // Cheque, bank transfer and other externally processed methods need proof of processing:
@@ -359,7 +374,14 @@ internal static class SalePosting
         }
 
         return new PaymentResult(
-            new ComputedPayment(method, amount, cashReceived, string.IsNullOrWhiteSpace(reference) ? null : reference),
+            new ComputedPayment(
+                method,
+                amount,
+                cashReceived,
+                method == PaymentMethod.Card ? null : string.IsNullOrWhiteSpace(reference) ? null : reference,
+                terminalCapture?.PspReference,
+                terminalCapture?.CardBrand,
+                terminalCapture?.CardLast4),
             null);
     }
 
@@ -462,7 +484,7 @@ internal static class SalePosting
 
             // Only cash is settled by its receipt. A cheque or a transfer is not bank money until an
             // operator confirms the processing, so it stays unsettled (specification D07).
-            var settledByReceipt = payment.Payment.Method == PaymentMethod.Cash;
+            var settledByReceipt = payment.Payment.Method is PaymentMethod.Cash or PaymentMethod.Card;
 
             var subtotal = lines.Sum(line => line.Gross);
             var discount = lines.Sum(line => line.Discount);
@@ -571,6 +593,9 @@ internal static class SalePosting
                 Currency = business.BaseCurrency,
                 CashReceived = payment.Payment.CashReceived,
                 Reference = payment.Payment.Reference,
+                PspReference = payment.Payment.PspReference,
+                CardBrand = payment.Payment.CardBrand,
+                CardLast4 = payment.Payment.CardLast4,
                 ReceivedAtUtc = now,
                 CreatedByUserId = userId,
                 CashRegisterSessionId = lockedSession?.Id,
@@ -782,7 +807,14 @@ internal static class SalePosting
         bool TrackStock,
         decimal UnitCost);
 
-    internal sealed record ComputedPayment(PaymentMethod Method, decimal Amount, decimal? CashReceived, string? Reference);
+    internal sealed record ComputedPayment(
+        PaymentMethod Method,
+        decimal Amount,
+        decimal? CashReceived,
+        string? Reference,
+        string? PspReference,
+        string? CardBrand,
+        string? CardLast4);
 
     internal sealed record SaleContext(IResult? Error, IReadOnlyList<VariantRow> Variants, IReadOnlyList<ProductRow> Products, IReadOnlyDictionary<Guid, decimal> TaxRates);
 

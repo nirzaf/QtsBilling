@@ -12,6 +12,7 @@ using System.Security.Cryptography.X509Certificates;
 using System.Text.Json;
 using System.Threading.RateLimiting;
 using QtsBilling.Contracts.Clients;
+using QtsBilling.Contracts.Orders;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
@@ -28,6 +29,7 @@ using QtsWebApp.Features.Invoices;
 using QtsWebApp.Features.Expenses;
 using QtsWebApp.Features.Pricing;
 using QtsWebApp.Features.Purchasing;
+using QtsWebApp.Features.Orders;
 using QtsWebApp.Features.Reporting;
 using QtsWebApp.Features.Sales;
 using QtsWebApp.Features.Sync;
@@ -305,6 +307,12 @@ builder.Services.AddHttpClient<ICustomerApiClient, CustomerApiClient>(client => 
 builder.Services.AddHttpClient<IAccountApiClient, AccountApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
+builder.Services.AddHttpClient<ISalesOrderApiClient, SalesOrderApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddSingleton(serviceProvider =>
 {
     var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
@@ -359,6 +367,7 @@ app.MapSaleEndpoints();
 app.MapPaymentTerminalEndpoints();
 app.MapCashRegisterEndpoints();
 app.MapRefundEndpoints();
+app.MapOrdersEndpoints();
 app.MapInvoiceEndpoints();
 app.MapPaymentEndpoints();
 app.MapPurchasingEndpoints();

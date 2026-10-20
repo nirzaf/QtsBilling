@@ -54,6 +54,7 @@ public enum JournalSourceType
     StockTransfer,
     StockTransferReceipt,
     StockCount,
+    SalesOrderDelivery,
 }
 
 public enum StockTransferStatus

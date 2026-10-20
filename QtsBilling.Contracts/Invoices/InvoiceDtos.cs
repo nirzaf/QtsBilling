@@ -70,7 +70,10 @@ public sealed record InvoicePaymentDto(
     decimal Amount,
     string Currency,
     string? Reference,
-    DateTimeOffset ReceivedAtUtc);
+    DateTimeOffset ReceivedAtUtc,
+    string? PspReference = null,
+    string? CardBrand = null,
+    string? CardLast4 = null);
 
 /// <summary>Full credit note referencing the original invoice (QB-11); one per invoice.</summary>
 public sealed record InvoiceCreditNoteDto(
@@ -105,7 +108,12 @@ public sealed record InvoiceDetailDto(
 /// Payment allocation against an issued invoice. Cash may name a register with an open drawer session;
 /// cheque/bank transfers require a processing reference (card is disabled - D-36).
 /// </summary>
-public sealed record InvoicePaymentRequest(string Method, decimal Amount, string? Reference, Guid? RegisterId);
+public sealed record InvoicePaymentRequest(
+    string Method,
+    decimal Amount,
+    string? Reference,
+    Guid? RegisterId,
+    QtsBilling.Contracts.Sales.TerminalCaptureEnvelope? TerminalCapture = null);
 
 public sealed record InvoicePaymentResult(InvoicePaymentDto Payment, InvoiceSummaryDto Invoice);
 

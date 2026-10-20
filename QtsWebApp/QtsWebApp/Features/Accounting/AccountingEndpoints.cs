@@ -100,6 +100,7 @@ public static class AccountingEndpoints
             (nameof(request.BankClearingAccountId), request.BankClearingAccountId, AccountType.Asset),
             (nameof(request.AccountsReceivableAccountId), request.AccountsReceivableAccountId, AccountType.Asset),
             (nameof(request.InventoryAssetAccountId), request.InventoryAssetAccountId, AccountType.Asset),
+            (nameof(request.DeliveredNotInvoicedAccountId), request.DeliveredNotInvoicedAccountId, AccountType.Asset),
             (nameof(request.InputTaxReceivableAccountId), request.InputTaxReceivableAccountId, AccountType.Asset),
             (nameof(request.AccountsPayableAccountId), request.AccountsPayableAccountId, AccountType.Liability),
             (nameof(request.OutputTaxPayableAccountId), request.OutputTaxPayableAccountId, AccountType.Liability),
@@ -160,6 +161,7 @@ public static class AccountingEndpoints
         settings.BankClearingAccountId = request.BankClearingAccountId;
         settings.AccountsReceivableAccountId = request.AccountsReceivableAccountId;
         settings.InventoryAssetAccountId = request.InventoryAssetAccountId;
+        settings.DeliveredNotInvoicedAccountId = request.DeliveredNotInvoicedAccountId;
         settings.InputTaxReceivableAccountId = request.InputTaxReceivableAccountId;
         settings.AccountsPayableAccountId = request.AccountsPayableAccountId;
         settings.OutputTaxPayableAccountId = request.OutputTaxPayableAccountId;
@@ -184,6 +186,7 @@ public static class AccountingEndpoints
         settings.BankClearingAccountId,
         settings.AccountsReceivableAccountId,
         settings.InventoryAssetAccountId,
+        settings.DeliveredNotInvoicedAccountId,
         settings.InputTaxReceivableAccountId,
         settings.AccountsPayableAccountId,
         settings.OutputTaxPayableAccountId,

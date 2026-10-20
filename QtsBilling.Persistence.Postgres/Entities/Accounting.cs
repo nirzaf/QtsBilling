@@ -38,6 +38,7 @@ public sealed class BusinessAccountingSettings : TenantEntity
     public Guid BankClearingAccountId { get; set; }
     public Guid AccountsReceivableAccountId { get; set; }
     public Guid InventoryAssetAccountId { get; set; }
+    public Guid DeliveredNotInvoicedAccountId { get; set; }
     public Guid InputTaxReceivableAccountId { get; set; }
     public Guid AccountsPayableAccountId { get; set; }
     public Guid OutputTaxPayableAccountId { get; set; }
