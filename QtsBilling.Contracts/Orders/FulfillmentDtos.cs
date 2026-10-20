@@ -46,7 +46,7 @@ public sealed record SalesOrderDeliveryDto(
     DateOnly DeliveryDate,
     decimal TotalQuantity,
     decimal CostValue,
-    string JournalEntryNumber,
+    string? JournalEntryNumber,
     string? Note,
     DateTimeOffset CreatedAtUtc,
     IReadOnlyList<SalesOrderDeliveryLineDto> Lines);
