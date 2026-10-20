@@ -63,7 +63,7 @@ public sealed class SalesOrderDelivery : Entity, ITenantScoped
 
     public Guid CreatedByUserId { get; set; }
 
-    public Guid JournalEntryId { get; set; }
+    public Guid? JournalEntryId { get; set; }
 
     public string IdempotencyKey { get; set; } = string.Empty;
 
