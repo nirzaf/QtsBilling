@@ -54,6 +54,11 @@ public static class SaleEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this location.");
+        }
+
         var idempotencyKey = http.Request.Headers[IdempotencyHeader].ToString().Trim();
 
         if (idempotencyKey.Length is 0 or > 64)
