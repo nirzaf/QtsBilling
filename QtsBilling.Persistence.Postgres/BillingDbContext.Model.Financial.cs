@@ -661,5 +661,63 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.SourceCollection, e.LegacyId }).IsUnique();
             b.HasIndex(e => new { e.EntityType, e.TargetId });
         });
+
+        modelBuilder.Entity<ExternalRecordLink>(b =>
+        {
+            b.ToTable("external_record_links");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.DatasetNamespace).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ResourceType).HasMaxLength(64).IsRequired();
+            b.Property(e => e.ExternalId).HasMaxLength(128).IsRequired();
+            b.Property(e => e.PayloadSha256).HasMaxLength(64).IsRequired();
+            b.Property(e => e.TargetType).HasMaxLength(64).IsRequired();
+            b.HasIndex(e => new { e.BusinessId, e.DatasetNamespace, e.ResourceType, e.ExternalId })
+                .IsUnique()
+                .HasDatabaseName("ux_external_record_links_identity");
+            b.HasIndex(e => new { e.BusinessId, e.BatchId, e.ResourceType, e.ExternalId })
+                .IsUnique()
+                .HasDatabaseName("ux_external_record_links_batch");
+            b.HasIndex(e => new { e.BusinessId, e.TargetType, e.TargetId });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_external_record_links_sha256",
+                "length(payload_sha256) = 64"));
+        });
+
+        modelBuilder.Entity<OpenItem>(b =>
+        {
+            b.ToTable("open_items");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.SourceType).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Reference).HasMaxLength(200);
+            b.HasOne<Customer>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CustomerId, e.BusinessId })
+                .HasPrincipalKey(customer => new { customer.Id, customer.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Supplier>()
+                .WithMany()
+                .HasForeignKey(e => new { e.SupplierId, e.BusinessId })
+                .HasPrincipalKey(supplier => new { supplier.Id, supplier.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(entry => new { entry.Id, entry.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.SourceType, e.SourceId }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.CustomerId });
+            b.HasIndex(e => new { e.BusinessId, e.SupplierId });
+            b.ToTable(t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_open_items_party",
+                    "((kind = 'Receivable' AND customer_id IS NOT NULL AND supplier_id IS NULL) OR " +
+                    "(kind = 'Payable' AND supplier_id IS NOT NULL AND customer_id IS NULL))");
+                t.HasCheckConstraint("ck_open_items_amount", "original_amount > 0");
+            });
+        });
     }
 }

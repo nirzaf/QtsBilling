@@ -24,6 +24,7 @@
         <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
         <!-- The integration harness runs the real host against a disposable PostgreSQL database. -->
         <ProjectReference Include="..\QtsWebApp\QtsWebApp\QtsWebApp.csproj" />
+        <ProjectReference Include="..\QtsBilling.DataImport\QtsBilling.DataImport.csproj" />
     </ItemGroup>
 
 </Project>

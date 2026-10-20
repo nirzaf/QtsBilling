@@ -29,6 +29,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(ProcessedOperation),
         typeof(SyncChange),
         typeof(LegacyIdentifierMap),
+        typeof(ExternalRecordLink),
+        typeof(OpenItem),
     ];
 
     public BillingDbContext(DbContextOptions<BillingDbContext> options)
@@ -123,6 +125,10 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<SyncChange> SyncChanges => Set<SyncChange>();
 
     public DbSet<LegacyIdentifierMap> LegacyIdentifierMaps => Set<LegacyIdentifierMap>();
+
+    public DbSet<ExternalRecordLink> ExternalRecordLinks => Set<ExternalRecordLink>();
+
+    public DbSet<OpenItem> OpenItems => Set<OpenItem>();
 
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {

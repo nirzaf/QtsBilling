@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <OutputType>Exe</OutputType>
+        <TargetFramework>net10.0</TargetFramework>
+        <LangVersion>14.0</LangVersion>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <Nullable>enable</Nullable>
+        <RootNamespace>QtsBilling.DataImport</RootNamespace>
+        <AssemblyName>QtsBilling.DataImport</AssemblyName>
+        <IsPackable>false</IsPackable>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
+        <ProjectReference Include="..\QtsBilling.Persistence.Postgres\QtsBilling.Persistence.Postgres.csproj" />
+    </ItemGroup>
+
+</Project>

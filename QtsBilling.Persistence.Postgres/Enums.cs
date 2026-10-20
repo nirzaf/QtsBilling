@@ -138,6 +138,13 @@ public enum AccountType
     Expense,
 }
 
+/// <summary>The party subledger a native opening item belongs to.</summary>
+public enum OpenItemKind
+{
+    Receivable,
+    Payable,
+}
+
 /// <summary>Reason for a cash-register movement (spec §3.6 cash controls).</summary>
 public enum CashMovementType
 {
