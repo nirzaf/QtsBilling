@@ -6,8 +6,10 @@ using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Expenses;
 using QtsBilling.Contracts.Identity;
+using QtsBilling.Contracts.Pos;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsModels.ValueObjects;
 using QtsWebApp.Features.Accounting;
 using QtsWebApp.Infrastructure;
 
@@ -317,7 +319,10 @@ public static class ExpenseEndpoints
                 expense.OccurredOn,
                 expense.PaidVia,
                 expense.Reference,
-                expense.CreatedAtUtc))
+                expense.CreatedAtUtc,
+                expense.TaxRate,
+                expense.TaxAmount,
+                expense.TaxMode))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -428,6 +433,55 @@ public static class ExpenseEndpoints
             errors["amount"] = ["A positive amount of at most 4 decimal places is required."];
         }
 
+        var taxMode = CommercialTaxMode.Exclusive;
+        try
+        {
+            taxMode = CommercialAmountCalculator.ParseTaxMode(request?.TaxMode, "taxMode");
+        }
+        catch (CommercialAmountException exception)
+        {
+            errors["taxMode"] = [exception.Message];
+        }
+
+        if (request is not null)
+        {
+            if (request.TaxRate < 0m || request.TaxRate >= 1m || decimal.Round(request.TaxRate, 6) != request.TaxRate)
+            {
+                errors["taxRate"] = ["The tax rate must be from 0 through 0.999999, with at most 6 decimal places."];
+            }
+
+            if (taxMode == CommercialTaxMode.Exempt && request.TaxRate != 0m)
+            {
+                errors["taxRate"] = ["An exempt expense must use a zero tax rate."];
+            }
+
+            if (request.TaxAmount < 0m || request.TaxAmount > request.Amount || LedgerWriter.Round(request.TaxAmount) != request.TaxAmount)
+            {
+                errors["taxAmount"] = ["Tax must be non-negative, at most the amount paid, and have at most 4 decimal places."];
+            }
+            else if (request.Amount > 0m && request.TaxRate >= 0m && request.TaxRate < 1m)
+            {
+                try
+                {
+                    // Amount remains the cash total for compatibility. Exclusive records pass the net
+                    // base to the shared calculator; inclusive records pass the total including tax.
+                    var calculationBase = taxMode == CommercialTaxMode.Exclusive
+                        ? request.Amount - request.TaxAmount
+                        : request.Amount;
+                    var calculated = CommercialAmountCalculator.ComputeLine(
+                        1m, calculationBase, taxMode, request.TaxRate, 0m, field: "expense");
+                    if (calculated.TaxAmount != request.TaxAmount || calculated.PayableAmount != request.Amount)
+                    {
+                        errors["taxAmount"] = ["The tax amount, rate, mode, and amount paid do not reconcile."];
+                    }
+                }
+                catch (CommercialAmountException exception)
+                {
+                    errors[exception.Field] = [exception.Message];
+                }
+            }
+        }
+
         if (request?.OccurredOn == default)
         {
             errors["occurredOn"] = ["The expense date is required."];
@@ -501,7 +555,13 @@ public static class ExpenseEndpoints
             return ApiResults.ValidationProblem("The expense payload is invalid.", errors);
         }
 
-        request = request!;
+        if (request is null)
+        {
+            return ApiResults.ValidationProblem(
+                "The expense payload is invalid.",
+                new Dictionary<string, string[]> { ["request"] = ["An expense payload is required."] });
+        }
+
         var amount = LedgerWriter.Round(request.Amount);
         var now = DateTimeOffset.UtcNow;
         var strategy = db.Database.CreateExecutionStrategy();
@@ -517,7 +577,7 @@ public static class ExpenseEndpoints
                 var accounts = await LedgerWriter.ResolveAccountsAsync(
                         db,
                         businessId,
-                        [creditAccountCode],
+                        request.TaxAmount > 0m ? [creditAccountCode, "1300"] : [creditAccountCode],
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -528,6 +588,15 @@ public static class ExpenseEndpoints
                         ApiErrorCodes.Conflict,
                         $"Account {creditAccountCode} is missing from the chart of accounts.",
                         "Seed the standard chart of accounts before posting business documents.");
+                }
+
+                if (request.TaxAmount > 0m && !accounts.ContainsKey("1300"))
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.Conflict,
+                        "The input tax account is not configured.",
+                        "Configure the business input tax receivable account before posting an expense with recoverable tax.");
                 }
 
                 var debitAccount = expenseAccount ?? await db.Accounts.AsNoTracking()
@@ -551,6 +620,9 @@ public static class ExpenseEndpoints
                     SupplierId = request.SupplierId,
                     Description = description,
                     Amount = amount,
+                    TaxRate = request.TaxRate,
+                    TaxAmount = LedgerWriter.Round(request.TaxAmount),
+                    TaxMode = taxMode.ToString(),
                     Currency = business.BaseCurrency,
                     OccurredOn = request.OccurredOn,
                     PaidVia = paidVia,
@@ -562,6 +634,20 @@ public static class ExpenseEndpoints
 
                 db.Expenses.Add(expense);
 
+                var journalLines = new List<JournalLineRequest>();
+                var netExpenseAmount = LedgerWriter.Round(amount - request.TaxAmount);
+                if (netExpenseAmount > 0m)
+                {
+                    journalLines.Add(new JournalLineRequest(debitAccount.Id, netExpenseAmount, 0m, "Expense", request.LocationId));
+                }
+
+                if (request.TaxAmount > 0m)
+                {
+                    journalLines.Add(new JournalLineRequest(accounts["1300"].Id, request.TaxAmount, 0m, "Recoverable input VAT", request.LocationId));
+                }
+
+                journalLines.Add(new JournalLineRequest(creditAccount.Id, 0m, amount, $"Paid via {paidVia}", request.LocationId));
+
                 var entry = await LedgerWriter.PostWithinTransactionAsync(
                         db,
                         businessId,
@@ -572,10 +658,7 @@ public static class ExpenseEndpoints
                         JournalSourceType.Expense,
                         expense.Id,
                         reversalOfEntryId: null,
-                        [
-                            new JournalLineRequest(debitAccount.Id, amount, 0m, "Expense", request.LocationId),
-                            new JournalLineRequest(creditAccount.Id, 0m, amount, $"Paid via {paidVia}", request.LocationId),
-                        ],
+                        journalLines,
                         cancellationToken)
                     .ConfigureAwait(false);
 
@@ -870,7 +953,10 @@ public static class ExpenseEndpoints
             expense.OccurredOn,
             expense.PaidVia,
             expense.Reference,
-            expense.CreatedAtUtc);
+                expense.CreatedAtUtc,
+                expense.TaxRate,
+                expense.TaxAmount,
+                expense.TaxMode);
 
     private static async Task<List<ExpenseDto>> ToDtosAsync(
         BillingDbContext db,
@@ -954,7 +1040,10 @@ public static class ExpenseEndpoints
                 reversal?.ReversedAtUtc,
                 reversal?.JournalEntryId,
                 reversalEntryNumber,
-                row.CreatedAtUtc));
+                row.CreatedAtUtc,
+                row.TaxRate,
+                row.TaxAmount,
+                row.TaxMode));
         }
 
         return dtos;
@@ -1034,5 +1123,8 @@ public static class ExpenseEndpoints
         DateOnly OccurredOn,
         PaymentMethod PaidVia,
         string? Reference,
-        DateTimeOffset CreatedAtUtc);
+        DateTimeOffset CreatedAtUtc,
+        decimal TaxRate,
+        decimal TaxAmount,
+        string TaxMode);
 }
