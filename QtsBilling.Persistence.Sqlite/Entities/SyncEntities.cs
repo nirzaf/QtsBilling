@@ -35,9 +35,12 @@ public sealed class OutboxOperation
 
     public OutboxState State { get; set; } = OutboxState.Pending;
 
-    public int Attempts { get; set; }
+    public int AttemptCount { get; set; }
 
-    public DateTime NextAttemptUtc { get; set; }
+    public DateTime NextAttemptAtUtc { get; set; }
+
+    /// <summary>Last transient server/network error code, retained for support diagnostics.</summary>
+    public string? LastErrorCode { get; set; }
 
     public DateTime CreatedAtUtc { get; set; }
 }
