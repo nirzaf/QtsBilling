@@ -97,3 +97,95 @@ public sealed record SalesSummaryDto(
     decimal Total,
     IReadOnlyList<PaymentMethodTotalDto> PaymentsByMethod,
     bool IncludesProvisional);
+
+public sealed record ReceivableAgingRowDto(
+    Guid? CustomerId,
+    string CustomerName,
+    decimal Current,
+    decimal Days1To30,
+    decimal Days31To60,
+    decimal Days61To90,
+    decimal DaysOver90,
+    decimal Balance);
+
+public sealed record ReceivableAgingDto(
+    Guid BusinessId,
+    DateOnly AsOf,
+    string Currency,
+    IReadOnlyList<ReceivableAgingRowDto> Customers,
+    decimal TotalOpenReceivables,
+    decimal LedgerReceivableBalance,
+    decimal ReconciliationVariance,
+    bool Reconciled,
+    bool IncludesProvisional);
+
+public sealed record PayableAgingRowDto(
+    Guid SupplierId,
+    string SupplierName,
+    decimal Current,
+    decimal Days1To30,
+    decimal Days31To60,
+    decimal Days61To90,
+    decimal DaysOver90,
+    decimal Balance);
+
+public sealed record PayableAgingDto(
+    Guid BusinessId,
+    DateOnly AsOf,
+    string Currency,
+    IReadOnlyList<PayableAgingRowDto> Suppliers,
+    decimal TotalOpenPayables,
+    decimal LedgerPayablesBalance,
+    decimal OpenGrniBalance,
+    decimal TotalSupplierLiabilityExposure,
+    decimal LedgerSupplierLiabilityExposure,
+    decimal ReconciliationVariance,
+    bool Reconciled,
+    bool IncludesProvisional);
+
+public sealed record TaxSummaryRowDto(
+    decimal TaxRate,
+    string TaxMode,
+    decimal OutputTaxAmount,
+    decimal InputTaxAmount,
+    decimal NetTaxPayable);
+
+public sealed record TaxSummaryDto(
+    Guid BusinessId,
+    DateOnly From,
+    DateOnly To,
+    string Currency,
+    IReadOnlyList<TaxSummaryRowDto> Rates,
+    decimal TotalOutputTax,
+    decimal TotalInputTax,
+    decimal NetTaxPayable,
+    bool IncludesProvisional);
+
+/// <summary>Shift close totals. Gross is before discounts and tax; net sales is after discounts and before tax.</summary>
+public sealed record ZReportDto(
+    Guid BusinessId,
+    Guid SessionId,
+    Guid RegisterId,
+    string RegisterName,
+    Guid LocationId,
+    string Currency,
+    string SessionStatus,
+    DateTimeOffset OpenedAtUtc,
+    DateTimeOffset? ClosedAtUtc,
+    decimal OpeningFloat,
+    int SalesCount,
+    decimal GrossSales,
+    decimal Discounts,
+    decimal Tax,
+    decimal NetSales,
+    decimal TotalSales,
+    IReadOnlyList<PaymentMethodTotalDto> SalesByPaymentMethod,
+    int RefundCount,
+    decimal RefundAmount,
+    IReadOnlyList<PaymentMethodTotalDto> RefundsByPaymentMethod,
+    decimal PaidIn,
+    decimal PaidOut,
+    decimal ExpectedCash,
+    decimal? CountedCash,
+    decimal? Variance,
+    bool IncludesProvisional);
