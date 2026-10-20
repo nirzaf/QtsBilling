@@ -1,5 +1,22 @@
 namespace QtsBilling.Persistence.Postgres.Entities;
 
+/// <summary>Replay ledger for mutating commands outside aggregates with a dedicated idempotency key.</summary>
+public sealed class IdempotencyReceipt : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public string Scope { get; set; } = string.Empty;
+
+    public string IdempotencyKey { get; set; } = string.Empty;
+
+    public string PayloadHash { get; set; } = string.Empty;
+
+    public int StatusCode { get; set; }
+
+    public string ResponseJson { get; set; } = string.Empty;
+
+}
+
 /// <summary>
 /// Security-relevant audit trail. Written inside the same transaction as the business change where
 /// possible; payloads must never contain secrets, PAN/CVV or passwords (spec §5.3/§5.5).
