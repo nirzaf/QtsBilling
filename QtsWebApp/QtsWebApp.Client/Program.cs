@@ -4,6 +4,7 @@ using MudBlazor.Services;
 using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Banking;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsWebApp.Client.Services;
@@ -17,8 +18,10 @@ builder.Services.AddScoped<ICustomerApiClient, CustomerApiClient>();
 builder.Services.AddScoped<IAccountApiClient, AccountApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();
 builder.Services.AddScoped<IInventoryApiClient, InventoryApiClient>();
+builder.Services.AddScoped<IBankingApiClient, BankingApiClient>();
 builder.Services.AddScoped<ICashRegisterApiClient, CashRegisterApiClient>();
 builder.Services.AddScoped<ISaleApiClient, SaleApiClient>();
+builder.Services.AddScoped<IPaymentTerminalApiClient, PaymentTerminalApiClient>();
 builder.Services.AddScoped<IPosCheckoutOrchestrator, WebPosCheckoutOrchestrator>();
 
 builder.Services.AddBlazoredLocalStorage();
