@@ -136,6 +136,12 @@ public sealed class Invoice : TenantEntity
 
     public Guid? SourceSaleId { get; set; }
 
+    public Guid? SourceOrderId { get; set; }
+
+    public string? SourceRequestKey { get; set; }
+
+    public string? SourcePayloadHash { get; set; }
+
     public Guid? InvoiceSequenceId { get; set; }
 
     public string InvoiceNumber { get; set; } = string.Empty;
@@ -178,6 +184,8 @@ public sealed class InvoiceLine : Entity, ITenantScoped
     public int LineNo { get; set; }
 
     public Guid? VariantId { get; set; }
+
+    public Guid? SourceDeliveryLineId { get; set; }
 
     public string ProductNameSnapshot { get; set; } = string.Empty;
 
