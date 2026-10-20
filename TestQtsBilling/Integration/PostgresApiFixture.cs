@@ -401,6 +401,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             MovementType = MovementType.Opening,
             QuantityDelta = 100m,
             UnitCost = 60m,
+            ValueDelta = 6000m,
             ReferenceType = "opening",
             ReferenceId = Guid.CreateVersion7(),
             OccurredAtUtc = now,
@@ -413,6 +414,8 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             LocationId = location.Id,
             VariantId = variant.Id,
             OnHand = 100m,
+            ValueOnHand = 6000m,
+            AverageUnitCost = 60m,
             LastMovementAtUtc = now,
         });
 

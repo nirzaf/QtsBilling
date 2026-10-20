@@ -1430,6 +1430,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("uuid")
                         .HasColumnName("id");
 
+                    b.Property<decimal>("AverageUnitCost")
+                        .HasPrecision(18, 8)
+                        .HasColumnType("numeric(18,8)")
+                        .HasColumnName("average_unit_cost");
+
                     b.Property<Guid>("BusinessId")
                         .HasColumnType("uuid")
                         .HasColumnName("business_id");
@@ -1454,6 +1459,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamptz")
                         .HasColumnName("updated_at_utc");
+
+                    b.Property<decimal>("ValueOnHand")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("value_on_hand");
 
                     b.Property<Guid>("VariantId")
                         .HasColumnType("uuid")
@@ -1544,6 +1554,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamptz")
                         .HasColumnName("updated_at_utc");
+
+                    b.Property<decimal>("ValueDelta")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("value_delta");
 
                     b.Property<Guid>("VariantId")
                         .HasColumnType("uuid")

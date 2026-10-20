@@ -463,7 +463,10 @@ internal static class SalePosting
             var discount = lines.Sum(line => line.Discount);
             var tax = lines.Sum(line => line.Tax);
             var total = lines.Sum(line => line.LineTotal);
-            var cost = lines.Where(line => line.TrackStock).Sum(line => LedgerWriter.Round(line.UnitCost * line.Quantity));
+            // The cost of goods sold is the value the stock movements consume. It is collected while the
+            // movements are applied, because only the movement knows the value that was consumed
+            // (specification D06, finding F15).
+            var cost = 0m;
 
             var sale = new Sale
             {
@@ -517,7 +520,7 @@ internal static class SalePosting
 
                 if (line.TrackStock)
                 {
-                    await InventoryLedger.ApplyAsync(
+                    var movement = await InventoryLedger.ApplyAsync(
                         db,
                         business.Id,
                         userId,
@@ -530,7 +533,11 @@ internal static class SalePosting
                         saleLine.Id,
                         $"Sale {saleNumber}",
                         now,
-                                cancellationToken).ConfigureAwait(false);
+                        cancellationToken).ConfigureAwait(false);
+
+                    // The cost of goods sold is the value the movement actually consumed, never the
+                    // catalog price (specification D06, finding F15).
+                    cost -= movement.ValueDelta;
                 }
             }
 

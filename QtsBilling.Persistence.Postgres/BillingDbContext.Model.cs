@@ -230,6 +230,8 @@ public partial class BillingDbContext
             b.ToTable("inventory_balances");
             RequireTenantKey(b);
             b.Property(e => e.OnHand).HasPrecision(18, 6);
+            b.Property(e => e.ValueOnHand).HasPrecision(18, 4);
+            b.Property(e => e.AverageUnitCost).HasPrecision(18, 8);
             b.HasOne<BusinessLocation>()
                 .WithMany()
                 .HasForeignKey(e => new { e.LocationId, e.BusinessId })
@@ -250,6 +252,7 @@ public partial class BillingDbContext
             b.ToTable("inventory_movements");
             HasBusinessFk(b);
             b.Property(e => e.QuantityDelta).HasPrecision(18, 6);
+            b.Property(e => e.ValueDelta).HasPrecision(18, 4);
             b.Property(e => e.ReferenceType).HasMaxLength(64).IsRequired();
             b.Property(e => e.Memo).HasColumnType("text");
             b.HasOne<BusinessLocation>()

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
+using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Sync;
 using QtsWebApp.Infrastructure;
 
@@ -62,7 +63,43 @@ internal static class InventoryLedger
                 $"On hand is {balance.OnHand}; the requested change is {quantityDelta}. Negative stock is not permitted.");
         }
 
+        // The value of the movement is the authority: the cost of goods sold is this value, never the
+        // catalog price (specification D06, finding F15).
+        decimal valueDelta;
+
+        if (quantityDelta > 0m)
+        {
+            // The acquisition value of the stock that arrives.
+            valueDelta = LedgerWriter.Round(quantityDelta * unitCost);
+        }
+        else if (quantityDelta < 0m)
+        {
+            if (balance.ValueOnHand <= 0m)
+            {
+                throw new DomainRuleException(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.ValuationRequired,
+                    "The stock has no value.",
+                    "The stock on hand carries no value, so the cost of this movement cannot be determined. " +
+                    "Value the stock before consuming it.");
+            }
+
+            // The final depletion takes the exact remaining value, so a quantity of zero implies a value
+            // of zero.
+            valueDelta = resulting == 0m
+                ? -balance.ValueOnHand
+                : -LedgerWriter.Round(Math.Abs(quantityDelta) * balance.AverageUnitCost);
+        }
+        else
+        {
+            valueDelta = 0m;
+        }
+
         balance.OnHand = resulting;
+        balance.ValueOnHand = LedgerWriter.Round(balance.ValueOnHand + valueDelta);
+        balance.AverageUnitCost = resulting > 0m
+            ? Math.Round(balance.ValueOnHand / resulting, 8, MidpointRounding.AwayFromZero)
+            : 0m;
         balance.LastMovementAtUtc = now;
 
         // The stock projection travels in the same transaction as the movement, so a device never sees a
@@ -78,6 +115,7 @@ internal static class InventoryLedger
             MovementType = movementType,
             QuantityDelta = quantityDelta,
             UnitCost = unitCost,
+            ValueDelta = valueDelta,
             ReferenceType = referenceType,
             ReferenceId = referenceId,
             OccurredAtUtc = now,

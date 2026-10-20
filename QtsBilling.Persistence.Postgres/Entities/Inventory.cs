@@ -12,6 +12,18 @@ public sealed class InventoryBalance : TenantEntity
 
     public decimal OnHand { get; set; }
 
+    /// <summary>
+    /// The authoritative value of the stock on hand (four decimals). The value is derived from the
+    /// immutable movements, exactly like the quantity (specification D06).
+    /// </summary>
+    public decimal ValueOnHand { get; set; }
+
+    /// <summary>
+    /// The moving weighted average cost (eight decimals). It is informative: the movement value is the
+    /// authority, and this is the cost a later issue consumes.
+    /// </summary>
+    public decimal AverageUnitCost { get; set; }
+
     public DateTimeOffset LastMovementAtUtc { get; set; }
 }
 
@@ -34,6 +46,13 @@ public sealed class InventoryMovement : Entity, ITenantScoped
     public decimal QuantityDelta { get; set; }
 
     public decimal UnitCost { get; set; }
+
+    /// <summary>
+    /// The authoritative value of this movement (four decimals): positive when the stock grows, negative
+    /// when it is consumed. The cost of goods sold is this value, never the catalog price
+    /// (specification D06, finding F15).
+    /// </summary>
+    public decimal ValueDelta { get; set; }
 
     /// <summary>Originating posting unit (e.g. <c>sale_line</c>); part of the idempotency key.</summary>
     public string ReferenceType { get; set; } = string.Empty;

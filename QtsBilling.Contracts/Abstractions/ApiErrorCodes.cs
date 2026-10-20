@@ -52,4 +52,7 @@ public static class ApiErrorCodes
     public const string InvoiceAlreadyCredited = "INVOICE_ALREADY_CREDITED";
     public const string OptimisticConcurrencyFailure = "CONCURRENCY_CONFLICT";
     public const string StoreUnavailable = "STORE_UNAVAILABLE";
+
+    /// <summary>The stock carries no value, so its cost cannot be determined (specification D06).</summary>
+    public const string ValuationRequired = "VALUATION_REQUIRED";
 }
