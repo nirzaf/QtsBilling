@@ -48,6 +48,38 @@ public sealed class CachedCustomer
     public bool Deleted { get; set; }
 }
 
+/// <summary>Discardable business-scoped category projection used by the offline catalog picker.</summary>
+public sealed class CachedCategory
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid CategoryId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public Guid? ParentId { get; set; }
+
+    public bool Active { get; set; }
+
+    public long Revision { get; set; }
+}
+
+/// <summary>Discardable business-scoped unit-of-measure projection used by the offline catalog.</summary>
+public sealed class CachedUnit
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid UnitId { get; set; }
+
+    public string Name { get; set; } = string.Empty;
+
+    public string ShortName { get; set; } = string.Empty;
+
+    public bool AllowDecimals { get; set; }
+
+    public long Revision { get; set; }
+}
+
 /// <summary>Discardable authoritative stock projection. The quantity is scaled at 1,000,000.</summary>
 public sealed class CachedStock
 {
