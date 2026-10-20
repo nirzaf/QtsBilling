@@ -56,6 +56,7 @@ public partial class BillingDbContext
             b.Property(e => e.NormalizedEmail).HasMaxLength(320).IsRequired();
             b.Property(e => e.DisplayName).HasMaxLength(200).IsRequired();
             b.HasIndex(e => e.NormalizedEmail).IsUnique();
+            b.HasOne<Business>().WithMany().HasForeignKey(e => e.PreferredBusinessId).OnDelete(DeleteBehavior.SetNull);
         });
 
         modelBuilder.Entity<BusinessMembership>(b =>
@@ -65,6 +66,50 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.UserId }).IsUnique();
+            b.Property(e => e.AuthorizationRevision).HasDefaultValue(1L);
+            b.Property(e => e.MaxDiscountRate).HasDefaultValue(1.000000m);
+            b.Property(e => e.AllLocations).HasDefaultValue(true);
+            b.Property(e => e.MaxDiscountRate).HasPrecision(9, 6);
+            b.ToTable(t => t.HasCheckConstraint("ck_business_memberships_max_discount_rate", "max_discount_rate >= 0 AND max_discount_rate <= 1"));
+        });
+
+        modelBuilder.Entity<BusinessMembershipLocation>(b =>
+        {
+            b.ToTable("business_membership_locations");
+            b.HasKey(e => e.Id);
+            b.HasOne<Business>().WithMany().HasForeignKey(e => e.BusinessId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessMembership>()
+                .WithMany()
+                .HasForeignKey(e => new { e.MembershipId, e.BusinessId })
+                .HasPrincipalKey(membership => new { membership.Id, membership.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(location => new { location.Id, location.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.MembershipId, e.LocationId }).IsUnique();
+        });
+
+        modelBuilder.Entity<DeviceEnrolmentChallenge>(b =>
+        {
+            b.ToTable("device_enrolment_challenges");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(location => new { location.Id, location.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<DeviceRegistration>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ConsumedByDeviceId, e.BusinessId })
+                .HasPrincipalKey(device => new { device.Id, device.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.ChallengeHash).HasMaxLength(64).IsRequired();
+            b.HasIndex(e => e.ChallengeHash).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.LocationId, e.ExpiresAtUtc });
         });
 
         modelBuilder.Entity<DeviceRegistration>(b =>
@@ -97,6 +142,9 @@ public partial class BillingDbContext
             b.Property(e => e.Phone).HasMaxLength(32);
             b.Property(e => e.PhoneNormalized).HasMaxLength(32);
             b.Property(e => e.Address).HasColumnType("text");
+            b.Property(e => e.CreditLimit).HasPrecision(18, 4);
+            b.ToTable(t => t.HasCheckConstraint("ck_customers_credit_limit", "credit_limit IS NULL OR credit_limit >= 0"));
+            b.ToTable(t => t.HasCheckConstraint("ck_customers_payment_terms", "payment_terms_days >= 0 AND payment_terms_days <= 3650"));
             b.HasIndex(e => new { e.BusinessId, e.PhoneNormalized })
                 .IsUnique()
                 .HasFilter("\"phone_normalized\" IS NOT NULL");
