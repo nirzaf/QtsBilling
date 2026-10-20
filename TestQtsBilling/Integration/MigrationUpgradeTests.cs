@@ -151,6 +151,7 @@ public sealed class MigrationUpgradeTests : IClassFixture<PostgresApiFixture>
 
         var accountCount = await database.ScalarAsync<int>($"SELECT count(*) FROM accounts WHERE business_id = '{businessId}';");
         var settingsCount = await database.ScalarAsync<int>($"SELECT count(*) FROM business_accounting_settings WHERE business_id = '{businessId}';");
+        var transitAccountName = await database.ScalarAsync<string>($"SELECT name FROM accounts WHERE business_id = '{businessId}' AND code = '1210';");
         var receivableCode = await database.ScalarAsync<string>($"""
             SELECT account.code
             FROM business_accounting_settings settings
@@ -158,8 +159,9 @@ public sealed class MigrationUpgradeTests : IClassFixture<PostgresApiFixture>
             WHERE settings.business_id = '{businessId}';
             """);
 
-        Assert.Equal(16, accountCount);
+        Assert.Equal(17, accountCount);
         Assert.Equal(1, settingsCount);
+        Assert.Equal("Inventory In Transit", transitAccountName);
         Assert.Equal("1100", receivableCode);
     }
 
