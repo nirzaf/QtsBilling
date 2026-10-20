@@ -24,6 +24,9 @@ public sealed class LocalSaleDraft
 
     public Guid RegisterId { get; set; }
 
+    /// <summary>Cash drawer session that authorized this provisional capture.</summary>
+    public Guid? RegisterSessionId { get; set; }
+
     /// <summary>Optional whole-payload snapshot; normalized lines are always written to <see cref="Lines"/>.</summary>
     public string? LinesJson { get; set; }
 
@@ -76,6 +79,9 @@ public sealed class LocalCashMovement
     public Guid OperationId { get; set; }
 
     public Guid RegisterId { get; set; }
+
+    /// <summary>Cash drawer session that authorized this provisional movement.</summary>
+    public Guid? RegisterSessionId { get; set; }
 
     /// <summary>Scale 10,000.</summary>
     public decimal Amount { get; set; }
