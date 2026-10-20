@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Identity;
@@ -24,11 +25,12 @@ public static class AuthEndpoints
     {
         var group = app.MapGroup("/api/v1/auth").WithTags("Auth");
 
-        group.MapPost("/login", LoginAsync).AllowAnonymous();
+        group.MapPost("/login", LoginAsync).AllowAnonymous().RequireRateLimiting("auth-strict");
+        group.MapPost("/switch-business", SwitchBusinessAsync).RequireAuthorization();
         group.MapGet("/session", GetSessionAsync).RequireAuthorization();
         group.MapPost("/logout", LogoutAsync).RequireAuthorization();
-        group.MapPost("/password-reset/request", RequestPasswordResetAsync).AllowAnonymous();
-        group.MapPost("/password-reset/complete", CompletePasswordResetAsync).AllowAnonymous();
+        group.MapPost("/password-reset/request", RequestPasswordResetAsync).AllowAnonymous().RequireRateLimiting("auth-strict");
+        group.MapPost("/password-reset/complete", CompletePasswordResetAsync).AllowAnonymous().RequireRateLimiting("auth-strict");
 
         return app;
     }
@@ -125,6 +127,36 @@ public static class AuthEndpoints
         return Results.NoContent();
     }
 
+    private static async Task<IResult> SwitchBusinessAsync(
+        SwitchBusinessRequest request,
+        ClaimsPrincipal principal,
+        UserManager<User> userManager,
+        SignInManager<User> signInManager,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        var user = await userManager.GetUserAsync(principal).ConfigureAwait(false);
+        if (user is null || !user.IsActive)
+        {
+            return ApiResults.Problem(StatusCodes.Status401Unauthorized, ApiErrorCodes.Unauthenticated, "The session is no longer valid.");
+        }
+
+        var membership = await db.BusinessMemberships.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.UserId == user.Id && row.BusinessId == request.BusinessId && row.IsActive, cancellationToken)
+            .ConfigureAwait(false);
+        if (membership is null)
+        {
+            return ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The user is not an active member of that business.");
+        }
+
+        user.PreferredBusinessId = request.BusinessId;
+        user.UpdatedAtUtc = DateTimeOffset.UtcNow;
+        await userManager.UpdateAsync(user).ConfigureAwait(false);
+        await signInManager.RefreshSignInAsync(user).ConfigureAwait(false);
+
+        return Results.Ok(await BuildSessionAsync(user, db, cancellationToken).ConfigureAwait(false));
+    }
+
     private static async Task<IResult> RequestPasswordResetAsync(
         RequestPasswordResetRequest request,
         UserManager<User> userManager,
@@ -201,23 +233,34 @@ public static class AuthEndpoints
 
     private static async Task<SessionDto> BuildSessionAsync(User user, BillingDbContext db, CancellationToken cancellationToken)
     {
-        var membership = await db.BusinessMemberships
-            .AsNoTracking()
-            .Where(membership => membership.UserId == user.Id && membership.IsActive)
-            .OrderBy(membership => membership.CreatedAtUtc)
-            .FirstOrDefaultAsync(cancellationToken)
+        var memberships = await (from row in db.BusinessMemberships.AsNoTracking()
+                                 join business in db.Businesses.AsNoTracking() on row.BusinessId equals business.Id
+                                 where row.UserId == user.Id && row.IsActive && business.IsActive
+                                 orderby row.CreatedAtUtc
+                                 select new { Membership = row, BusinessName = business.Name })
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        string? businessName = null;
+        var selected = memberships.FirstOrDefault(row => row.Membership.BusinessId == user.PreferredBusinessId)
+            ?? memberships.FirstOrDefault();
+        var membership = selected?.Membership;
+        var businessName = selected?.BusinessName;
 
+        IReadOnlyList<Guid> allowedLocationIds = [];
         if (membership is not null)
         {
-            businessName = await db.Businesses
-                .AsNoTracking()
-                .Where(business => business.Id == membership.BusinessId)
-                .Select(business => business.Name)
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
+            allowedLocationIds = membership.AllLocations
+                ? await db.BusinessLocations.AsNoTracking()
+                    .Where(location => location.BusinessId == membership.BusinessId && location.IsActive)
+                    .Select(location => location.Id)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false)
+                : await db.BusinessMembershipLocations.AsNoTracking()
+                    .Join(db.BusinessLocations.AsNoTracking(), grant => new { grant.BusinessId, grant.LocationId }, location => new { BusinessId = location.BusinessId, LocationId = location.Id }, (grant, location) => new { grant, location })
+                    .Where(row => row.grant.BusinessId == membership.BusinessId && row.grant.MembershipId == membership.Id && row.location.IsActive)
+                    .Select(row => row.grant.LocationId)
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false);
         }
 
         var displayName = user.DisplayName.Length > 0 ? user.DisplayName : user.UserName ?? string.Empty;
@@ -230,7 +273,14 @@ public static class AuthEndpoints
             businessName,
             membership is null ? [] : [membership.Role.ToString()],
             membership is null ? [] : RolePermissions.For(membership.Role),
-            user.PasswordResetRequired);
+            user.PasswordResetRequired)
+        {
+            AvailableBusinesses = memberships.Select(row => new BusinessSummaryDto(
+                row.Membership.BusinessId,
+                row.BusinessName,
+                row.Membership.Role.ToString())).ToArray(),
+            AllowedLocationIds = allowedLocationIds,
+        };
     }
 
     /// <summary>
