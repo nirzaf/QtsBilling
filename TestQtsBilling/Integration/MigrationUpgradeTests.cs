@@ -122,4 +122,75 @@ public sealed class MigrationUpgradeTests : IClassFixture<PostgresApiFixture>
         // labelled by guesswork.
         Assert.Equal("Unspecified", mode);
     }
+
+    [Fact]
+    public async Task Accounting_settings_upgrade_backfills_default_accounts_for_existing_businesses()
+    {
+        const string previousHead = "20261020163518_AddMultiBusinessDeviceSecurityAndCommandReceipts";
+        await using var database = await _fixture.CreateUpgradeDatabaseAsync(previousHead);
+        var businessId = Guid.CreateVersion7();
+
+        await database.ExecuteAsync($"""
+            INSERT INTO businesses (id, name, legal_name, base_currency, time_zone, accounting_method, is_active, version, created_at_utc, updated_at_utc)
+            VALUES ('{businessId}', 'Accounting settings upgrade', 'Accounting settings upgrade', 'QAR', 'Asia/Riyadh', 'Fifo', true, 1, now(), now());
+
+            INSERT INTO accounts (id, business_id, code, name, account_type, is_active, version, created_at_utc, updated_at_utc)
+            VALUES
+                (gen_random_uuid(), '{businessId}', '1000', 'Cash', 'Asset', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '1010', 'Bank', 'Asset', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '1100', 'Accounts Receivable', 'Asset', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '1200', 'Inventory', 'Asset', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '2000', 'Accounts Payable', 'Liability', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '2100', 'Tax Payable', 'Liability', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '3000', 'Owner Equity', 'Equity', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '4000', 'Sales Revenue', 'Revenue', true, 1, now(), now()),
+                (gen_random_uuid(), '{businessId}', '5000', 'Cost of Goods Sold', 'Expense', true, 1, now(), now());
+            """);
+
+        await database.MigrateToLatestAsync();
+
+        var accountCount = await database.ScalarAsync<int>($"SELECT count(*) FROM accounts WHERE business_id = '{businessId}';");
+        var settingsCount = await database.ScalarAsync<int>($"SELECT count(*) FROM business_accounting_settings WHERE business_id = '{businessId}';");
+        var receivableCode = await database.ScalarAsync<string>($"""
+            SELECT account.code
+            FROM business_accounting_settings settings
+            JOIN accounts account ON account.id = settings.accounts_receivable_account_id AND account.business_id = settings.business_id
+            WHERE settings.business_id = '{businessId}';
+            """);
+
+        Assert.Equal(16, accountCount);
+        Assert.Equal(1, settingsCount);
+        Assert.Equal("1100", receivableCode);
+    }
+
+    [Fact]
+    public async Task Open_item_upgrade_backfills_paid_and_due_amounts_from_confirmed_payments()
+    {
+        const string previousHead = "20261020163518_AddMultiBusinessDeviceSecurityAndCommandReceipts";
+        await using var database = await _fixture.CreateUpgradeDatabaseAsync(previousHead);
+        var businessId = Guid.CreateVersion7();
+        var invoiceId = Guid.CreateVersion7();
+        var paymentId = Guid.CreateVersion7();
+
+        await database.ExecuteAsync($"""
+            INSERT INTO businesses (id, name, legal_name, base_currency, time_zone, accounting_method, is_active, version, created_at_utc, updated_at_utc)
+            VALUES ('{businessId}', 'Open item upgrade', 'Open item upgrade', 'QAR', 'Asia/Riyadh', 'Fifo', true, 1, now(), now());
+
+            INSERT INTO invoices (id, business_id, invoice_number, status, issue_date, currency, subtotal_amount, discount_amount, tax_amount, total_amount, created_at_utc, updated_at_utc, version)
+            VALUES ('{invoiceId}', '{businessId}', '', 'Draft', CURRENT_DATE, 'QAR', 100.0000, 0.0000, 15.0000, 115.0000, now(), now(), 1);
+
+            INSERT INTO payments (id, business_id, invoice_id, method, status, amount, currency, received_at_utc, created_at_utc, updated_at_utc, version)
+            VALUES ('{paymentId}', '{businessId}', '{invoiceId}', 'Cash', 'Confirmed', 25.0000, 'QAR', now(), now(), now(), 1);
+            """);
+
+        await database.MigrateToLatestAsync();
+
+        var paidAndDue = await database.ScalarAsync<string>($"""
+            SELECT amount_paid::text || '/' || balance_due::text
+            FROM invoices
+            WHERE business_id = '{businessId}' AND id = '{invoiceId}';
+            """);
+
+        Assert.Equal("25.0000/90.0000", paidAndDue);
+    }
 }
