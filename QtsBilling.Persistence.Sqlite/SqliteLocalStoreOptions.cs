@@ -6,6 +6,9 @@ public sealed record SqliteLocalStoreOptions
     /// <summary>Full path of the single local SQLite database (cache + durable pending tables).</summary>
     public required string DatabasePath { get; init; }
 
+    /// <summary>Optional 256-bit SQLCipher key as 64 hex characters; desktop hosts protect it at rest.</summary>
+    public string? EncryptionKeyHex { get; init; }
+
     /// <summary>Run <c>PRAGMA quick_check</c> before touching the schema. Corruption blocks startup;
     /// the store never deletes or rebuilds the file automatically.</summary>
     public bool RunIntegrityCheckOnStartup { get; init; } = true;
