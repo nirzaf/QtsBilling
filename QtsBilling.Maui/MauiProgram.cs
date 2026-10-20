@@ -73,6 +73,14 @@ public static class MauiProgram
             .AddHttpMessageHandler<SessionAuthHandler>();
 
         builder.Services
+            .AddHttpClient<OfflineGrantService>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
             .AddHttpClient<QtsBilling.Contracts.Catalog.IProductApiClient, QtsBilling.Contracts.Catalog.ProductApiClient>((services, client) =>
             {
                 client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;

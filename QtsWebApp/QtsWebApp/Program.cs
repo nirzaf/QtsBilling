@@ -15,6 +15,7 @@ using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Audit;
 using QtsWebApp.Features.Catalog;
 using QtsWebApp.Features.Customers;
+using QtsWebApp.Features.Devices;
 using QtsWebApp.Features.Health;
 using QtsWebApp.Features.Inventory;
 using QtsWebApp.Features.Invoices;
@@ -251,6 +252,14 @@ builder.Services.AddHttpClient<ICustomerApiClient, CustomerApiClient>(client => 
 builder.Services.AddHttpClient<IAccountApiClient, AccountApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+builder.Services.AddSingleton(serviceProvider =>
+{
+    var environment = serviceProvider.GetRequiredService<IWebHostEnvironment>();
+    var configuration = serviceProvider.GetRequiredService<IConfiguration>();
+
+    return OfflineGrantKeyRing.Shared(configuration, environment);
+});
+
 var app = builder.Build();
 
 // The approved native public client is registered once and only when missing; the operation is
@@ -281,6 +290,7 @@ app.MapStaticAssets();
 
 app.MapAuthEndpoints();
 app.MapNativeAuthorizationEndpoints();
+app.MapDeviceEndpoints();
 app.MapCustomerEndpoints();
 app.MapProductEndpoints();
 app.MapAccountingEndpoints();

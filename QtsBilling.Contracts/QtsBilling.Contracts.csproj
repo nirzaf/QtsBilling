@@ -13,6 +13,8 @@
         <!-- The provider-neutral value objects: one shared commercial calculation for the server,
              the browser and the Windows device (specification D03). -->
         <ProjectReference Include="..\QtsModels\QtsModels.csproj" />
+        <!-- The signed offline grant (task 23) is verified by the same code on the server and the device. -->
+        <PackageReference Include="Microsoft.IdentityModel.JsonWebTokens" Version="8.19.2" />
     </ItemGroup>
 
 </Project>

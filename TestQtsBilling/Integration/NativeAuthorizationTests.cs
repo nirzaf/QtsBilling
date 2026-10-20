@@ -29,7 +29,6 @@ public sealed class NativeAuthorizationTests : IClassFixture<PostgresApiFixture>
     private const string RedirectUri = "http://127.0.0.1:5199/callback";
     private const string ClientId = "qts-windows";
     private const string Scope = "openid offline_access qts.api";
-    private const string Password = "Native!Passw0rd2026";
 
     private readonly PostgresApiFixture _fixture;
 
@@ -147,7 +146,7 @@ public sealed class NativeAuthorizationTests : IClassFixture<PostgresApiFixture>
                 PasswordResetRequired = false,
             };
 
-            var created = await users.CreateAsync(user, Password);
+            var created = await users.CreateAsync(user, FixtureUsers.Password);
             Assert.True(created.Succeeded, string.Join("; ", created.Errors.Select(error => error.Description)));
 
             db.BusinessMemberships.Add(new BusinessMembership
@@ -166,7 +165,7 @@ public sealed class NativeAuthorizationTests : IClassFixture<PostgresApiFixture>
         var login = await session.PostAsJsonAsync("/api/v1/auth/login", new Dictionary<string, string>
         {
             ["email"] = email,
-            ["password"] = Password,
+            ["password"] = FixtureUsers.Password,
         });
         login.EnsureSuccessStatusCode();
 

@@ -19,13 +19,32 @@ public interface ISessionStore
 
     Task<SessionDto?> GetSessionAsync(CancellationToken cancellationToken = default);
 
+    Task SaveOfflineGrantAsync(StoredOfflineGrant grant, CancellationToken cancellationToken = default);
+
+    Task<StoredOfflineGrant?> GetOfflineGrantAsync(CancellationToken cancellationToken = default);
+
+    Task SavePinnedGrantKeyAsync(PinnedGrantKey key, CancellationToken cancellationToken = default);
+
+    Task<PinnedGrantKey?> GetPinnedGrantKeyAsync(CancellationToken cancellationToken = default);
+
     Task ClearAsync(CancellationToken cancellationToken = default);
 }
+
+/// <summary>The grant plus the high-water mark of the monotonic clock.</summary>
+public sealed record StoredOfflineGrant(
+    string Compact,
+    string KeyId,
+    DateTimeOffset LastSeenAtUtc);
+
+/// <summary>The verification key pinned from the server at enrolment; it survives sign-out.</summary>
+public sealed record PinnedGrantKey(string KeyId, string PublicKey);
 
 public sealed class SessionStore : ISessionStore
 {
     private const string CookiePrefix = "session.cookie.";
     private const string SessionKey = "session.summary";
+    private const string OfflineGrantKey = "session.offline_grant";
+    private const string PinnedGrantKey = "session.offline_grant_key";
     private const string KnownCookies = "session.cookie.names";
 
     public async Task SaveCookieAsync(string name, string value, CancellationToken cancellationToken = default)
@@ -91,6 +110,60 @@ public sealed class SessionStore : ISessionStore
         }
     }
 
+    public async Task SaveOfflineGrantAsync(StoredOfflineGrant grant, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(grant);
+
+        var json = JsonSerializer.Serialize(grant, ContractJson.Options);
+        await SecureStorage.Default.SetAsync(OfflineGrantKey, json).ConfigureAwait(false);
+    }
+
+    public async Task<StoredOfflineGrant?> GetOfflineGrantAsync(CancellationToken cancellationToken = default)
+    {
+        var json = await SecureStorage.Default.GetAsync(OfflineGrantKey).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<StoredOfflineGrant>(json, ContractJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public async Task<PinnedGrantKey?> GetPinnedGrantKeyAsync(CancellationToken cancellationToken = default)
+    {
+        var json = await SecureStorage.Default.GetAsync(PinnedGrantKey).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(json))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<PinnedGrantKey>(json, ContractJson.Options);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    public async Task SavePinnedGrantKeyAsync(PinnedGrantKey key, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(key);
+
+        var json = JsonSerializer.Serialize(key, ContractJson.Options);
+        await SecureStorage.Default.SetAsync(PinnedGrantKey, json).ConfigureAwait(false);
+    }
+
     public async Task ClearAsync(CancellationToken cancellationToken = default)
     {
         var names = (Preferences.Default.Get(KnownCookies, string.Empty))
@@ -103,6 +176,7 @@ public sealed class SessionStore : ISessionStore
 
         Preferences.Default.Set(KnownCookies, string.Empty);
         SecureStorage.Default.Remove(SessionKey);
+        SecureStorage.Default.Remove(OfflineGrantKey);
         await Task.CompletedTask.ConfigureAwait(false);
     }
 }

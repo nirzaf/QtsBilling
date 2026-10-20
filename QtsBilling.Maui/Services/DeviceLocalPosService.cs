@@ -19,19 +19,22 @@ public sealed class DeviceLocalPosService : ILocalPosService
     private readonly IAccountApiClient _accounts;
     private readonly IDeviceIdentity _identity;
     private readonly IServerSettings _settings;
+    private readonly OfflineGrantService _grants;
 
     public DeviceLocalPosService(
         LocalPosStore pos,
         DeviceCatalogSync catalog,
         IAccountApiClient accounts,
         IDeviceIdentity identity,
-        IServerSettings settings)
+        IServerSettings settings,
+        OfflineGrantService grants)
     {
         _pos = pos;
         _catalog = catalog;
         _accounts = accounts;
         _identity = identity;
         _settings = settings;
+        _grants = grants;
     }
 
     public bool IsOfflineCaptureSupported => true;
@@ -58,11 +61,6 @@ public sealed class DeviceLocalPosService : ILocalPosService
             return Rejected(draft, "This device is not signed in.");
         }
 
-        if (!session.Permissions.Contains(QtsBilling.Contracts.Identity.Permissions.SalesPost, StringComparer.Ordinal))
-        {
-            return Rejected(draft, "This account may not post sales, so it may not capture sales offline.");
-        }
-
         if (session.BusinessId is not { } businessId)
         {
             return Rejected(draft, "This account is not assigned to a business.");
@@ -80,6 +78,21 @@ public sealed class DeviceLocalPosService : ILocalPosService
 
         _settings.LastBusinessId = businessId;
         _settings.LastLocationId = locationId;
+
+        // The cached session summary is not authority. Only a server-signed, unexpired grant that names
+        // this user, device, business and location permits the capture (task 23, finding F10).
+        var grant = await _grants
+            .AuthorizeCaptureAsync(session, businessId, locationId, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (!grant.IsAllowed)
+        {
+            return Rejected(
+                draft,
+                grant.Reason == "no_grant" || grant.Reason == "grant_unavailable"
+                    ? "This device has no valid offline capture grant. Sign in while online to renew it."
+                    : "The offline capture grant for this device is not valid. Sign in while online to renew it.");
+        }
 
         var context = new LocalDeviceContext(
             _identity.DeviceId,
