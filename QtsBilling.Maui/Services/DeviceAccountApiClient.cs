@@ -13,18 +13,25 @@ public sealed class DeviceAccountApiClient : IAccountApiClient
 {
     private readonly AccountApiClient _inner;
     private readonly ISessionStore _sessionStore;
+    private readonly IPkceLoopbackAuthenticator _authenticator;
+    private readonly IOidcTokenClient _oidcTokens;
 
-    public DeviceAccountApiClient(HttpClient http, ISessionStore sessionStore)
+    public DeviceAccountApiClient(
+        HttpClient http,
+        ISessionStore sessionStore,
+        IPkceLoopbackAuthenticator authenticator,
+        IOidcTokenClient oidcTokens)
     {
         _inner = new AccountApiClient(http);
         _sessionStore = sessionStore;
+        _authenticator = authenticator;
+        _oidcTokens = oidcTokens;
     }
 
-    public async Task<SessionDto> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
+    public Task<SessionDto> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
     {
-        var session = await GuardAsync(() => _inner.LoginAsync(request, cancellationToken)).ConfigureAwait(false);
-        await _sessionStore.SaveSessionAsync(session, cancellationToken).ConfigureAwait(false);
-        return session;
+        ArgumentNullException.ThrowIfNull(request);
+        return _authenticator.AuthenticateAsync(cancellationToken);
     }
 
     public async Task<SessionDto?> GetSessionAsync(CancellationToken cancellationToken = default)
@@ -45,24 +52,36 @@ public sealed class DeviceAccountApiClient : IAccountApiClient
             // Offline: the device keeps working with the last known session instead of failing to start.
             return await _sessionStore.GetSessionAsync(cancellationToken).ConfigureAwait(false);
         }
-        catch (ApiException)
+        catch (ApiException exception)
         {
+            var cached = await _sessionStore.GetSessionAsync(cancellationToken).ConfigureAwait(false);
+            if (exception.StatusCode == 401)
+            {
+                // A confirmed authentication failure invalidates the secure local session too.
+                await _sessionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
+                return null;
+            }
+
             // The server answered but could not produce a session (it is up but broken). The device keeps
             // the last known session: the server re-checks the enrolment and the permissions for every
             // operation it accepts, so a stale session can never grant more than it did before.
-            return await _sessionStore.GetSessionAsync(cancellationToken).ConfigureAwait(false);
+            return cached;
         }
     }
 
     public async Task LogoutAsync(CancellationToken cancellationToken = default)
     {
-        try
+        var tokens = await _sessionStore.GetTokensAsync(cancellationToken).ConfigureAwait(false);
+        if (!string.IsNullOrWhiteSpace(tokens?.RefreshToken))
         {
-            await _inner.LogoutAsync(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception exception) when (IsTransportFailure(exception))
-        {
-            // The local session is removed even when the server cannot be reached.
+            try
+            {
+                await _oidcTokens.RevokeRefreshTokenAsync(tokens.RefreshToken, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (IsTransportFailure(exception) || exception is ApiException)
+            {
+                // Local sign-out remains available offline; revocation was attempted before secrets are cleared.
+            }
         }
 
         await _sessionStore.ClearAsync(cancellationToken).ConfigureAwait(false);
