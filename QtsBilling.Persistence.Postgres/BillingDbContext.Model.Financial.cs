@@ -187,7 +187,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.LocationId, e.BusinessId })
                 .HasPrincipalKey(l => new { l.Id, l.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.RefundNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.SaleId })
@@ -256,7 +260,11 @@ public partial class BillingDbContext
             b.Property(e => e.Memo).HasColumnType("text");
             b.HasOne<AccountingPeriod>().WithMany().HasForeignKey(e => e.AccountingPeriodId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.ReversalOfEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ReversalOfEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.EntryNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.EntryDate });
             b.HasIndex(e => new { e.BusinessId, e.SourceType, e.SourceId })
@@ -366,7 +374,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
                 .HasPrincipalKey(i => new { i.Id, i.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.IssuedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CreditNumber }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.InvoiceId })
@@ -458,7 +470,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.ExpenseId, e.BusinessId })
                 .HasPrincipalKey(e => new { e.Id, e.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => e.JournalEntryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(j => new { j.Id, j.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.ReversedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.ExpenseId })
                 .IsUnique()
