@@ -29,6 +29,30 @@ public sealed class AccountingPeriod : TenantEntity
     public AccountingPeriodStatus Status { get; set; } = AccountingPeriodStatus.Open;
 }
 
+/// <summary>Per-business settlement precision and control-account mapping.</summary>
+public sealed class BusinessAccountingSettings : TenantEntity
+{
+    public int SettlementScale { get; set; } = 2;
+
+    public Guid CashAccountId { get; set; }
+    public Guid BankClearingAccountId { get; set; }
+    public Guid AccountsReceivableAccountId { get; set; }
+    public Guid InventoryAssetAccountId { get; set; }
+    public Guid InputTaxReceivableAccountId { get; set; }
+    public Guid AccountsPayableAccountId { get; set; }
+    public Guid OutputTaxPayableAccountId { get; set; }
+    public Guid GrniClearingAccountId { get; set; }
+    public Guid CustomerDepositsAccountId { get; set; }
+    public Guid RetainedEarningsAccountId { get; set; }
+    public Guid SalesRevenueAccountId { get; set; }
+    public Guid SalesReturnsAccountId { get; set; }
+    public Guid CogsAccountId { get; set; }
+    public Guid PurchasePriceVarianceAccountId { get; set; }
+    public Guid InventoryShrinkageAccountId { get; set; }
+    public Guid CashOverShortAccountId { get; set; }
+    public Guid? RoundingAccountId { get; set; }
+}
+
 /// <summary>
 /// Canonical journal header. Both legacy stores (<c>Transactions</c> and <c>JournalEntries</c>) map
 /// here under an explicit <see cref="SourceType"/> namespace (F-04). Posted entries are immutable;
@@ -131,6 +155,12 @@ public sealed class Invoice : TenantEntity
 
     public decimal TotalAmount { get; set; }
 
+    public decimal AmountPaid { get; set; }
+
+    public decimal CreditedAmount { get; set; }
+
+    public decimal BalanceDue { get; set; }
+
     public string? Note { get; set; }
 
     public DateTimeOffset? IssuedAtUtc { get; set; }
@@ -163,12 +193,14 @@ public sealed class InvoiceLine : Entity, ITenantScoped
     public decimal TaxAmount { get; set; }
 
     public decimal LineTotal { get; set; }
+
+    /// <summary>Original stock cost and tracking policy, captured when the invoice is saved.</summary>
+    public decimal UnitCostSnapshot { get; set; }
+
+    public bool TrackStockSnapshot { get; set; }
 }
 
-/// <summary>
-/// Full credit note referencing the original invoice (QB-11); one per invoice. Credits are immutable facts:
-/// the issued invoice entry is reversed and the invoice is voided, never edited.
-/// </summary>
+/// <summary>Partial or full credit note referencing the original invoice (QB-11).</summary>
 public sealed class CreditNote : TenantEntity
 {
     public Guid InvoiceId { get; set; }
@@ -187,10 +219,40 @@ public sealed class CreditNote : TenantEntity
 
     public string? Note { get; set; }
 
-    /// <summary>The posted reversal entry that neutralizes the original invoice entry.</summary>
+    /// <summary>The posted journal entry for this credit note.</summary>
     public Guid? JournalEntryId { get; set; }
 
     public DateTimeOffset IssuedAtUtc { get; set; }
 
     public Guid IssuedByUserId { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>Immutable line-level quantity and value snapshot for a partial invoice credit.</summary>
+public sealed class CreditNoteLine : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid CreditNoteId { get; set; }
+
+    public Guid InvoiceLineId { get; set; }
+
+    public Guid? VariantId { get; set; }
+
+    public int LineNo { get; set; }
+
+    public decimal QuantityCredited { get; set; }
+
+    public decimal UnitPrice { get; set; }
+
+    public decimal TaxAmount { get; set; }
+
+    public decimal LineTotal { get; set; }
+
+    public bool RestockInventory { get; set; }
+
+    public decimal UnitCostRestocked { get; set; }
 }
