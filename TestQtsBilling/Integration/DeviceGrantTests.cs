@@ -26,12 +26,43 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
     public DeviceGrantTests(PostgresApiFixture fixture) => _fixture = fixture;
 
     [Fact]
+    public async Task Device_enrolment_challenge_is_single_use()
+    {
+        var client = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
+        var challengeResponse = await client.PostAsJsonAsync(
+            "/api/v1/devices/enrolment-challenges",
+            new { locationId = _fixture.BusinessA.LocationId });
+        Assert.Equal(HttpStatusCode.OK, challengeResponse.StatusCode);
+        using var challengeDocument = JsonDocument.Parse(await challengeResponse.Content.ReadAsStringAsync());
+        var code = challengeDocument.RootElement.GetProperty("enrolmentCode").GetString()!;
+
+        var first = await client.PostAsJsonAsync("/api/v1/devices", new
+        {
+            name = "Challenge test till one",
+            platform = "windows",
+            locationId = _fixture.BusinessA.LocationId,
+            enrolmentCode = code,
+        });
+        Assert.True(first.StatusCode == HttpStatusCode.Created, $"{first.StatusCode}: {await first.Content.ReadAsStringAsync()}");
+
+        var replay = await client.PostAsJsonAsync("/api/v1/devices", new
+        {
+            name = "Challenge test till two",
+            platform = "windows",
+            locationId = _fixture.BusinessA.LocationId,
+            enrolmentCode = code,
+        });
+        Assert.Equal(HttpStatusCode.Conflict, replay.StatusCode);
+    }
+
+    [Fact]
     public async Task T23_01_a_grant_is_signed_and_bound_to_one_device_business_and_location()
     {
         var client = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
         var deviceId = await EnrolAsync(client, _fixture.BusinessA.LocationId, "Till 1");
+        var registerSessionId = await OpenSessionAsync(_fixture.Users.OwnerA.UserId, _fixture.BusinessA.BusinessId, _fixture.BusinessA.LocationId);
 
-        var (grant, keyId, publicKey, expiresAt) = await IssueGrantAsync(client, deviceId, _fixture.BusinessA.LocationId);
+        var (grant, keyId, publicKey, expiresAt) = await IssueGrantAsync(client, deviceId, _fixture.BusinessA.LocationId, registerSessionId);
 
         var published = await client.GetAsync("/api/v1/devices/offline-grant-key");
         using var publishedDocument = JsonDocument.Parse(await published.Content.ReadAsStringAsync());
@@ -47,7 +78,7 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
             deviceId,
             _fixture.BusinessA.BusinessId,
             _fixture.BusinessA.LocationId,
-            RegisterSessionId: null,
+            RegisterSessionId: registerSessionId,
             UserId: _fixture.Users.OwnerA.UserId,
             Currency: "QAR",
             RequiredPermission: Permissions.SalesPost);
@@ -101,6 +132,7 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
     {
         var client = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
         var deviceId = await EnrolAsync(client, _fixture.BusinessA.LocationId, "Till revoked");
+        var registerSessionId = await OpenSessionAsync(_fixture.Users.OwnerA.UserId, _fixture.BusinessA.BusinessId, _fixture.BusinessA.LocationId);
 
         await using (var scope = _fixture.Factory.Services.CreateAsyncScope())
         {
@@ -120,7 +152,7 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
         // for that cashier and that device, never for the owner's wider permissions.
         var cashier = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.Cashier);
         var cashierDevice = await EnrolAsync(client, _fixture.BusinessA.LocationId, "Till cashier");
-        var cashierGrant = await IssueGrantAsync(cashier, cashierDevice, _fixture.BusinessA.LocationId);
+        var cashierGrant = await IssueGrantAsync(cashier, cashierDevice, _fixture.BusinessA.LocationId, registerSessionId);
 
         // Deliberately not disposed: IdentityModel caches the signature provider by key id, and a
         // disposed key would poison the next validation that reuses the same id.
@@ -135,7 +167,7 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
                 cashierDevice,
                 _fixture.BusinessA.BusinessId,
                 _fixture.BusinessA.LocationId,
-                null,
+                registerSessionId,
                 _fixture.Users.Cashier.UserId,
                 "QAR",
                 Permissions.SalesPost),
@@ -184,24 +216,55 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
 
     private static async Task<Guid> EnrolAsync(HttpClient client, Guid locationId, string name)
     {
+        var challengeResponse = await client.PostAsJsonAsync("/api/v1/devices/enrolment-challenges", new { locationId });
+        Assert.Equal(HttpStatusCode.OK, challengeResponse.StatusCode);
+        using var challengeDocument = JsonDocument.Parse(await challengeResponse.Content.ReadAsStringAsync());
+        var enrolmentCode = challengeDocument.RootElement.GetProperty("enrolmentCode").GetString()!;
+
         var response = await client.PostAsJsonAsync(
             "/api/v1/devices",
-            new { name, platform = "windows", locationId });
+            new { name, platform = "windows", locationId, enrolmentCode });
 
-        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+        Assert.True(response.StatusCode == HttpStatusCode.Created, $"{response.StatusCode}: {await response.Content.ReadAsStringAsync()}");
 
         using var document = JsonDocument.Parse(await response.Content.ReadAsStringAsync());
         return document.RootElement.GetProperty("deviceId").GetGuid();
     }
 
+    private async Task<Guid> OpenSessionAsync(Guid userId, Guid businessId, Guid locationId)
+    {
+        await using var scope = _fixture.Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+        var register = new CashRegister
+        {
+            BusinessId = businessId,
+            LocationId = locationId,
+            Name = $"Grant test register {Guid.CreateVersion7():N}",
+        };
+        var session = new CashRegisterSession
+        {
+            BusinessId = businessId,
+            CashRegisterId = register.Id,
+            Currency = "QAR",
+            Status = CashRegisterSessionStatus.Open,
+            OpenedByUserId = userId,
+            OpenedAtUtc = DateTimeOffset.UtcNow,
+        };
+        db.CashRegisters.Add(register);
+        db.CashRegisterSessions.Add(session);
+        await db.SaveChangesAsync();
+        return session.Id;
+    }
+
     private static async Task<(string Grant, string KeyId, string PublicKey, DateTimeOffset ExpiresAt)> IssueGrantAsync(
         HttpClient client,
         Guid deviceId,
-        Guid locationId)
+        Guid locationId,
+        Guid registerSessionId)
     {
         var response = await client.PostAsJsonAsync(
             $"/api/v1/devices/{deviceId}/offline-grant",
-            new { locationId, registerSessionId = (Guid?)null });
+            new { locationId, registerSessionId });
 
         Assert.True(
             response.StatusCode == HttpStatusCode.OK,
