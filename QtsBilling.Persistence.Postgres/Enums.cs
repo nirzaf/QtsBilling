@@ -44,7 +44,11 @@ public enum JournalSourceType
     Purchase,
     Expense,
     Payment,
+    PaymentAllocation,
+    FiscalYearClose,
+    CreditNote,
     StockAdjustment,
+    Refund,
     Reversal,
     MigrationOpening,
 }
@@ -70,11 +74,18 @@ public enum SaleStatus
     NeedsReview,
 }
 
+public enum RefundDisposition
+{
+    Restock,
+    DamagedWriteOff,
+}
+
 /// <summary>Wire-visible payment lifecycle; provisional offline money is never <see cref="Confirmed"/>.</summary>
 public enum PaymentStatus
 {
     Pending,
     Confirmed,
+    Bounced,
     Refunded,
     Voided,
 }
