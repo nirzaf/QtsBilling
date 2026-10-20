@@ -35,6 +35,8 @@ public sealed record ProvisionalCashSaleInput
 
     public required Guid RegisterId { get; init; }
 
+    public required Guid RegisterSessionId { get; init; }
+
     /// <summary>Cash collected, scale 10,000.</summary>
     public required decimal Amount { get; init; }
 
@@ -54,9 +56,15 @@ public sealed record ProvisionalCashSaleInput
 public sealed record PendingSummary(int PendingOperations, int RejectedOperations, decimal ProvisionalCashAtRisk);
 
 /// <summary>Counts of rows removed by a cache rebuild. Pending money/outbox tables are never included.</summary>
-public sealed record CacheRebuildResult(int Products, int Customers, int Stock, int Tombstones)
+public sealed record CacheRebuildResult(
+    int Products,
+    int Customers,
+    int Categories,
+    int Units,
+    int Stock,
+    int Tombstones)
 {
-    public int Total => Products + Customers + Stock + Tombstones;
+    public int Total => Products + Customers + Categories + Units + Stock + Tombstones;
 }
 
 /// <summary>A locally captured sale together with its fixed-price lines.</summary>
