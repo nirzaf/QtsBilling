@@ -72,7 +72,11 @@ public partial class BillingDbContext
             b.ToTable("device_registrations");
             RequireTenantKey(b);
             HasBusinessFk(b);
-            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
             b.Property(e => e.Platform).HasMaxLength(32).IsRequired();
             b.Property(e => e.AppVersion).HasMaxLength(64);

@@ -292,7 +292,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.AccountId, e.BusinessId })
                 .HasPrincipalKey(a => new { a.Id, a.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.JournalEntryId, e.LineNo }).IsUnique();
             b.HasIndex(e => new { e.BusinessId, e.AccountId });
             b.ToTable(t => t.HasCheckConstraint(
@@ -321,7 +325,11 @@ public partial class BillingDbContext
             b.Property(e => e.InvoiceNumber).HasMaxLength(64).IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Note).HasColumnType("text");
-            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Customer>().WithMany().HasForeignKey(e => e.CustomerId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Sale>()
                 .WithMany()
@@ -445,7 +453,11 @@ public partial class BillingDbContext
             b.Property(e => e.IdempotencyKey).HasMaxLength(64);
             b.Property(e => e.PayloadHash).HasMaxLength(64);
             b.HasOne<ExpenseCategory>().WithMany().HasForeignKey(e => e.ExpenseCategoryId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => e.LocationId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<Supplier>().WithMany().HasForeignKey(e => e.SupplierId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.OccurredOn });
