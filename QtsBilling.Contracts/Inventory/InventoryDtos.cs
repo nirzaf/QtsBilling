@@ -127,3 +127,53 @@ public sealed record StockTransferDetailDto(
     IReadOnlyList<StockTransferLineDto> Lines,
     decimal TotalQuantity,
     decimal? TotalValue);
+
+public enum StockCountState
+{
+    Open,
+    Submitted,
+    Approved,
+    Cancelled,
+}
+
+public sealed record CreateStockCountRequest(Guid LocationId, string? Note);
+
+public sealed record StockCountLineRequest(Guid VariantId, decimal CountedQuantity);
+
+public sealed record RecordStockCountLinesRequest(IReadOnlyList<StockCountLineRequest> Lines);
+
+public sealed record StockCountLineDto(
+    Guid Id,
+    Guid VariantId,
+    string VariantName,
+    string? Sku,
+    decimal? ExpectedQuantity,
+    decimal? ExpectedUnitCost,
+    decimal? CountedQuantity,
+    decimal? VarianceQuantity,
+    decimal? VarianceValue);
+
+public sealed record StockCountSummaryDto(
+    Guid Id,
+    string CountNumber,
+    StockCountState Status,
+    Guid LocationId,
+    string LocationName,
+    DateTimeOffset SnapshotAtUtc,
+    DateTimeOffset? SubmittedAtUtc,
+    DateTimeOffset? ApprovedAtUtc,
+    int LineCount,
+    int CountedLineCount);
+
+public sealed record StockCountDetailDto(
+    Guid Id,
+    string CountNumber,
+    StockCountState Status,
+    Guid LocationId,
+    string LocationName,
+    DateTimeOffset SnapshotAtUtc,
+    DateTimeOffset? SubmittedAtUtc,
+    DateTimeOffset? ApprovedAtUtc,
+    Guid? JournalEntryId,
+    string? Note,
+    IReadOnlyList<StockCountLineDto> Lines);
