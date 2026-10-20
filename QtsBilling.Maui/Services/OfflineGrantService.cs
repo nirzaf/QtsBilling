@@ -18,12 +18,14 @@ public sealed class OfflineGrantService
     private readonly HttpClient _http;
     private readonly ISessionStore _store;
     private readonly IDeviceIdentity _identity;
+    private readonly IServerSettings _settings;
 
-    public OfflineGrantService(HttpClient http, ISessionStore store, IDeviceIdentity identity)
+    public OfflineGrantService(HttpClient http, ISessionStore store, IDeviceIdentity identity, IServerSettings settings)
     {
         _http = http;
         _store = store;
         _identity = identity;
+        _settings = settings;
     }
 
     public async Task<OfflineGrant.OfflineGrantValidation> AuthorizeCaptureAsync(
@@ -40,10 +42,19 @@ public sealed class OfflineGrantService
 
         if (stored is not null && pinned is not null && string.Equals(stored.KeyId, pinned.KeyId, StringComparison.Ordinal))
         {
-            var current = Validate(stored, pinned, _identity.DeviceId, session.UserId, businessId, locationId, now);
+            var current = Validate(
+                stored,
+                pinned,
+                _identity.DeviceId,
+                session.UserId,
+                businessId,
+                locationId,
+                _settings.RegisterSessionId,
+                now);
 
             if (current.IsAllowed)
             {
+                _settings.RegisterSessionId = current.Claims!.RegisterSessionId;
                 await RememberAsync(stored, now, cancellationToken).ConfigureAwait(false);
                 return current;
             }
@@ -55,7 +66,7 @@ public sealed class OfflineGrantService
             }
         }
 
-        var issued = await TryIssueAsync(locationId, cancellationToken).ConfigureAwait(false);
+        var issued = await TryIssueAsync(locationId, _settings.RegisterSessionId, cancellationToken).ConfigureAwait(false);
 
         if (issued is null)
         {
@@ -77,10 +88,19 @@ public sealed class OfflineGrantService
         }
 
         var fresh = new StoredOfflineGrant(issued.Grant, issued.KeyId, now);
-        var validation = Validate(fresh, pinned, _identity.DeviceId, session.UserId, businessId, locationId, now);
+        var validation = Validate(
+            fresh,
+            pinned,
+            _identity.DeviceId,
+            session.UserId,
+            businessId,
+            locationId,
+            _settings.RegisterSessionId,
+            now);
 
         if (validation.IsAllowed)
         {
+            _settings.RegisterSessionId = validation.Claims!.RegisterSessionId;
             await _store.SaveOfflineGrantAsync(fresh, cancellationToken).ConfigureAwait(false);
         }
 
@@ -89,13 +109,14 @@ public sealed class OfflineGrantService
 
     private async Task<OfflineGrant.OfflineGrantIssueResponse?> TryIssueAsync(
         Guid locationId,
+        Guid? registerSessionId,
         CancellationToken cancellationToken)
     {
         try
         {
             using var response = await _http.PostAsJsonAsync(
                 $"api/v1/devices/{_identity.DeviceId}/offline-grant",
-                new OfflineGrant.OfflineGrantIssueRequest(locationId, RegisterSessionId: null),
+                new OfflineGrant.OfflineGrantIssueRequest(locationId, registerSessionId),
                 ContractJson.Options,
                 cancellationToken).ConfigureAwait(false);
 
@@ -122,6 +143,7 @@ public sealed class OfflineGrantService
         Guid userId,
         Guid businessId,
         Guid locationId,
+        Guid? registerSessionId,
         DateTimeOffset now)
     {
         var key = VerificationKeys.GetOrAdd(pinned.KeyId, _ => ImportPublicKey(pinned.PublicKey));
@@ -132,18 +154,22 @@ public sealed class OfflineGrantService
             DeviceId: deviceId,
             BusinessId: businessId,
             LocationId: locationId,
-            RegisterSessionId: null,
+            RegisterSessionId: registerSessionId,
             UserId: userId,
             Currency: null,
             RequiredPermission: QtsBilling.Contracts.Identity.Permissions.SalesPost);
 
-        return OfflineGrant.Validate(
+        var validation = OfflineGrant.Validate(
             stored.Compact,
             key,
             pinned.KeyId,
             expectation,
             now,
             stored.LastSeenAtUtc == default ? null : stored.LastSeenAtUtc);
+
+        return validation.IsAllowed && validation.Claims?.RegisterSessionId is null
+            ? OfflineGrant.OfflineGrantValidation.Refused("register_session_required")
+            : validation;
     }
 
     private static RSA ImportPublicKey(string publicKey)
