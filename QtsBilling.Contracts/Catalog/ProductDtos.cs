@@ -71,3 +71,19 @@ public sealed record SaveProductRequest(
 public sealed record UpdateProductRequest(string Name, string? Sku, Guid? CategoryId, bool IsActive);
 
 public sealed record UpdateVariantRequest(string Name, string? Sku, string? Barcode, decimal SellingPrice, decimal? PurchasePrice, bool IsActive);
+
+/// <summary>Shared wire shape for the business-scoped units, categories, brands and product groups.</summary>
+public sealed record MasterDataDto(
+    Guid Id,
+    string Name,
+    string? ShortName,
+    bool? AllowDecimals,
+    Guid? ParentId,
+    bool? IsActive,
+    long Version);
+
+public sealed record SaveMasterDataRequest(
+    string Name,
+    string? ShortName = null,
+    bool? AllowDecimals = null,
+    Guid? ParentId = null);
