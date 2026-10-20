@@ -52,6 +52,7 @@ public static class OrderEndpoints
         orders.MapPost("/{id:guid}/confirm", ConfirmOrderAsync);
         orders.MapPost("/{id:guid}/amend", AmendOrderAsync);
         orders.MapPost("/{id:guid}/cancel-remainder", CancelRemainderAsync);
+        app.MapFulfillmentEndpoints();
         return app;
     }
 
@@ -776,7 +777,8 @@ public static class OrderEndpoints
             if (allowance is null) return BusinessScope.MissingMembership();
             var discountError = CheckDiscountAllowance(pricing.Lines, allowance.Value);
             if (discountError is not null) return discountError;
-    
+
+            await FulfillmentService.ReleaseOrderReservationsAsync(db, businessId, id, userId, $"Order amended: {reason}", DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             foreach (var line in existingLines)
             {
                 var remaining = decimal.Round(line.QuantityOrdered - line.QuantityFulfilled - line.QuantityCancelled, 6, MidpointRounding.AwayFromZero);
@@ -833,6 +835,7 @@ public static class OrderEndpoints
             if (order.Status is not (SalesOrderStatus.Confirmed or SalesOrderStatus.PartiallyFulfilled)) return OrderOpenConflict();
             if (order.Version != request.ExpectedVersion) return StaleVersion();
             var lines = await db.SalesOrderLines.Where(line => line.BusinessId == businessId && line.OrderId == id).OrderBy(line => line.LineNo).ToListAsync(cancellationToken).ConfigureAwait(false);
+            await FulfillmentService.ReleaseOrderReservationsAsync(db, businessId, id, userId, $"Order remainder cancelled: {reason}", DateTimeOffset.UtcNow, cancellationToken).ConfigureAwait(false);
             foreach (var line in lines)
             {
                 var remaining = decimal.Round(line.QuantityOrdered - line.QuantityFulfilled - line.QuantityCancelled, 6, MidpointRounding.AwayFromZero);
@@ -893,7 +896,7 @@ public static class OrderEndpoints
         await db.Database.ExecuteSqlAsync($"SELECT pg_advisory_xact_lock(hashtextextended({lockName}, 0))", cancellationToken).ConfigureAwait(false);
     }
 
-    private static async Task<string> AllocateDocumentNumberAsync(
+    internal static async Task<string> AllocateDocumentNumberAsync(
         BillingDbContext db,
         Guid businessId,
         Guid locationId,
