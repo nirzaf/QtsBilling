@@ -1,11 +1,15 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Identity;
+using Microsoft.AspNetCore.RateLimiting;
 using MudBlazor.Services;
+using OpenTelemetry.Metrics;
 using OpenIddict.Abstractions;
 using OpenIddict.Validation.AspNetCore;
 using QtsBilling.Contracts.Abstractions;
 using System.Security.Cryptography.X509Certificates;
+using System.Text.Json;
+using System.Threading.RateLimiting;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -40,6 +44,11 @@ builder.Services.AddMudServices(options =>
     options.SnackbarConfiguration.PreventDuplicates = true;
     options.SnackbarConfiguration.NewestOnTop = true;
 });
+
+builder.Services.AddOpenTelemetry()
+    .WithMetrics(metrics => metrics
+        .AddMeter(BillingMetrics.MeterName)
+        .AddPrometheusExporter());
 
 // PostgreSQL 18 is the single authoritative store (QB-03). Credentials stay server-side.
 // The connection string is read from the configuration, so a test host can point the same code at its
@@ -165,6 +174,47 @@ builder.Services.AddAuthorization(QtsPolicies.Configure);
 // singleton DbContext).
 builder.Services.AddScoped<IAuthorizationHandler, PermissionAuthorizationHandler>();
 
+builder.Services.AddRateLimiter(options =>
+{
+    options.AddPolicy("auth-strict", context =>
+    {
+        var partition = context.Items.TryGetValue(AuthRateLimitKeyMiddleware.PartitionKeyItem, out var value)
+            ? value?.ToString()
+            : null;
+        var ip = context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown";
+        return AuthRateLimitKeyMiddleware.CreatePartition(partition ?? ip);
+    });
+
+    // OpenIddict owns /connect/token's endpoint, so the global limiter applies only to that path.
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(context =>
+    {
+        if (!string.Equals(context.Request.Path.Value, "/connect/token", StringComparison.OrdinalIgnoreCase))
+        {
+            return RateLimitPartition.GetNoLimiter("not-auth-token");
+        }
+
+        var partition = context.Items.TryGetValue(AuthRateLimitKeyMiddleware.PartitionKeyItem, out var value)
+            ? value?.ToString()
+            : null;
+        var ip = context.Connection.RemoteIpAddress?.MapToIPv6().ToString() ?? "unknown";
+        return AuthRateLimitKeyMiddleware.CreatePartition(partition ?? ip);
+    });
+
+    options.OnRejected = async (context, cancellationToken) =>
+    {
+        context.HttpContext.Response.StatusCode = StatusCodes.Status429TooManyRequests;
+        context.HttpContext.Response.ContentType = "application/problem+json";
+        await context.HttpContext.Response.WriteAsync(JsonSerializer.Serialize(new Dictionary<string, object?>
+        {
+            ["type"] = "https://httpstatuses.com/429",
+            ["title"] = "Too many authentication attempts.",
+            ["status"] = StatusCodes.Status429TooManyRequests,
+            ["detail"] = "Wait before retrying this authentication request.",
+            ["code"] = "rate_limited",
+        }), cancellationToken).ConfigureAwait(false);
+    };
+});
+
 builder.Services.ConfigureApplicationCookie(options =>
 {
     options.Cookie.Name = "qts.auth";
@@ -262,6 +312,8 @@ builder.Services.AddSingleton(serviceProvider =>
 
 var app = builder.Build();
 
+app.UseOpenTelemetryPrometheusScrapingEndpoint();
+
 // The approved native public client is registered once and only when missing; the operation is
 // idempotent, so a restart never rotates credentials or redirect addresses.
 await NativeAuthorizationEndpoints.EnsureNativeClientAsync(app.Services);
@@ -282,7 +334,10 @@ else
 app.UseMiddleware<CorrelationIdMiddleware>();
 app.UseMiddleware<ApiExceptionMiddleware>();
 app.UseHttpsRedirection();
+app.UseMiddleware<AuthRateLimitKeyMiddleware>();
+app.UseRateLimiter();
 app.UseAuthentication();
+app.UseMiddleware<BusinessScopeHeaderMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
 
@@ -293,13 +348,16 @@ app.MapNativeAuthorizationEndpoints();
 app.MapDeviceEndpoints();
 app.MapCustomerEndpoints();
 app.MapProductEndpoints();
+app.MapMasterDataEndpoints();
 app.MapAccountingEndpoints();
 app.MapInventoryEndpoints();
 app.MapSaleEndpoints();
 app.MapCashRegisterEndpoints();
 app.MapRefundEndpoints();
 app.MapInvoiceEndpoints();
+app.MapPaymentEndpoints();
 app.MapPurchasingEndpoints();
+app.MapSupplierBillEndpoints();
 app.MapExpenseEndpoints();
 app.MapPricingEndpoints();
 app.MapReportEndpoints();
