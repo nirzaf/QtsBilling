@@ -151,6 +151,35 @@ public sealed class CompositeTenantKeyTests : IClassFixture<PostgresApiFixture>
         Assert.Equal(0, remaining);
     }
 
+    [Fact]
+    public async Task T05_every_wave_can_be_reverted_and_reapplied()
+    {
+        // The schema the waves started from: the migration before wave 1.
+        const string beforeWaves = "20261020083815_AddInventoryValuation";
+
+        await using var database = await _fixture.CreateUpgradeDatabaseAsync(beforeWaves);
+        await database.MigrateToLatestAsync();
+
+        Assert.True(await ForeignKeyExistsAsync(database, "FK_payments_sales_sale_id_business_id"));
+
+        // Six Down methods run in reverse order: the database returns to the previous schema,
+        // with the single-column key and without the composite one.
+        await database.MigrateToAsync(beforeWaves);
+
+        Assert.True(await ForeignKeyExistsAsync(database, "FK_payments_sales_sale_id"));
+        Assert.False(await ForeignKeyExistsAsync(database, "FK_payments_sales_sale_id_business_id"));
+
+        // And the six Up methods run again without error.
+        await database.MigrateToLatestAsync();
+
+        Assert.True(await ForeignKeyExistsAsync(database, "FK_payments_sales_sale_id_business_id"));
+        Assert.False(await ForeignKeyExistsAsync(database, "FK_payments_sales_sale_id"));
+    }
+
+    private static Task<bool> ForeignKeyExistsAsync(UpgradeDatabase database, string constraintName)
+        => database.ScalarAsync<bool>(
+            $"select exists (select 1 from pg_constraint where conname = '{constraintName}');");
+
     // ------------------------------------------------------------------ helpers
 
     private async Task AssertCrossTenantInsertRefusedAsync(IReadOnlyList<string> statements)

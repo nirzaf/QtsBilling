@@ -100,7 +100,8 @@ public partial class BillingDbContext
                 .HasFilter("\"psp_reference\" IS NOT NULL");
             b.HasOne<CashRegisterSession>()
                 .WithMany()
-                .HasForeignKey(e => e.CashRegisterSessionId)
+                .HasForeignKey(e => new { e.CashRegisterSessionId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
             b.Property(e => e.IdempotencyKey).HasMaxLength(64);
@@ -145,7 +146,8 @@ public partial class BillingDbContext
             b.HasOne<User>().WithMany().HasForeignKey(e => e.CreatedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<CashRegisterSession>()
                 .WithMany()
-                .HasForeignKey(e => e.CashRegisterSessionId)
+                .HasForeignKey(e => new { e.CashRegisterSessionId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.CashRegisterId, e.OccurredAtUtc });
             b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
@@ -244,7 +246,11 @@ public partial class BillingDbContext
             HasBusinessFk(b);
             b.Property(e => e.Code).HasMaxLength(32).IsRequired();
             b.Property(e => e.Name).HasMaxLength(200).IsRequired();
-            b.HasOne<Account>().WithMany().HasForeignKey(e => e.ParentId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Account>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ParentId, e.BusinessId })
+                .HasPrincipalKey(a => new { a.Id, a.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.Code }).IsUnique();
         });
 
@@ -266,7 +272,11 @@ public partial class BillingDbContext
             b.Property(e => e.EntryNumber).HasMaxLength(64).IsRequired();
             b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
             b.Property(e => e.Memo).HasColumnType("text");
-            b.HasOne<AccountingPeriod>().WithMany().HasForeignKey(e => e.AccountingPeriodId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<AccountingPeriod>()
+                .WithMany()
+                .HasForeignKey(e => new { e.AccountingPeriodId, e.BusinessId })
+                .HasPrincipalKey(p => new { p.Id, p.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.PostedByUserId).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<JournalEntry>()
                 .WithMany()
@@ -348,7 +358,11 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.SourceSaleId, e.BusinessId })
                 .HasPrincipalKey(s => new { s.Id, s.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<InvoiceSequence>().WithMany().HasForeignKey(e => e.InvoiceSequenceId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<InvoiceSequence>()
+                .WithMany()
+                .HasForeignKey(e => new { e.InvoiceSequenceId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.InvoiceNumber })
                 .IsUnique()
                 .HasFilter("invoice_number <> ''")
@@ -472,7 +486,11 @@ public partial class BillingDbContext
             b.Property(e => e.Reference).HasMaxLength(128);
             b.Property(e => e.IdempotencyKey).HasMaxLength(64);
             b.Property(e => e.PayloadHash).HasMaxLength(64);
-            b.HasOne<ExpenseCategory>().WithMany().HasForeignKey(e => e.ExpenseCategoryId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ExpenseCategory>()
+                .WithMany()
+                .HasForeignKey(e => new { e.ExpenseCategoryId, e.BusinessId })
+                .HasPrincipalKey(c => new { c.Id, c.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<BusinessLocation>()
                 .WithMany()
                 .HasForeignKey(e => new { e.LocationId, e.BusinessId })
@@ -591,7 +609,11 @@ public partial class BillingDbContext
             b.Property(e => e.CorrelationId).HasMaxLength(64);
             b.Property(e => e.Summary).HasColumnType("jsonb");
             b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
-            b.HasOne<DeviceRegistration>().WithMany().HasForeignKey(e => e.DeviceId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<DeviceRegistration>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DeviceId, e.BusinessId })
+                .HasPrincipalKey(d => new { d.Id, d.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.OccurredAtUtc });
             b.HasIndex(e => new { e.EntityType, e.EntityId });
         });
@@ -600,7 +622,11 @@ public partial class BillingDbContext
         {
             b.ToTable("processed_operations");
             HasBusinessFk(b);
-            b.HasOne<DeviceRegistration>().WithMany().HasForeignKey(e => e.DeviceId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<DeviceRegistration>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DeviceId, e.BusinessId })
+                .HasPrincipalKey(d => new { d.Id, d.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.Property(e => e.OperationType).HasMaxLength(64).IsRequired();
             b.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
             b.Property(e => e.ErrorCode).HasMaxLength(64);
