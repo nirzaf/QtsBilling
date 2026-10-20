@@ -12,7 +12,8 @@ public sealed record LocalDeviceContext(
     Guid BusinessId,
     Guid LocationId,
     Guid UserId,
-    Guid RegisterId);
+    Guid RegisterId,
+    Guid? RegisterSessionId);
 
 /// <summary>
 /// The device-local point of sale: it captures cash sales into the local queue and reads back the
@@ -77,6 +78,11 @@ public sealed class LocalPosStore
             return Rejected(draft, "A stable operation id is required.");
         }
 
+        if (context.RegisterSessionId is not { } registerSessionId || registerSessionId == Guid.Empty)
+        {
+            return Rejected(draft, "An active cash drawer session is required for an offline sale.");
+        }
+
         if (draft.Lines is null || draft.Lines.Count == 0)
         {
             return Rejected(draft, "A sale requires at least one line.");
@@ -112,6 +118,7 @@ public sealed class LocalPosStore
                     LocationId = context.LocationId,
                     UserId = context.UserId,
                     RegisterId = context.RegisterId,
+                    RegisterSessionId = registerSessionId,
                     Amount = draft.CashReceived,
                     CanonicalPayload = payload.Canonical,
                     Sha256Fingerprint = payload.Fingerprint,
@@ -281,6 +288,7 @@ public sealed class LocalPosStore
                 locationId = context.LocationId,
                 userId = context.UserId,
                 registerId = context.RegisterId,
+                registerSessionId = context.RegisterSessionId,
                 operationId = draft.OperationId,
                 paymentMethod = "cash",
                 cashReceived = draft.CashReceived,
