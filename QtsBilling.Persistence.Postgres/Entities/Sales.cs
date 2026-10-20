@@ -90,11 +90,17 @@ public sealed class Payment : TenantEntity
 
     public Guid? InvoiceId { get; set; }
 
+    public Guid? CustomerId { get; set; }
+
+    public Guid? BankAccountId { get; set; }
+
     public PaymentMethod Method { get; set; }
 
     public PaymentStatus Status { get; set; } = PaymentStatus.Pending;
 
     public decimal Amount { get; set; }
+
+    public decimal UnallocatedAmount { get; set; }
 
     public string Currency { get; set; } = "QAR";
 
@@ -119,6 +125,26 @@ public sealed class Payment : TenantEntity
     public string? IdempotencyKey { get; set; }
 
     public string? PayloadHash { get; set; }
+
+    public DateTimeOffset? ClearedAtUtc { get; set; }
+
+    public DateTimeOffset? BouncedAtUtc { get; set; }
+
+    public string? BounceReason { get; set; }
+}
+
+/// <summary>An append-only allocation of a customer receipt to one invoice.</summary>
+public sealed class PaymentAllocation : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid PaymentId { get; set; }
+
+    public Guid InvoiceId { get; set; }
+
+    public decimal AllocatedAmount { get; set; }
+
+    public DateTimeOffset AllocatedAtUtc { get; set; }
 }
 
 /// <summary>Cash drawer session register for a location.</summary>
@@ -188,8 +214,8 @@ public sealed class CashRegisterSession : TenantEntity
 }
 
 /// <summary>
-/// Full refund of a posted sale (QB-10): cash returned, stock returned, reversal entry posted. Refunds are
-/// immutable facts tied to the original sale; partial refunds/credit notes arrive with QB-11.
+/// Refund of a posted sale (QB-10/QB-11): cash returned, line quantities and inventory disposition recorded,
+/// and the refund journal is posted. Refunds are immutable facts tied to the original sale.
 /// </summary>
 public sealed class Refund : TenantEntity
 {
@@ -247,4 +273,6 @@ public sealed class RefundLine : Entity, ITenantScoped
     public decimal LineTotal { get; set; }
 
     public decimal UnitCostSnapshot { get; set; }
+
+    public RefundDisposition Disposition { get; set; } = RefundDisposition.Restock;
 }
