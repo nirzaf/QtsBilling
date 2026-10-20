@@ -246,7 +246,7 @@ public interface ISalesOrderApiClient
 public interface IFulfillmentApiClient
 {
     Task<InventoryReservationDto> ReserveAsync(Guid orderId, ReserveSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
-    Task<InventoryReservationDto> ReleaseReservationsAsync(Guid orderId, ReleaseSalesOrderReservationRequest request, CancellationToken cancellationToken = default);
+    Task ReleaseReservationsAsync(Guid orderId, ReleaseSalesOrderReservationRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDeliveryDto> DeliverAsync(Guid orderId, DeliverSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     Task<PagedResult<SalesOrderDeliveryDto>> ListDeliveriesAsync(Guid orderId, string? cursor = null, int pageSize = 25, CancellationToken cancellationToken = default);
     Task<QtsBilling.Contracts.Invoices.InvoiceDetailDto> CreateInvoiceAsync(Guid orderId, Guid deliveryId, CreateDeliveryInvoiceRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
