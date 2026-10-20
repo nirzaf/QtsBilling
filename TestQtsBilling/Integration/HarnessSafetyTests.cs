@@ -85,7 +85,7 @@ public sealed class HarnessSafetyTests : IClassFixture<PostgresApiFixture>
 
         request.Headers.Add("Idempotency-Key", "t01-02-" + Guid.NewGuid().ToString("N"));
 
-        var response = await client.SendAsync(request).ConfigureAwait(false);
+        var response = await client.SendAsync(request);
 
         Assert.NotEqual(HttpStatusCode.Created, response.StatusCode);
 
@@ -127,9 +127,9 @@ public sealed class HarnessSafetyTests : IClassFixture<PostgresApiFixture>
                 Summary = "{}",
             });
 
-            await db.SaveChangesAsync().ConfigureAwait(false);
-            await transaction.RollbackAsync().ConfigureAwait(false);
-        }).ConfigureAwait(false);
+            await db.SaveChangesAsync();
+            await transaction.RollbackAsync();
+        });
 
         var after = await _fixture.WithFreshContextAsync(db =>
             FinancialAssertions.CaptureAsync(db, _fixture.BusinessA.BusinessId));
