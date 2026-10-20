@@ -13,6 +13,9 @@ namespace QtsWebApp.Infrastructure;
 public static class QtsClaims
 {
     public const string BusinessId = "qts:business_id";
+    public const string RequestBusinessId = "qts:request_business_id";
+    public const string BusinessHeader = "X-Business-Id";
+    public const string AuthorizationRevision = "qts:auth_revision";
     public const string MembershipRole = "qts:membership_role";
     public const string Permission = "qts:permission";
     public const string PasswordResetRequired = "qts:password_reset_required";
@@ -103,8 +106,13 @@ public sealed class PermissionRequirement(string permission) : IAuthorizationReq
 public sealed class PermissionAuthorizationHandler : AuthorizationHandler<PermissionRequirement>
 {
     private readonly BillingDbContext _db;
+    private readonly IHttpContextAccessor _httpContextAccessor;
 
-    public PermissionAuthorizationHandler(BillingDbContext db) => _db = db;
+    public PermissionAuthorizationHandler(BillingDbContext db, IHttpContextAccessor httpContextAccessor)
+    {
+        _db = db;
+        _httpContextAccessor = httpContextAccessor;
+    }
 
     protected override async Task HandleRequirementAsync(AuthorizationHandlerContext context, PermissionRequirement requirement)
     {
@@ -120,7 +128,10 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
             return;
         }
 
-        var businessId = context.User.FindFirstValue(QtsClaims.BusinessId);
+        var requestedBusiness = _httpContextAccessor.HttpContext?.Request.Headers[QtsClaims.BusinessHeader].ToString();
+        var businessId = Guid.TryParse(requestedBusiness, out var headerBusinessId)
+            ? headerBusinessId.ToString()
+            : context.User.FindFirstValue(QtsClaims.BusinessId);
 
         if (businessId is null || !Guid.TryParse(businessId, out var scopedBusinessId))
         {
@@ -145,21 +156,30 @@ public sealed class PermissionAuthorizationHandler : AuthorizationHandler<Permis
             return;
         }
 
-        var role = await _db.BusinessMemberships
+        var membership = await _db.BusinessMemberships
             .AsNoTracking()
             .Where(membership => membership.UserId == userId
                 && membership.BusinessId == scopedBusinessId
                 && membership.IsActive)
-            .Select(membership => (MembershipRole?)membership.Role)
+            .Select(membership => new { membership.Role, membership.AuthorizationRevision })
             .FirstOrDefaultAsync()
             .ConfigureAwait(false);
 
-        if (role is null)
+        if (membership is null)
         {
             return;
         }
 
-        if (RolePermissions.For(role.Value).Contains(requirement.Permission, StringComparer.Ordinal))
+        var tokenBusiness = context.User.FindFirstValue(QtsClaims.BusinessId);
+        var revisionClaim = context.User.FindFirstValue(QtsClaims.AuthorizationRevision);
+        if (string.Equals(tokenBusiness, scopedBusinessId.ToString(), StringComparison.OrdinalIgnoreCase)
+            && long.TryParse(revisionClaim, out var issuedRevision)
+            && issuedRevision < membership.AuthorizationRevision)
+        {
+            return;
+        }
+
+        if (RolePermissions.For(membership.Role).Contains(requirement.Permission, StringComparer.Ordinal))
         {
             context.Succeed(requirement);
         }
@@ -192,13 +212,15 @@ public sealed class QtsClaimsPrincipalFactory : UserClaimsPrincipalFactory<User,
         var membership = await _db.BusinessMemberships
             .AsNoTracking()
             .Where(membership => membership.UserId == user.Id && membership.IsActive)
-            .OrderBy(membership => membership.CreatedAtUtc)
+            .OrderByDescending(membership => membership.BusinessId == user.PreferredBusinessId)
+            .ThenBy(membership => membership.CreatedAtUtc)
             .FirstOrDefaultAsync()
             .ConfigureAwait(false);
 
         if (membership is not null)
         {
             identity.AddClaim(new Claim(QtsClaims.BusinessId, membership.BusinessId.ToString()));
+            identity.AddClaim(new Claim(QtsClaims.AuthorizationRevision, membership.AuthorizationRevision.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             identity.AddClaim(new Claim(QtsClaims.MembershipRole, membership.Role.ToString()));
 
             foreach (var permission in RolePermissions.For(membership.Role))
