@@ -234,6 +234,7 @@ Every procedure below is written so that it never destroys business data. The re
 | Server logs | Structured events per request; failures are typed (`code`, `traceId`), never a stack trace. | The host log. |
 | Audit feed | Append-only `audit_events`: sign-ins, permission changes, money movements. | `GET /api/v1/audit-events` (Owner, `audit.view`). |
 | Health | The liveness/readiness of the host. | `GET /api/v1/health`. |
+| Prometheus metrics | OpenTelemetry meter `QtsBilling.Server`: sync outcomes, POS posting duration, accounting-period lock wait, and idempotency replay/conflict counts. | `GET /metrics`; scrape from a trusted monitoring network. |
 | Device startup report | Device id, server address, local-store schema, journal mode, integrity result, shared routes, whether the sync coordinator is registered. | `%LOCALAPPDATA%\<publisher>\<app>\Data\startup-diagnostics.txt`. |
 | Device API log | Every API call with method, route, status and duration - never a credential or a payload body. | `%LOCALAPPDATA%\<publisher>\<app>\Data\api-calls.log`. |
 | Device queue | The pending operations with their state, the open conflicts and the feed revision. | The point-of-sale screen. |
@@ -242,6 +243,10 @@ What to watch day to day: the pending-operation count and the conflict count on 
 cannot push is accumulating money that the server has not seen), the `RESYNC_REQUIRED` rate, the failed
 authentication rate in the audit feed, and the backup job's success (a missing manifest means an unprovable
 backup).
+
+The scrape exporter is pinned to `OpenTelemetry.Exporter.Prometheus.AspNetCore` 1.19.1-beta.1. The
+OpenTelemetry .NET project currently labels this pull exporter prerelease, so keep it pinned and review
+the exporter status and compatibility before upgrading it.
 
 ## 13. Verified in QB-27
 
