@@ -36,6 +36,7 @@ public static class InventoryEndpoints
         inventory.MapPost("/movements", RecordMovementAsync).RequireAuthorization(Permissions.InventoryAdjust);
         inventory.MapGet("/reconciliation", ReconciliationAsync).RequireAuthorization(Permissions.ReportsView);
         StockTransferEndpoints.MapStockTransferEndpoints(inventory);
+        StockCountEndpoints.MapStockCountEndpoints(inventory);
 
         return app;
     }
