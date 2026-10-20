@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using System.Diagnostics;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Persistence.Postgres;
@@ -39,7 +40,8 @@ internal static class LedgerWriter
         Guid? sourceId,
         Guid? reversalOfEntryId,
         IReadOnlyList<JournalLineRequest> lines,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowClosedPeriod = false)
     {
         if (sourceId is { } reference)
         {
@@ -59,11 +61,21 @@ internal static class LedgerWriter
             }
         }
 
-        var period = (await db.AccountingPeriods
-                .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND start_date <= {entryDate} AND end_date >= {entryDate} FOR SHARE")
-                .ToListAsync(cancellationToken)
-                .ConfigureAwait(false))
-            .SingleOrDefault();
+        AccountingPeriod? period;
+        var lockStartedAt = Stopwatch.GetTimestamp();
+
+        try
+        {
+            period = (await db.AccountingPeriods
+                    .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND start_date <= {entryDate} AND end_date >= {entryDate} FOR SHARE")
+                    .ToListAsync(cancellationToken)
+                    .ConfigureAwait(false))
+                .SingleOrDefault();
+        }
+        finally
+        {
+            BillingMetrics.RecordAccountingPeriodLockWait(Stopwatch.GetElapsedTime(lockStartedAt).TotalMilliseconds);
+        }
 
         if (period is null)
         {
@@ -76,7 +88,8 @@ internal static class LedgerWriter
                 $"No period covers {entryDate:yyyy-MM-dd}; create and open the period before posting.");
         }
 
-        if (period.Status != AccountingPeriodStatus.Open)
+        if (period.Status != AccountingPeriodStatus.Open
+            && !(allowClosedPeriod && period.Status == AccountingPeriodStatus.Closed))
         {
             throw new DomainRuleException(
                 StatusCodes.Status409Conflict,
@@ -184,12 +197,68 @@ internal static class LedgerWriter
         CancellationToken cancellationToken)
     {
         var wanted = codes.ToArray();
+        var settings = await ResolveSettingsAsync(db, businessId, cancellationToken).ConfigureAwait(false);
+        if (settings is null)
+        {
+            return await db.Accounts.AsNoTracking()
+                .Where(account => account.BusinessId == businessId && wanted.Contains(account.Code))
+                .ToDictionaryAsync(account => account.Code, cancellationToken)
+                .ConfigureAwait(false);
+        }
 
-        return await db.Accounts.AsNoTracking()
-            .Where(account => account.BusinessId == businessId && wanted.Contains(account.Code))
-            .ToDictionaryAsync(account => account.Code, cancellationToken)
+        var configuredIds = new Dictionary<string, Guid>(StringComparer.Ordinal)
+        {
+            ["1000"] = settings.CashAccountId,
+            ["1010"] = settings.BankClearingAccountId,
+            ["1100"] = settings.AccountsReceivableAccountId,
+            ["1200"] = settings.InventoryAssetAccountId,
+            ["1300"] = settings.InputTaxReceivableAccountId,
+            ["2000"] = settings.AccountsPayableAccountId,
+            ["2100"] = settings.OutputTaxPayableAccountId,
+            ["2101"] = settings.GrniClearingAccountId,
+            ["2105"] = settings.CustomerDepositsAccountId,
+            ["3000"] = settings.RetainedEarningsAccountId,
+            ["4000"] = settings.SalesRevenueAccountId,
+            ["4010"] = settings.SalesReturnsAccountId,
+            ["5000"] = settings.CogsAccountId,
+            ["5150"] = settings.PurchasePriceVarianceAccountId,
+            ["5200"] = settings.InventoryShrinkageAccountId,
+            ["5300"] = settings.CashOverShortAccountId,
+        };
+        if (settings.RoundingAccountId is { } roundingAccountId)
+        {
+            configuredIds["5999"] = roundingAccountId;
+        }
+        var mappedIds = wanted.Where(configuredIds.ContainsKey).Select(code => configuredIds[code]).Distinct().ToArray();
+        var accounts = await db.Accounts.AsNoTracking()
+            .Where(account => account.BusinessId == businessId
+                && (mappedIds.Contains(account.Id) || wanted.Contains(account.Code)))
+            .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
+        var byId = accounts.ToDictionary(account => account.Id);
+        var byCode = accounts.ToDictionary(account => account.Code, StringComparer.Ordinal);
+        var result = new Dictionary<string, Account>(StringComparer.Ordinal);
+        foreach (var code in wanted)
+        {
+            if (configuredIds.TryGetValue(code, out var accountId) && byId.TryGetValue(accountId, out var configuredAccount))
+            {
+                result[code] = configuredAccount;
+            }
+            else if (byCode.TryGetValue(code, out var defaultAccount))
+            {
+                result[code] = defaultAccount;
+            }
+        }
+
+        return result;
     }
+
+    public static Task<BusinessAccountingSettings?> ResolveSettingsAsync(
+        BillingDbContext db,
+        Guid businessId,
+        CancellationToken cancellationToken)
+        => db.BusinessAccountingSettings.AsNoTracking()
+            .SingleOrDefaultAsync(settings => settings.BusinessId == businessId, cancellationToken);
 
     /// <summary>Business-local calendar date for period gating (falls back to UTC for unknown zones).</summary>
     public static DateOnly LocalDate(string? timeZone, DateTimeOffset instant)
