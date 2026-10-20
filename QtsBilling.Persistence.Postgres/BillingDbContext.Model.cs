@@ -421,6 +421,61 @@ public partial class BillingDbContext
                 "ck_stock_transfer_lines_quantity_positive",
                 "quantity > 0 AND (unit_cost_at_dispatch IS NULL OR unit_cost_at_dispatch >= 0) AND (value_at_dispatch IS NULL OR value_at_dispatch >= 0)"));
         });
+
+        modelBuilder.Entity<StockCountSession>(b =>
+        {
+            b.ToTable("stock_count_sessions");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.CountNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Note).HasColumnType("text");
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(location => new { location.Id, location.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(journal => new { journal.Id, journal.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ApprovedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CountNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.LocationId, e.Status, e.CreatedAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_stock_count_sessions_business_idempotency_key");
+        });
+
+        modelBuilder.Entity<StockCountLine>(b =>
+        {
+            b.ToTable("stock_count_lines");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.ExpectedQuantity).HasPrecision(18, 6);
+            b.Property(e => e.ExpectedUnitCost).HasPrecision(18, 8);
+            b.Property(e => e.CountedQuantity).HasPrecision(18, 6);
+            b.Property(e => e.VarianceQuantity).HasPrecision(18, 6);
+            b.Property(e => e.VarianceValue).HasPrecision(18, 4);
+            b.HasOne<StockCountSession>()
+                .WithMany()
+                .HasForeignKey(e => new { e.StockCountSessionId, e.BusinessId })
+                .HasPrincipalKey(session => new { session.Id, session.BusinessId })
+                .OnDelete(DeleteBehavior.Cascade);
+            b.HasOne<ProductVariant>()
+                .WithMany()
+                .HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(variant => new { variant.Id, variant.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.StockCountSessionId, e.VariantId }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.VariantId });
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_stock_count_lines_non_negative",
+                "expected_quantity >= 0 AND expected_unit_cost >= 0 AND (counted_quantity IS NULL OR counted_quantity >= 0)"));
+        });
     }
 
     /// <summary>
