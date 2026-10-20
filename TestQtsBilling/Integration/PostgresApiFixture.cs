@@ -379,6 +379,7 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             ("3000", "Retained earnings", AccountType.Equity),
             ("4000", "Sales revenue", AccountType.Revenue),
             ("5000", "Cost of goods sold", AccountType.Expense),
+            ("5200", "Inventory shrinkage", AccountType.Expense),
         })
         {
             db.Accounts.Add(new Account
