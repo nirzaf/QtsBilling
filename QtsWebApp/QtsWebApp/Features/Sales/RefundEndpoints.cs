@@ -5,6 +5,7 @@ using Npgsql;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Identity;
+using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -15,9 +16,8 @@ using QtsWebApp.Infrastructure;
 namespace QtsWebApp.Features.Sales;
 
 /// <summary>
-/// Full refunds of posted cash sales (QB-10). One transaction returns the stock, posts the reversal entry,
-/// records the cash refund against the drawer session, flips the payment state and writes the audit event.
-/// Partial refunds and credit notes are QB-11 (spec §3.6 refunds tied to the original confirmed payment).
+/// Cash refunds of posted sales (QB-10/QB-11). Each refund records requested quantities and disposition,
+/// posts the financial and inventory effects atomically, and leaves the sale open until fully refunded.
 /// </summary>
 public static class RefundEndpoints
 {
@@ -33,6 +33,7 @@ public static class RefundEndpoints
 
         group.MapPost("/{id:guid}/refund", RefundAsync).RequireAuthorization(Permissions.SalesRefund);
         group.MapGet("/{id:guid}/refund", GetAsync).RequireAuthorization(Permissions.SalesPost);
+        group.MapGet("/{id:guid}/refunds", GetAllAsync).RequireAuthorization(Permissions.SalesPost);
 
         return app;
     }
@@ -98,18 +99,6 @@ public static class RefundEndpoints
         if (sale is null)
         {
             return ApiResults.Problem(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The sale does not exist in this business.");
-        }
-
-        var alreadyRefunded = sale.Status == SaleStatus.Reversed
-            || await db.Refunds.AsNoTracking().AnyAsync(refund => refund.BusinessId == businessId && refund.SaleId == id, cancellationToken).ConfigureAwait(false);
-
-        if (alreadyRefunded)
-        {
-            return ApiResults.Problem(
-                StatusCodes.Status409Conflict,
-                ApiErrorCodes.AlreadyRefunded,
-                "This sale was already refunded.",
-                "A posted sale can be refunded at most once; partial refunds and credit notes arrive with QB-11.");
         }
 
         if (sale.Status != SaleStatus.Posted)
@@ -183,6 +172,21 @@ public static class RefundEndpoints
 
                 await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
+                // Serialize every refund for this sale before reading cumulative refunded quantities.
+                var saleEntity = await db.Sales
+                    .FromSql($"SELECT * FROM sales WHERE id = {id} AND business_id = {businessId} FOR UPDATE")
+                    .FirstOrDefaultAsync(cancellationToken)
+                    .ConfigureAwait(false);
+
+                if (saleEntity is null || saleEntity.Status != SaleStatus.Posted)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.AlreadyRefunded,
+                        "This sale is not open for further refunds.",
+                        "Only a posted sale with remaining line quantities can be refunded.");
+                }
+
                 var session = await db.CashRegisterSessions
                     .FromSql($"SELECT * FROM cash_register_sessions WHERE id = {openSession.Id} AND business_id = {businessId} FOR UPDATE")
                     .FirstAsync(cancellationToken)
@@ -197,78 +201,89 @@ public static class RefundEndpoints
                         "Open a new session before refunding cash.");
                 }
 
-                var saleEntity = await db.Sales
-                    .FirstAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (saleEntity.Status != SaleStatus.Posted)
-                {
-                    throw new DomainRuleException(
-                        StatusCodes.Status409Conflict,
-                        ApiErrorCodes.AlreadyRefunded,
-                        "This sale was already refunded.",
-                        "A posted sale can be refunded at most once.");
-                }
-
-                var saleLines = await db.SaleLines.AsNoTracking()
-                    .Where(line => line.BusinessId == businessId && line.SaleId == id)
+                var saleLines = await db.SaleLines
+                    .FromSql($"SELECT * FROM sale_lines WHERE business_id = {businessId} AND sale_id = {id} ORDER BY line_no FOR UPDATE")
                     .OrderBy(line => line.LineNo)
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-                var originalEntry = await db.JournalEntries.AsNoTracking()
-                    .FirstOrDefaultAsync(entry => entry.BusinessId == businessId
-                        && entry.SourceType == JournalSourceType.Sale
-                        && entry.SourceId == id,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (originalEntry is null)
-                {
-                    throw new DomainRuleException(
-                        StatusCodes.Status409Conflict,
-                        ApiErrorCodes.Conflict,
-                        "The sale has no posted journal entry to reverse.",
-                        "Every posted sale must have a source journal entry; this is a data-integrity error to investigate.");
-                }
-
-                var alreadyReversed = await db.JournalEntries.AsNoTracking()
-                    .AnyAsync(entry => entry.BusinessId == businessId
-                        && entry.SourceType == JournalSourceType.Reversal
-                        && entry.SourceId == originalEntry.Id,
-                        cancellationToken)
-                    .ConfigureAwait(false);
-
-                if (alreadyReversed)
-                {
-                    throw new DomainRuleException(
-                        StatusCodes.Status409Conflict,
-                        ApiErrorCodes.AlreadyRefunded,
-                        "The sale journal entry already has a reversal.",
-                        "A posted entry can be reversed at most once.");
-                }
-
-                var originalLines = await db.JournalLines.AsNoTracking()
-                    .Where(line => line.JournalEntryId == originalEntry.Id)
-                    .OrderBy(line => line.LineNo)
-                    .Select(line => new JournalLineRequest(line.AccountId, line.CreditAmount, line.DebitAmount, line.Description, line.LocationId))
+                var priorLines = await (from refundLine in db.RefundLines.AsNoTracking()
+                    join priorRefund in db.Refunds.AsNoTracking() on new { refundLine.RefundId, refundLine.BusinessId } equals new { RefundId = priorRefund.Id, priorRefund.BusinessId }
+                    where priorRefund.BusinessId == businessId && priorRefund.SaleId == id
+                    select new PriorRefundLine(refundLine.SaleLineId, refundLine.Quantity, refundLine.TaxAmount, refundLine.LineTotal))
                     .ToListAsync(cancellationToken)
                     .ConfigureAwait(false);
 
                 var entryDate = LedgerWriter.LocalDate(business.TimeZone, now);
 
-                var reversal = await LedgerWriter.PostWithinTransactionAsync(
+                var refundedByLine = priorLines.GroupBy(line => line.SaleLineId)
+                    .ToDictionary(group => group.Key, group => new PriorLineTotals(
+                        group.Sum(line => line.Quantity),
+                        group.Sum(line => line.TaxAmount),
+                        group.Sum(line => line.LineTotal)));
+                var requestedLines = request.Lines is null or { Count: 0 }
+                    ? saleLines
+                        .Where(line => !refundedByLine.TryGetValue(line.Id, out var prior) || prior.Quantity < line.Quantity)
+                        .Select(line => new RefundLineRequest(
+                            line.Id,
+                            line.Quantity - (refundedByLine.TryGetValue(line.Id, out var prior) ? prior.Quantity : 0m),
+                            QtsBilling.Contracts.Sales.RefundDisposition.Restock))
+                        .ToList()
+                    : request.Lines;
+
+                var refundLines = new List<CalculatedRefundLine>(requestedLines.Count);
+                var saleLineById = saleLines.ToDictionary(line => line.Id);
+                foreach (var requested in requestedLines.OrderBy(line => saleLineById.TryGetValue(line.SaleLineId, out var matched) ? matched.LineNo : int.MaxValue))
+                {
+                    if (!saleLineById.TryGetValue(requested.SaleLineId, out var saleLine))
+                    {
+                        throw InvalidRefundLine("Every refund line must refer to a line on this sale.");
+                    }
+
+                    var prior = refundedByLine.GetValueOrDefault(requested.SaleLineId) ?? new PriorLineTotals(0m, 0m, 0m);
+                    var remaining = LedgerWriter.Round(saleLine.Quantity - prior.Quantity);
+                    if (requested.Quantity <= 0m || requested.Quantity > remaining)
+                    {
+                        throw InvalidRefundLine($"The remaining refundable quantity for line {saleLine.LineNo} is {remaining}.");
+                    }
+
+                    if (!Enum.IsDefined(requested.Disposition))
+                    {
+                        throw InvalidRefundLine($"The disposition for line {saleLine.LineNo} is not supported.");
+                    }
+
+                    var amounts = CalculateLineRefund(saleLine, requested.Quantity, remaining, prior);
+                    refundLines.Add(new CalculatedRefundLine(saleLine, requested.Quantity, requested.Disposition, amounts.TaxAmount, amounts.LineTotal));
+                }
+
+                if (refundLines.Count == 0)
+                {
+                    throw InvalidRefundLine("The sale has no remaining quantity to refund.");
+                }
+
+                var refundAmount = LedgerWriter.Round(refundLines.Sum(line => line.LineTotal));
+                var refundedAmount = LedgerWriter.Round(priorLines.Sum(line => line.LineTotal));
+                if (refundAmount <= 0m || refundAmount > LedgerWriter.Round(saleEntity.TotalAmount - refundedAmount))
+                {
+                    throw InvalidRefundLine("The requested refund exceeds the remaining sale amount.");
+                }
+
+                var accounts = await LedgerWriter.ResolveAccountsAsync(
                     db,
                     businessId,
-                    userId,
-                    saleEntity.Currency,
-                    entryDate,
-                    $"Refund of {saleEntity.SaleNumber}",
-                    JournalSourceType.Reversal,
-                    originalEntry.Id,
-                    reversalOfEntryId: originalEntry.Id,
-                    originalLines,
+                    ["1000", "1200", "2100", "4010", "5000", "5200"],
                     cancellationToken).ConfigureAwait(false);
+                var missingAccounts = new[] { "1000", "1200", "2100", "4010", "5000", "5200" }
+                    .Where(code => !accounts.TryGetValue(code, out var account) || !account.IsActive)
+                    .ToArray();
+                if (missingAccounts.Length > 0)
+                {
+                    throw new DomainRuleException(
+                        StatusCodes.Status409Conflict,
+                        ApiErrorCodes.Conflict,
+                        $"The chart of accounts is missing: {string.Join(", ", missingAccounts)}.",
+                        "Configure the cash, inventory, tax, sales returns, COGS, and shrinkage accounts before refunding.");
+                }
 
                 var refundNumber = await LedgerWriter.AllocateNumberAsync(
                     db,
@@ -286,11 +301,10 @@ public static class RefundEndpoints
                     RefundNumber = refundNumber,
                     Currency = saleEntity.Currency,
                     Method = PaymentMethod.Cash,
-                    Amount = saleEntity.TotalAmount,
+                    Amount = refundAmount,
                     Reason = request.Reason.Trim(),
                     Note = string.IsNullOrWhiteSpace(request.Note) ? null : request.Note.Trim(),
                     CashRegisterSessionId = session.Id,
-                    JournalEntryId = reversal.Id,
                     PostedAtUtc = now,
                     PostedByUserId = userId,
                     IdempotencyKey = idempotencyKey,
@@ -298,23 +312,26 @@ public static class RefundEndpoints
                 };
 
                 db.Refunds.Add(refund);
-
-                foreach (var line in saleLines)
+                var refundLineEntities = new Dictionary<Guid, RefundLine>();
+                foreach (var calculated in refundLines)
                 {
-                    db.RefundLines.Add(new RefundLine
+                    var refundLine = new RefundLine
                     {
                         BusinessId = businessId,
                         RefundId = refund.Id,
-                        SaleLineId = line.Id,
-                        LineNo = line.LineNo,
-                        ProductNameSnapshot = line.ProductNameSnapshot,
-                        SkuSnapshot = line.SkuSnapshot,
-                        Quantity = line.Quantity,
-                        UnitPrice = line.UnitPrice,
-                        TaxAmount = line.TaxAmount,
-                        LineTotal = line.LineTotal,
-                        UnitCostSnapshot = line.UnitCostSnapshot,
-                    });
+                        SaleLineId = calculated.SaleLine.Id,
+                        LineNo = calculated.SaleLine.LineNo,
+                        ProductNameSnapshot = calculated.SaleLine.ProductNameSnapshot,
+                        SkuSnapshot = calculated.SaleLine.SkuSnapshot,
+                        Quantity = calculated.Quantity,
+                        UnitPrice = calculated.SaleLine.UnitPrice,
+                        TaxAmount = calculated.TaxAmount,
+                        LineTotal = calculated.LineTotal,
+                        UnitCostSnapshot = calculated.SaleLine.UnitCostSnapshot,
+                        Disposition = (QtsBilling.Persistence.Postgres.RefundDisposition)calculated.Disposition,
+                    };
+                    db.RefundLines.Add(refundLine);
+                    refundLineEntities.Add(calculated.SaleLine.Id, refundLine);
                 }
 
                 // Only lines that took stock on the sale give stock back; the movement rows are the evidence.
@@ -332,23 +349,65 @@ public static class RefundEndpoints
 
                 var stocked = stockedLineIds.ToHashSet();
 
-                foreach (var line in saleLines.Where(line => stocked.Contains(line.Id)).OrderBy(line => line.VariantId))
+                decimal restockedCost = 0m;
+                decimal damagedCost = 0m;
+                foreach (var calculated in refundLines.Where(line => stocked.Contains(line.SaleLine.Id)).OrderBy(line => line.SaleLine.VariantId))
                 {
-                    await InventoryLedger.ApplyAsync(
-                        db,
-                        businessId,
-                        userId,
-                        saleEntity.LocationId,
-                        line.VariantId,
-                        MovementType.SaleReversal,
-                        line.Quantity,
-                        line.UnitCostSnapshot,
-                        "sale_line",
-                        line.Id,
-                        $"Refund {refundNumber}",
-                        now,
-                                cancellationToken).ConfigureAwait(false);
+                    if (calculated.Disposition == QtsBilling.Contracts.Sales.RefundDisposition.Restock)
+                    {
+                        var movement = await InventoryLedger.ApplyAsync(
+                            db,
+                            businessId,
+                            userId,
+                            saleEntity.LocationId,
+                            calculated.SaleLine.VariantId,
+                            MovementType.SaleReversal,
+                            calculated.Quantity,
+                            calculated.SaleLine.UnitCostSnapshot,
+                            "refund_line",
+                            refundLineEntities[calculated.SaleLine.Id].Id,
+                            $"Refund {refundNumber}",
+                            now,
+                            cancellationToken).ConfigureAwait(false);
+                        restockedCost = LedgerWriter.Round(restockedCost + movement.ValueDelta);
+                    }
+                    else
+                    {
+                        damagedCost = LedgerWriter.Round(damagedCost + calculated.Quantity * calculated.SaleLine.UnitCostSnapshot);
+                    }
                 }
+
+                var returnedTax = LedgerWriter.Round(refundLines.Sum(line => line.TaxAmount));
+                var returnedRevenue = LedgerWriter.Round(refundAmount - returnedTax);
+                var journalLines = new List<JournalLineRequest>
+                {
+                    new(accounts["4010"].Id, returnedRevenue, 0m, "Sales returns", saleEntity.LocationId),
+                    new(accounts["2100"].Id, returnedTax, 0m, "Tax returned", saleEntity.LocationId),
+                    new(accounts["1000"].Id, 0m, refundAmount, $"Cash refund {refundNumber}", saleEntity.LocationId),
+                };
+                if (restockedCost > 0m)
+                {
+                    journalLines.Add(new(accounts["1200"].Id, restockedCost, 0m, "Restocked inventory", saleEntity.LocationId));
+                    journalLines.Add(new(accounts["5000"].Id, 0m, restockedCost, "COGS reversal", saleEntity.LocationId));
+                }
+                if (damagedCost > 0m)
+                {
+                    journalLines.Add(new(accounts["5200"].Id, damagedCost, 0m, "Damaged return write-off", saleEntity.LocationId));
+                    journalLines.Add(new(accounts["5000"].Id, 0m, damagedCost, "COGS reversal for damaged return", saleEntity.LocationId));
+                }
+                var refundEntry = await LedgerWriter.PostWithinTransactionAsync(
+                    db,
+                    businessId,
+                    userId,
+                    saleEntity.Currency,
+                    entryDate,
+                    $"Refund of {saleEntity.SaleNumber}",
+                    JournalSourceType.Refund,
+                    refund.Id,
+                    reversalOfEntryId: null,
+                    journalLines,
+                    cancellationToken).ConfigureAwait(false);
+                refund.JournalEntryId = refundEntry.Id;
 
                 db.CashRegisterMovements.Add(new CashRegisterMovement
                 {
@@ -356,7 +415,7 @@ public static class RefundEndpoints
                     CashRegisterId = register.Id,
                     CashRegisterSessionId = session.Id,
                     MovementType = CashMovementType.Refund,
-                    Amount = saleEntity.TotalAmount,
+                    Amount = refundAmount,
                     Currency = saleEntity.Currency,
                     Reason = $"Refund {refundNumber}: {request.Reason.Trim()}",
                     SaleId = saleEntity.Id,
@@ -368,9 +427,22 @@ public static class RefundEndpoints
                     .FirstAsync(payment => payment.BusinessId == businessId && payment.SaleId == saleEntity.Id, cancellationToken)
                     .ConfigureAwait(false);
 
-                paymentEntity.Status = QtsBilling.Persistence.Postgres.PaymentStatus.Refunded;
-                saleEntity.Status = SaleStatus.Reversed;
-                saleEntity.PaymentStatus = QtsBilling.Persistence.Postgres.PaymentStatus.Refunded;
+                var allQuantitiesRefunded = saleLines.All(line =>
+                {
+                    var priorQty = refundedByLine.TryGetValue(line.Id, out var previous) ? previous.Quantity : 0m;
+                    var thisQty = refundLines.Where(candidate => candidate.SaleLine.Id == line.Id).Sum(candidate => candidate.Quantity);
+                    return LedgerWriter.Round(priorQty + thisQty) >= line.Quantity;
+                });
+                var allMoneyRefunded = LedgerWriter.Round(refundedAmount + refundAmount) >= saleEntity.TotalAmount;
+                if (allQuantitiesRefunded)
+                {
+                    saleEntity.Status = SaleStatus.Reversed;
+                }
+                if (allMoneyRefunded)
+                {
+                    paymentEntity.Status = QtsBilling.Persistence.Postgres.PaymentStatus.Refunded;
+                    saleEntity.PaymentStatus = QtsBilling.Persistence.Postgres.PaymentStatus.Refunded;
+                }
 
                 db.AuditEvents.Add(new AuditEvent
                 {
@@ -386,8 +458,8 @@ public static class RefundEndpoints
                         refundNumber,
                         saleNumber = saleEntity.SaleNumber,
                         saleId = saleEntity.Id,
-                        amount = saleEntity.TotalAmount,
-                        reversalEntry = reversal.EntryNumber,
+                        amount = refundAmount,
+                        reversalEntry = refundEntry.EntryNumber,
                         registerId = register.Id,
                         sessionId = session.Id,
                         reason = request.Reason.Trim(),
@@ -435,6 +507,7 @@ public static class RefundEndpoints
         }
 
         var refund = await db.Refunds.AsNoTracking()
+            .OrderByDescending(candidate => candidate.PostedAtUtc)
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.SaleId == id, cancellationToken)
             .ConfigureAwait(false);
 
@@ -444,6 +517,39 @@ public static class RefundEndpoints
         }
 
         return Results.Ok(await ToDtoAsync(db, refund, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<IResult> GetAllAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var saleExists = await db.Sales.AsNoTracking()
+            .AnyAsync(sale => sale.BusinessId == businessId && sale.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+        if (!saleExists)
+        {
+            return ApiResults.Problem(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The sale does not exist in this business.");
+        }
+
+        var refunds = await db.Refunds.AsNoTracking()
+            .Where(refund => refund.BusinessId == businessId && refund.SaleId == id)
+            .OrderBy(refund => refund.PostedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var results = new List<RefundDto>(refunds.Count);
+        foreach (var refund in refunds)
+        {
+            results.Add(await ToDtoAsync(db, refund, cancellationToken).ConfigureAwait(false));
+        }
+
+        return Results.Ok(results);
     }
 
     private static Dictionary<string, string[]> ValidatePayload(RefundSaleRequest request)
@@ -464,6 +570,22 @@ public static class RefundEndpoints
         if (request.RegisterId == Guid.Empty)
         {
             errors["registerId"] = ["The register that pays the refund is required."];
+        }
+
+        if (request.Lines is { Count: > 0 })
+        {
+            if (request.Lines.Any(line => line.SaleLineId == Guid.Empty || line.Quantity <= 0m || decimal.Round(line.Quantity, 6) != line.Quantity))
+            {
+                errors["lines"] = ["Each refund line needs a sale line id and a positive quantity with at most six decimal places."];
+            }
+            else if (request.Lines.Select(line => line.SaleLineId).Distinct().Count() != request.Lines.Count)
+            {
+                errors["lines"] = ["A sale line may appear at most once in a refund request."];
+            }
+            else if (request.Lines.Any(line => !Enum.IsDefined(line.Disposition)))
+            {
+                errors["lines"] = ["Each refund line needs a supported disposition."];
+            }
         }
 
         return errors;
@@ -487,7 +609,8 @@ public static class RefundEndpoints
                 line.UnitPrice,
                 line.TaxAmount,
                 line.LineTotal,
-                line.UnitCostSnapshot))
+                line.UnitCostSnapshot,
+                line.Disposition.ToString()))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -522,11 +645,6 @@ public static class RefundEndpoints
     private static IResult MapPostgresException(PostgresException exception)
         => exception.SqlState switch
         {
-            PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_refunds_business_sale" =>
-                ApiResults.Problem(
-                    StatusCodes.Status409Conflict,
-                    ApiErrorCodes.AlreadyRefunded,
-                    "This sale was already refunded."),
             PostgresErrorCodes.UniqueViolation when exception.ConstraintName == "ux_refunds_business_idempotency_key" =>
                 ApiResults.Problem(
                     StatusCodes.Status409Conflict,
@@ -553,4 +671,50 @@ public static class RefundEndpoints
                 ApiErrorCodes.InternalError,
                 "The refund failed."),
         };
+
+    private static DomainRuleException InvalidRefundLine(string detail)
+        => new(
+            StatusCodes.Status400BadRequest,
+            ApiErrorCodes.ValidationFailed,
+            "The refund lines are invalid.",
+            detail);
+
+    private static (decimal TaxAmount, decimal LineTotal) CalculateLineRefund(
+        SaleLine saleLine,
+        decimal requestedQuantity,
+        decimal remainingQuantity,
+        PriorLineTotals prior)
+    {
+        if (requestedQuantity == remainingQuantity)
+        {
+            return (
+                LedgerWriter.Round(saleLine.TaxAmount - prior.TaxAmount),
+                LedgerWriter.Round(saleLine.LineTotal - prior.LineTotal));
+        }
+
+        var discount = saleLine.Quantity == 0m
+            ? 0m
+            : LedgerWriter.Round(saleLine.DiscountAmount * requestedQuantity / saleLine.Quantity);
+        var storedTaxMode = SalePosting.EffectiveTaxMode(saleLine);
+        var taxMode = string.Equals(storedTaxMode, "Unspecified", StringComparison.OrdinalIgnoreCase)
+            ? QtsModels.ValueObjects.CommercialTaxMode.Exclusive
+            : CommercialAmountCalculator.ParseTaxMode(storedTaxMode, "taxMode");
+        var amounts = CommercialAmountCalculator.ComputeLine(
+            requestedQuantity,
+            saleLine.UnitPrice,
+            taxMode,
+            saleLine.TaxRate,
+            discount,
+            field: "lines");
+        return (amounts.TaxAmount, amounts.PayableAmount);
+    }
+
+    private sealed record PriorRefundLine(Guid SaleLineId, decimal Quantity, decimal TaxAmount, decimal LineTotal);
+    private sealed record PriorLineTotals(decimal Quantity, decimal TaxAmount, decimal LineTotal);
+    private sealed record CalculatedRefundLine(
+        SaleLine SaleLine,
+        decimal Quantity,
+        QtsBilling.Contracts.Sales.RefundDisposition Disposition,
+        decimal TaxAmount,
+        decimal LineTotal);
 }
