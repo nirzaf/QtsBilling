@@ -59,6 +59,7 @@ public enum PaymentStatus
 {
     Pending,
     Confirmed,
+    Bounced,
     Refunded,
     Voided,
 }
