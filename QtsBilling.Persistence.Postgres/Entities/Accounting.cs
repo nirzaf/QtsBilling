@@ -197,7 +197,12 @@ public sealed class InvoiceLine : Entity, ITenantScoped
 
     public decimal DiscountAmount { get; set; }
 
+    /// <summary>Revenue amount before output tax, captured to support inclusive tax and partial delivery invoices.</summary>
+    public decimal RevenueBaseAmount { get; set; }
+
     public decimal TaxRate { get; set; }
+
+    public string TaxMode { get; set; } = "Exclusive";
 
     public decimal TaxAmount { get; set; }
 
