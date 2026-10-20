@@ -139,14 +139,16 @@ public sealed class CacheAndSchemaTests
         string secondMigration;
         string thirdMigration;
         string fourthMigration;
+        string fifthMigration;
         await using (var db = harness.CreateContext())
         {
             var known = db.Database.GetMigrations().ToArray();
-            Assert.Equal(4, known.Length);
+            Assert.Equal(5, known.Length);
             firstMigration = known[0];
             secondMigration = known[1];
             thirdMigration = known[2];
             fourthMigration = known[3];
+            fifthMigration = known[4];
             await db.Database.MigrateAsync(firstMigration);
         }
 
@@ -196,7 +198,7 @@ public sealed class CacheAndSchemaTests
 
         var startup = await harness.Store.InitializeAsync();
 
-        Assert.Equal([secondMigration, thirdMigration, fourthMigration], startup.AppliedMigrations);
+        Assert.Equal([secondMigration, thirdMigration, fourthMigration, fifthMigration], startup.AppliedMigrations);
         Assert.NotNull(startup.PreMigrationBackupPath);
         Assert.True(File.Exists(startup.PreMigrationBackupPath!));
 
@@ -205,6 +207,8 @@ public sealed class CacheAndSchemaTests
         Assert.Equal(1L, harness.ScalarLong("SELECT COUNT(*) FROM local_cash_movements;"));
         Assert.Equal(1L, harness.ScalarLong("SELECT COUNT(*) FROM outbox_operations;"));
         Assert.Equal(123400L, harness.ScalarLong("SELECT amount_scaled FROM local_sale_drafts;"));
+        Assert.Equal(0L, harness.ScalarLong("SELECT attempt_count FROM outbox_operations;"));
+        Assert.Equal(1L, harness.ScalarLong("SELECT COUNT(*) FROM outbox_operations WHERE last_error_code IS NULL;"));
         Assert.Equal(2500000L, harness.ScalarLong("SELECT qty_scaled FROM local_sale_lines WHERE ordinal = 0;"));
         Assert.Equal("PROV-SEEDED", harness.ScalarString("SELECT provisional_reference FROM local_sale_drafts;"));
 
