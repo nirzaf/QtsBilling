@@ -21,7 +21,10 @@ public sealed record SaveExpenseRequest(
     decimal Amount,
     DateOnly OccurredOn,
     string PaidVia,
-    string? Reference);
+    string? Reference,
+    decimal TaxRate = 0m,
+    decimal TaxAmount = 0m,
+    string TaxMode = "Exclusive");
 
 public sealed record ExpenseDto(
     Guid Id,
@@ -40,6 +43,9 @@ public sealed record ExpenseDto(
     DateTimeOffset? ReversedAtUtc,
     Guid? ReversalEntryId,
     string? ReversalEntryNumber,
-    DateTimeOffset CreatedAtUtc);
+    DateTimeOffset CreatedAtUtc,
+    decimal TaxRate = 0m,
+    decimal TaxAmount = 0m,
+    string TaxMode = "Exclusive");
 
 public sealed record ExpenseActionRequest(string Reason, string? Note);
