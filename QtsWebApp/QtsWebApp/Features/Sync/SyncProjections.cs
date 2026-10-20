@@ -10,6 +10,25 @@ namespace QtsWebApp.Features.Sync;
 /// </summary>
 public static class SyncProjections
 {
+    /// <summary>Projection for a catalog master-data row not otherwise represented by a device command.</summary>
+    public static Task MasterDataAsync(
+        BillingDbContext db,
+        Guid businessId,
+        string resourceType,
+        Guid recordId,
+        object? projection,
+        bool tombstone,
+        CancellationToken cancellationToken = default)
+        => SyncChangeWriter.AppendAsync(
+            db,
+            businessId,
+            resourceType,
+            recordId,
+            tombstone ? SyncChangeKind.Tombstone : SyncChangeKind.Upsert,
+            tombstone ? null : SyncChangeWriter.Projection(projection),
+            DateTimeOffset.UtcNow,
+            cancellationToken);
+
     /// <summary>The product with its sellable variants (the price snapshot the device caches).</summary>
     public static async Task ProductAsync(
         BillingDbContext db,
