@@ -169,6 +169,7 @@ internal static class TestData
             LocationId = location,
             UserId = user,
             RegisterId = register,
+            RegisterSessionId = Guid.CreateVersion7(),
             Amount = amount,
             CanonicalPayload = payload,
             Lines =
@@ -209,6 +210,6 @@ internal static class TestData
             Sha256Fingerprint = SqlitePayloadHash.Compute(payload),
             State = OutboxState.Pending,
             CreatedAtUtc = DateTime.UtcNow,
-            NextAttemptUtc = DateTime.UtcNow,
+            NextAttemptAtUtc = DateTime.UtcNow,
         };
 }
