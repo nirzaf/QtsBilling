@@ -399,3 +399,9 @@ appsettings.*.local.json
 # Local scratch space: page captures and publish output used for manual verification
 /tmp/
 /out/
+
+# Sealed build kit (task 11): the acquired package feed, verification cache and installed tools are generated on a
+# reviewed machine and never committed. The manifest they are described by, and each project's packages.lock.json,
+# are committed: they are the reviewed record an offline build is admitted against.
+/build-kit/*
+!/build-kit/dependency-manifest.json

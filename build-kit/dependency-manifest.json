@@ -1,0 +1,3146 @@
+{
+  "schemaVersion": 1,
+  "action": "Acquire",
+  "source": {
+    "gitCommit": "83e364062e8d2319ce1059d11ba71745a80484f5",
+    "sdkVersion": "10.0.401",
+    "sdksInstalled": [
+      "10.0.401 [C:\\Program Files\\dotnet\\sdk]"
+    ],
+    "runtimes": [
+      "Microsoft.AspNetCore.App 10.0.12 [C:\\Program Files\\dotnet\\shared\\Microsoft.AspNetCore.App]",
+      "Microsoft.NETCore.App 10.0.12 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+      "Microsoft.WindowsDesktop.App 10.0.12 [C:\\Program Files\\dotnet\\shared\\Microsoft.WindowsDesktop.App]"
+    ],
+    "workloads": [
+      "maui-windows"
+    ],
+    "toolManifest": [
+      {
+        "id": "dotnet-ef",
+        "version": "10.0.13",
+        "commands": [
+          "dotnet-ef"
+        ]
+      }
+    ],
+    "advisorySnapshotUtc": "2026-10-21T17:26:09Z",
+    "advisoryNote": "snapshot date only; no online advisory claim is made (specification G definition of done)",
+    "reviewedLicences": [
+      "Apache-2.0",
+      "Apache-2.0 WITH LLVM-exception",
+      "BSD-3-Clause",
+      "MIT",
+      "PostgreSQL"
+    ]
+  },
+  "projects": [
+    {
+      "path": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "lock": "QtsBilling.Contracts/packages.lock.json",
+      "direct": [
+        {
+          "id": "Microsoft.IdentityModel.JsonWebTokens",
+          "version": "8.19.2"
+        }
+      ],
+      "packageCount": 7
+    },
+    {
+      "path": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "lock": "QtsBilling.DataImport/packages.lock.json",
+      "direct": [],
+      "packageCount": 29
+    },
+    {
+      "path": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "lock": "QtsBilling.Maui/packages.lock.json",
+      "direct": [
+        {
+          "id": "Microsoft.Maui.Controls",
+          "version": "$(MauiVersion)"
+        },
+        {
+          "id": "Microsoft.AspNetCore.Components.WebView.Maui",
+          "version": "$(MauiVersion)"
+        },
+        {
+          "id": "Microsoft.Extensions.Logging.Debug",
+          "version": "10.0.0"
+        },
+        {
+          "id": "Microsoft.Extensions.Http",
+          "version": "10.0.0"
+        },
+        {
+          "id": "System.Security.Cryptography.ProtectedData",
+          "version": "10.0.13"
+        },
+        {
+          "id": "MudBlazor",
+          "version": "9.11.0"
+        }
+      ],
+      "packageCount": 50
+    },
+    {
+      "path": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "lock": "QtsBilling.Persistence.Postgres/packages.lock.json",
+      "direct": [
+        {
+          "id": "Microsoft.AspNetCore.Identity.EntityFrameworkCore",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Microsoft.EntityFrameworkCore",
+          "version": "10.0.13"
+        },
+        {
+          "id": "OpenIddict.EntityFrameworkCore",
+          "version": "7.7.2"
+        },
+        {
+          "id": "Microsoft.EntityFrameworkCore.Design",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Npgsql.EntityFrameworkCore.PostgreSQL",
+          "version": "10.0.3"
+        }
+      ],
+      "packageCount": 19
+    },
+    {
+      "path": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "lock": "QtsBilling.Persistence.Sqlite.Tests/packages.lock.json",
+      "direct": [
+        {
+          "id": "coverlet.collector",
+          "version": "10.1.0"
+        },
+        {
+          "id": "Microsoft.Data.Sqlite.Core",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Microsoft.NET.Test.Sdk",
+          "version": "18.11.0"
+        },
+        {
+          "id": "xunit",
+          "version": "2.9.3"
+        },
+        {
+          "id": "xunit.runner.visualstudio",
+          "version": "3.1.5"
+        }
+      ],
+      "packageCount": 13
+    },
+    {
+      "path": "QtsBilling.Persistence.Sqlite/QtsBilling.Persistence.Sqlite.csproj",
+      "lock": "QtsBilling.Persistence.Sqlite/packages.lock.json",
+      "direct": [
+        {
+          "id": "Microsoft.EntityFrameworkCore.Sqlite.Core",
+          "version": "10.0.13"
+        },
+        {
+          "id": "SQLitePCLRaw.bundle_e_sqlcipher",
+          "version": "2.1.10"
+        },
+        {
+          "id": "Microsoft.EntityFrameworkCore.Design",
+          "version": "10.0.13"
+        }
+      ],
+      "packageCount": 0
+    },
+    {
+      "path": "QtsBilling.Ui.Smoke/QtsBilling.Ui.Smoke.csproj",
+      "lock": "QtsBilling.Ui.Smoke/packages.lock.json",
+      "direct": [],
+      "packageCount": 0
+    },
+    {
+      "path": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "lock": "QtsBilling.Ui/packages.lock.json",
+      "direct": [
+        {
+          "id": "MudBlazor",
+          "version": "9.11.0"
+        }
+      ],
+      "packageCount": 6
+    },
+    {
+      "path": "QtsModels/QtsModels.csproj",
+      "lock": "QtsModels/packages.lock.json",
+      "direct": [],
+      "packageCount": 0
+    },
+    {
+      "path": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "lock": "QtsWebApp/QtsWebApp.Client/packages.lock.json",
+      "direct": [
+        {
+          "id": "Blazored.LocalStorage",
+          "version": "4.5.0"
+        },
+        {
+          "id": "Microsoft.AspNetCore.Components.WebAssembly",
+          "version": "10.0.12"
+        },
+        {
+          "id": "MudBlazor",
+          "version": "9.11.0"
+        },
+        {
+          "id": "Microsoft.AspNetCore.WebUtilities",
+          "version": "10.0.12"
+        },
+        {
+          "id": "Microsoft.Extensions.Localization",
+          "version": "10.0.12"
+        }
+      ],
+      "packageCount": 35
+    },
+    {
+      "path": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "lock": "QtsWebApp/QtsWebApp/packages.lock.json",
+      "direct": [
+        {
+          "id": "MudBlazor",
+          "version": "9.11.0"
+        },
+        {
+          "id": "Microsoft.AspNetCore.Components.WebAssembly.Server",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Microsoft.AspNetCore.Identity.EntityFrameworkCore",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Microsoft.AspNetCore.OpenApi",
+          "version": "10.0.13"
+        },
+        {
+          "id": "OpenIddict.AspNetCore",
+          "version": "7.7.2"
+        },
+        {
+          "id": "Microsoft.EntityFrameworkCore.Design",
+          "version": "10.0.13"
+        },
+        {
+          "id": "OpenTelemetry.Exporter.Prometheus.AspNetCore",
+          "version": "1.19.1-beta.1"
+        },
+        {
+          "id": "OpenTelemetry.Extensions.Hosting",
+          "version": "1.19.1"
+        }
+      ],
+      "packageCount": 42
+    },
+    {
+      "path": "TestQtsBilling/TestQtsBilling.csproj",
+      "lock": "TestQtsBilling/packages.lock.json",
+      "direct": [
+        {
+          "id": "Microsoft.Playwright",
+          "version": "1.63.0"
+        },
+        {
+          "id": "Bogus",
+          "version": "35.6.5"
+        },
+        {
+          "id": "coverlet.collector",
+          "version": "10.1.0"
+        },
+        {
+          "id": "Microsoft.AspNetCore.Mvc.Testing",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Microsoft.NET.Test.Sdk",
+          "version": "18.11.0"
+        },
+        {
+          "id": "System.Security.Cryptography.Pkcs",
+          "version": "10.0.13"
+        },
+        {
+          "id": "System.Security.Cryptography.Xml",
+          "version": "10.0.13"
+        },
+        {
+          "id": "Moq",
+          "version": "4.21.0"
+        },
+        {
+          "id": "Newtonsoft.Json",
+          "version": "13.0.4"
+        },
+        {
+          "id": "xunit",
+          "version": "2.9.3"
+        },
+        {
+          "id": "xunit.runner.visualstudio",
+          "version": "3.1.5"
+        }
+      ],
+      "packageCount": 36
+    }
+  ],
+  "packages": [
+    {
+      "id": "Microsoft.Bcl.Cryptography",
+      "version": "10.0.2",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.bcl.cryptography.10.0.2.nupkg",
+      "sha256": "F8E62D716B1DD6A65C11769D61E038B7AFA9C800E0D403D00B1A4A52D3F4D363",
+      "nugetSha512": "LG9Yll3B5aNpxv0+D47g6LiOiKBIlodhcHdQwcYzo8VeexFLGqx5ymetmA2aBRyo9cCcWsQWrFsdbsr8LvmWDw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "8.0.0",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.abstractions.8.0.0.nupkg",
+      "sha256": "EF92B31065A36D110B7332690A226E6FE96D35430C6F3E40FF529053EE5D80FF",
+      "nugetSha512": "cjWrLkJXK0rs4zofsK4bSdg+jhDLTaxrkXu4gS6Y7MAlCvRyNNgwY/lJi5RDlQOnSZweHqoyvgvbdvQsRIW+hg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/microsoft.extensions.dependencyinjection.abstractions.8.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "8.0.0",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.abstractions.8.0.0.nupkg",
+      "sha256": "26675D8DE83C5394BE8814F046554054B7881F1738CABACD82A54C381EC48CCE",
+      "nugetSha512": "arDBqTgFCyS0EvRV7O3MZturChstm50OJ0y9bDJvAcmEPJm0FFpFyjU/JLYyStNGGey081DvnQYlncNX5SJJGA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/microsoft.extensions.logging.abstractions.8.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.IdentityModel.Abstractions",
+      "version": "8.19.2",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.identitymodel.abstractions.8.19.2.nupkg",
+      "sha256": "BCD18AEAEE95F92D0C21A61383EB129111785D48CCD4AF9C2AE4756BD69108BB",
+      "nugetSha512": "HJbo/lnSfNHUfphPRT910poQc4T2/9+8svFLvzuaYHGAOJ2Tu+oEDqpX0BVP3BJ4OuUM1kylEKyaiX2fCAK3Cw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.IdentityModel.JsonWebTokens",
+      "version": "8.19.2",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.identitymodel.jsonwebtokens.8.19.2.nupkg",
+      "sha256": "8FD6A2D0DAE0CAD0EC7D08888A3A7521BE234465FD960444401A04E975BD48E7",
+      "nugetSha512": "ui3fuBT4fs8kdKfBthI4NzLYIBIneEVS8UrL1JVBzAn80UiKmngBBi0BEByE7n/9c+EElcfFlCMFFTqpkBSLNA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.IdentityModel.Logging",
+      "version": "8.19.2",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.identitymodel.logging.8.19.2.nupkg",
+      "sha256": "8DAF0F01850DC257C8AE42FA10EB99ED28197D127020E4461BF1130C3D41B511",
+      "nugetSha512": "r5YLDIxGOnkVJHrqXv/iD1FM1CgGrQOdriXuvuWvTPmKbnGANhEysq9XKmN6IHjf2a+9bAGEpnoRBsAQlvJU5w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.IdentityModel.Tokens",
+      "version": "8.19.2",
+      "project": "QtsBilling.Contracts/QtsBilling.Contracts.csproj",
+      "file": "build-kit/packages/microsoft.identitymodel.tokens.8.19.2.nupkg",
+      "sha256": "3CE8B74B370ADFE881DF5D38C17621DE8A150F519B96DC1351FF8A323FFF5185",
+      "nugetSha512": "GtPC1S02uH1gOO4fQ+zRysIicKmEXaYFP8PIkdJYXqMyruYhopre4ozVHp0XiDSA0+GJvOZH9prxCPvgBMg4Ww==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Cryptography.Internal",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.cryptography.internal.10.0.13.nupkg",
+      "sha256": "4347BC331D2C3F052EBA28C421D69900846821E487281829504E3626935886C2",
+      "nugetSha512": "INZVBMOPbQC5xj1oTpwhELtokdH9LcY7oCsTVDEavziMpsoGJJPejax5WdFNfPeTMGq9eT6fL8GcVHeobvqORA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Cryptography.KeyDerivation",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.cryptography.keyderivation.10.0.13.nupkg",
+      "sha256": "0F06B3AFE8F12A1034712A6A9FD3BB046FA744478084EBB5EC875ED1A1513504",
+      "nugetSha512": "mt935Uji4EdglTPrgJrqHdXkWM2EI6d7V8fEfvlC+KevB16MtHUHGiaKycawlOJgbOMw1D9etbHIfLL2nnWV4Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Identity.EntityFrameworkCore",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.identity.entityframeworkcore.10.0.13.nupkg",
+      "sha256": "DB7E2E5F3F4F0C7B965E386C4745195CE4771378DF77FCE3C2B6D3942E549C4B",
+      "nugetSha512": "c6984ahCnqc3zqYgl5KqrBoY+LMKqJW6nZcFdBYNyp3PAA67prA/IgjQ/ySV0t3lEL2LEz3bcx91fbUYr8bRPA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.10.0.13.nupkg",
+      "sha256": "20DBB8CA069284FE2D6F327F090F3915142FF8E9D69BD2FC94CC8FF9E392EA21",
+      "nugetSha512": "u/z4nTQUJ5nJEXAQekgQEQZkh0delp4gL+ESHn7Z6k037c8HC5mSNu1/YdBgxGm7DtLjhOxktNl+aQMzw6wN7A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.abstractions.10.0.13.nupkg",
+      "sha256": "0B08E68D97E1907D0B04A9A135A10122B083FC069E4E380E2BA43F2FE057F3E1",
+      "nugetSha512": "ARw+tZ3eiTosnK5nJPUGEzeUQcjyqCqs3qKA3lPtIRH5yJo3qIgxm7AvkZVIT9iWkS2083UsWe3Rj1MysW3p5A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore.Analyzers",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.analyzers.10.0.13.nupkg",
+      "sha256": "6EC765E9D86354E574768C0A4622EBFD0CB480B1C0641574C62F9403FC1DE74C",
+      "nugetSha512": "zBx6VeEz/hkhlm0BJ2V+9xebUuDDIszcKvurJceQHuZPEXuXubrL6Lneo9VZiliRyJbQlB2oNKLkJXd3gHteQA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore.Relational",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.relational.10.0.13.nupkg",
+      "sha256": "7E3C45C2109C21C1EBCBE8E9D29D5177811EC78B4E367D8095418AD8128815F6",
+      "nugetSha512": "QU/sbTtDR5wVAJRVecC1GwM7mwH8bvKOZNm+lulzMr5rhjdb8DDEFIqqdhF08JIo51DPv5uQdZ1nXoZsD5pTag==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Caching.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.caching.abstractions.10.0.13.nupkg",
+      "sha256": "BF66EBE438451A3495562C8FB853A939D9E875E65B040637B66CE16B2313E7B1",
+      "nugetSha512": "UOJqcdNMoFcV/5RUcOlVKq9pPmbrcmbpLx5iYz9QtrmMcWRQzlL5Q/NZRfbPPLNyIEc1HWjjs5Z7nIwqewU1sg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Caching.Memory",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.caching.memory.10.0.13.nupkg",
+      "sha256": "C9E942657474DCAAE4EB55DDFD054D8B14BF53C4E73B3D1DFF055CC8CCACFBEE",
+      "nugetSha512": "q+At65RACuCtGwUDVI08TmmrC73YFouimMkJAtlhsGhFcU/dVpqYEKpNBOF9TUxkJ6aefEOShqe7StLK7q3NqA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.10.0.13.nupkg",
+      "sha256": "01BAE5EC1BE410A3C69C1F7812197E751B017BFD28FE3D3B303E8A2D47711AA1",
+      "nugetSha512": "inhujYI/nikhmLxYI6ZEcaCgZ28ipJsKMPPxxr2XWf3vM0Q2P+E9R3hDHABZOLBxzD3gjpgcbSH/+hd2+gvI2A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.abstractions.10.0.13.nupkg",
+      "sha256": "3327E40E108B4D6550D6B4E4737046678FBA6530DC48212DD8EF73C52C5EE4BF",
+      "nugetSha512": "DY4C2qzTt2lOIY3VoscBH/TCwTolI5DKOfgJLuI+k1QUvRNT5vTMS58AOerNiihdVRStO0wEpLeRWA8jytzHBQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Binder",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.binder.10.0.13.nupkg",
+      "sha256": "1E1E130DDABBA26C54D4339504C3F658A77F3769305192131843C96C1CD149D6",
+      "nugetSha512": "yJJl/b0+W+GEWbu+7viw6C3h2BoNkB69Vlz7s/4e+hm4mYbJqfhdcDSi9sCXJw47blsBaiQd3UDPgDtop92+ug==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.10.0.13.nupkg",
+      "sha256": "890B166FCDC1347B6DEB9D89D258E126F9F85F4FD057D038CF361FF604A6C338",
+      "nugetSha512": "4tnWU9vrU/A8NwYe9Z6wvieZ0EBb/uM82LAT+edNhdepOBWREZ7M7mzb941EIDPJaeOFdbVrDd5+7s9e89U6bQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.abstractions.10.0.13.nupkg",
+      "sha256": "676F9BB47A23AF349F85B6F45F71D7A634DB60A71B5C9F370D037215A8F3AC8C",
+      "nugetSha512": "G2GrGWNAPZBsii2F6AU8n+JT2tC1/I0Ml/e9ZyNCgPjf3hZqronP7o0X91aAynCmVeae8KkSIUNXXeXCNRmdVQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.10.0.13.nupkg",
+      "sha256": "42CD2D969F6CD230180FA41E8F6D1F256679AB82E2572455C24431CB4B869696",
+      "nugetSha512": "J9ODOrffj1mK3Et69elNsLGRguesPxvThTdVpFmQX7fLNPhIOgqHQfLdGnTBEwNAV3yf8yiyVlpDZNw2qN87Nw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.abstractions.10.0.13.nupkg",
+      "sha256": "95C35704365D07F6E9EE1ED563FEBF091FE1B60380701430961EC5699C9EDFB2",
+      "nugetSha512": "oZzqZze8ed1fLS20HtIrkPxQXGRG/koq09srIw2ptnDHm9RHfwB++d35hosB/cXc55TH7Pshv85O0txongjCIg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Identity.Core",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.identity.core.10.0.13.nupkg",
+      "sha256": "BFA50F43D803D1F1761D5FE517DB7BD8C5E704736CE8D9839EB6649A6D150587",
+      "nugetSha512": "76aNRvI7HU9sYjevIlpFuT/VyspRoiREwOZI+RFXM/HRJ3v6nC7gxSZoX881FEBkF+0udKHuFxtsWbRLytqsSA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Identity.Stores",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.identity.stores.10.0.13.nupkg",
+      "sha256": "EB16B69FB77452B46F1C4A73D829A72573C67F74793869C0F0B1376F3BEECE9D",
+      "nugetSha512": "qNZr9maHa2Kg7mRh+hLEJ59ts2OfYMiJJ5GVjx8BDrmhPxx/V345CTdIrUcZ5FZwwHepITsZY0e9qss7NB2U5A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.10.0.13.nupkg",
+      "sha256": "ABC2158AF8CC09DB6F7970BFA7E348A001CB20692D907DAC62D72C785D2BCF5D",
+      "nugetSha512": "fqbiPy4nUp4H2XHKAVQXKN2y3T2h4cFIx1DAAgE6iY9OHkN/OA1cKFi+geJKRWGuX6pS5SFbsjIPWHJqrxE0eg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.abstractions.10.0.13.nupkg",
+      "sha256": "8C09F4328A801716B8997707FB567013DB193935B4EF9E69897C83DC9C56C8B1",
+      "nugetSha512": "aSZEhEig4fvNiw2zs8Z6NyDlniKtq6YjcF3DyHuqTEHcZ2VKA/6itMPZ+dW+yWABWExlDcQwwdbqX1Rcb7W8WQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.10.0.13.nupkg",
+      "sha256": "D885D547A37377413DE04066FBF984DE40359B877018F24C3AE90C0B22E03ECE",
+      "nugetSha512": "tmMJgdrE4uhf1JcNs9CV9moAHW+hmDuvgMiPpnQxarKaUxqI2eN33sYK5S4l9Uw+rG9PJvlm4qPxMhvolTDTaQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options.ConfigurationExtensions",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.configurationextensions.10.0.13.nupkg",
+      "sha256": "F5E4C0D5310C7731493E8273CAC473EC61D13A0CA3EF4CC6E48EFC8AECF03719",
+      "nugetSha512": "xVO5HhATc09WXuS/RaDmx8ZeWS0mTpT1L0tkEDMSBHtAnNpNsDr0ge0wIO2jinCWWqpq5dL1tRTzpYNVlvyqLw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Primitives",
+      "version": "10.0.13",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/microsoft.extensions.primitives.10.0.13.nupkg",
+      "sha256": "7A5F1DCBCC6E7B94CB3E7C18D22ACEF5823949FE94B4076AD20FF057322C6E6F",
+      "nugetSha512": "ZjTwxzhiw2TMEzIbUDkMF0dfDB2I4NQgIfKD0ELu9/5Mk+SRGdKZcD0/lvBrRCAPo6KN2r0BW86MRancoyJkoA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Npgsql",
+      "version": "10.0.3",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/npgsql.10.0.3.nupkg",
+      "sha256": "75D0970923A8C9FCBBD37E4EBE72FEE0B10362A1E36723E86777DF1B6728316D",
+      "nugetSha512": "7nb5YzXuvWWJxB0J8DiyL3we+X4FOctZrt0fIBnucOIaIevFEEwGQVZKtiu9olXdlNAK1eNgqSral6r/jlhI4w==",
+      "licence": "PostgreSQL",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Npgsql.EntityFrameworkCore.PostgreSQL",
+      "version": "10.0.3",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/npgsql.entityframeworkcore.postgresql.10.0.3.nupkg",
+      "sha256": "D889AF8847C9DB50E4EE98CB2511429DD8B97EA0CB3A5E20926B46C47DCEE3C4",
+      "nugetSha512": "IPGrrZnRkuW7OlHDhUESZz4G5DLkW7Nej/O3Cx+0iTsgyU5XJxBgpsvTHLloo3WWuAKKbDHXBvWPVkX1deRh1Q==",
+      "licence": "PostgreSQL",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Abstractions",
+      "version": "7.7.2",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/openiddict.abstractions.7.7.2.nupkg",
+      "sha256": "35F686C08F376E5718C5DCD3F4FABE97DB38A076BA982CD9AD28591318AD3565",
+      "nugetSha512": "rt5feUxOneeZ15jz2koGFVbLWA9gbDu4yPgr9nArFx6YpwP+iaNZHENTi44pTxCXo6wMBaeaApjn1ZMvCu3EEw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Core",
+      "version": "7.7.2",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/openiddict.core.7.7.2.nupkg",
+      "sha256": "7FE48A9556274CA739510079E7E06CA8D624DC62304D1F7B13F75AAAD7017382",
+      "nugetSha512": "VsPYuXWx1YtbKFyW/O2vV/egJtTXmAOUE7AJq+I/laT3WIroeiDqHT8jDnhjIhDjHcjfNupR/u5nhWD6t5ocqg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.EntityFrameworkCore",
+      "version": "7.7.2",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/openiddict.entityframeworkcore.7.7.2.nupkg",
+      "sha256": "EFD2BD3E485B6561F5255C1B00BEDFE66D801177CDBCDD64FCB3B7AA7C86E53A",
+      "nugetSha512": "OspAqs92TbxK80Oakuo2olN0w8ZkozqjaqDXkEmS6Z2fHTE3kF3JhCjVUnFMpgHoVqTVrlcxUPJAaiYxxB17Zw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.EntityFrameworkCore.Models",
+      "version": "7.7.2",
+      "project": "QtsBilling.DataImport/QtsBilling.DataImport.csproj",
+      "file": "build-kit/packages/openiddict.entityframeworkcore.models.7.7.2.nupkg",
+      "sha256": "8D984EB84E490E45EC2A3436760AAEC928FEE022257FE797E7831467D8A7BC37",
+      "nugetSha512": "ESK3iS3UJR4XBDlX0YTgiE24xWM7QfO6AtoJphMx1zLhzup5JUOEXyoosP8Z/vh4B1/cj+QUTz+314Us7/hqCg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Authorization",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.authorization.10.0.1.nupkg",
+      "sha256": "615035066FE2B5F9925C6F28870E7569689D194B8578D7BBA58DECFB3915D21D",
+      "nugetSha512": "Y9QE0gH4Q4cR7ZRToFju47c1MoeqxaLHdpzOviqD2TmnGGAeDMT9AV56j2BOVm5CsJAVyI/USxLYrkk2NVinZA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.10.0.1.nupkg",
+      "sha256": "7D83A37C34CD0098BA3C111213F6A704D2A94816FC1DA3F5CA4CD9F397C5F216",
+      "nugetSha512": "SbABcQ7soM9jC/HvPKrg/smQxsMD2gW9iHBRFtBiYTMSs5Vqh7+i47BTOe3OM3IGzly2FiOmeNHJhMYK7YFGWA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Analyzers",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.analyzers.10.0.1.nupkg",
+      "sha256": "423143D67077005EFA47E07C2E964CA97611C592D44328C62230D4B895DE7D45",
+      "nugetSha512": "V4nOq0mNoX9OWz9pJz4uLcAu4GXWUKKHeoxKwugYhFOh4Yh3n7/+xXfgSXK1PZZOIQ3e1vJ7CNvB6evv4YphEA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Forms",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.forms.10.0.1.nupkg",
+      "sha256": "7F0F27203F82F0FB7DDE0F34EC18379556A1E97873861741D6EA36713DCF0777",
+      "nugetSha512": "aWUpLOz749gwMMaKe81tet+INC8nfskbauF2VO5Qr3lspj/l8S24zNLr95Bl8EwAizvBCNqwb8fPFU1dnn3WbA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Web",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.web.10.0.1.nupkg",
+      "sha256": "0FB310482FE2F855154D705F0966D2BA6AE4ED2135FBEAA93A8C6C1693967A92",
+      "nugetSha512": "hX74ijqAiUfIo6WpvLWignGYp7tkrRR3KRVBErwFSAcsiHeaCxGM81fYRXd9rf+gkFUNoKvcSxYyVZc2vFJVXg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.WebView",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.webview.10.0.0.nupkg",
+      "sha256": "A8056117E0FF2FA8655247F2614F3954438B2D957E50408FD68CFF71121CD832",
+      "nugetSha512": "fdBlMj2W0Kv5qIsUKotipoaCUQT1LgWc9QVbS0dJpiFL5UWytp6JvKrB71dj6tuqCZwb2VpcKyIj6uQWfG5VLw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.WebView.Maui",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.webview.maui.10.0.0.nupkg",
+      "sha256": "6EE67610EB69E7645A1662070AA4BB87B8E76CD8E924CA2447ED2A52FA577856",
+      "nugetSha512": "H5JLK1wLhObJLhRxxIIJBPvIREZJk0JB43+zVsHC5CnVBUK7NuZ9wCuWbIDrnZTouLnRfq+f0xWbc0KtagZsTA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.aspnetcore.components.webview.maui.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Metadata",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.metadata.10.0.1.nupkg",
+      "sha256": "B070A6975D1CFBDC8014237C1EBBE25D8380F4C32E4B3126EB3050A446A7B28F",
+      "nugetSha512": "6JrG03xROuR4mQIHGcT8OnaKVBoPLLbto5RicKQIUV3JIU7cZYKIWDAnk0SQcl7ziQr6R327D6QBOo+PbYnnrw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Data.Sqlite.Core",
+      "version": "10.0.13",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.data.sqlite.core.10.0.13.nupkg",
+      "sha256": "661E6696B35E88A5CDCEB1AC223DAFA303A5AF27C7DF8BEE22156C0DDC5EE0D7",
+      "nugetSha512": "Gge8XsSCOwcbkbdmt2UDAe6kIv9Q0vA6yb3wsTStjjexaMFLTWfc/1gH4kbhJ+zWiXRTRA4lG2sOQNVfir204w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore.Sqlite.Core",
+      "version": "10.0.13",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.sqlite.core.10.0.13.nupkg",
+      "sha256": "BC17DEC4CED15246C0F372563712E450C18293885B72FC476023BDA8ACA8BD4F",
+      "nugetSha512": "zXJAJOS34unH9sWP6ywyUmaZ/yeHy0/CljvdsHvzhN/rXHRBXsPRYymTU65my0rGoa60mh7HUXVPEGOxfsiWSg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.10.0.1.nupkg",
+      "sha256": "EF174789EE2E1F0A06673E72513E2F5A0D845AF90BBEC4B322D582A2A9B87533",
+      "nugetSha512": "njoRekyMIK+smav8B6KL2YgIfUtlsRNuT7wvurpLW+m/hoRKVnoELk2YxnUnWRGScCd1rukLMxShwLqEOKowDg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Binder",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.binder.10.0.1.nupkg",
+      "sha256": "7E2A931C4E847DA517202695AD6CD0114FCAE868D035A73AC91344AE283AC119",
+      "nugetSha512": "Lp4CZIuTVXtlvkAnTq6QvMSW7+H62gX2cU2vdFxHQUxvrWTpi7LwYI3X+YAyIS0r12/p7gaosco7efIxL4yFNw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.FileExtensions",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.fileextensions.10.0.0.nupkg",
+      "sha256": "ACDFB7AEAAC78936817C780FF84E1D03C426D9C1493DF6C471DF77C8A2ECAA54",
+      "nugetSha512": "LqCTyF0twrG4tyEN6PpSC5ewRBDwCBazRUfCOdRddwaQ3n2S57GDDeYOlTLcbV/V2dxSSZWg5Ofr48h6BsBmxw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Json",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.json.10.0.0.nupkg",
+      "sha256": "54216E920B31890D8C14613A4433054C6A290476DC64BDADD0447B10D6855D16",
+      "nugetSha512": "BIOPTEAZoeWbHlDT9Zudu+rpecZizFwhdIFRiyZKDml7JbayXmfTXKUt+ezifsSXfBkWDdJM10oDOxo8pufEng==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyModel",
+      "version": "10.0.13",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencymodel.10.0.13.nupkg",
+      "sha256": "E9DDE92A11BDC966374B50790277801201A4C5B9EA501A8E32A17FB7A86BC93A",
+      "nugetSha512": "6TyllZsToy3S/Ziu67GddljRTttuVJ8bbrbVUrsdHqH5678Oax5MpaEubxLoPoWLvgUBYo4KfcAig0mkBtktXQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.10.0.1.nupkg",
+      "sha256": "328045D17E40553D31391BE136FA5CF43039752389863ADF19E583BC42503A87",
+      "nugetSha512": "YaocqxscJLxLit0F5yq2XyB+9C7rSRfeTL7MJIl7XwaOoUO3i0EqfO2kmtjiRduYWw7yjcSINEApYZbzjau2gQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics.Abstractions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.abstractions.10.0.1.nupkg",
+      "sha256": "B44B7A55A68347B6C808A1E20A9D25D829B3F2EF850983912D5340689CA618CF",
+      "nugetSha512": "QMoMrkNpnQym5mpfdxfxpRDuqLpsOuztguFvzH9p+Ex+do+uLFoi7UkAsBO4e9/tNR3eMFraFf2fOAi2cp3jjA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Abstractions",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.abstractions.10.0.0.nupkg",
+      "sha256": "0870ECD8708DF1071FB9842980D56CCD9E5D7D715EE324BD2B61A841779C736D",
+      "nugetSha512": "/ppSdehKk3fuXjlqCDgSOtjRK/pSHU8eWgzSHfHdwVm5BP4Dgejehkw+PtxKG2j98qTDEHDst2Y99aNsmJldmw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Composite",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.composite.10.0.0.nupkg",
+      "sha256": "B7D50DDCA7DC1C96621FAE15436FC8770496C91C7C3E9E340CBFC0686713F2A3",
+      "nugetSha512": "oi6UKOtboSHd/sQRgiPN5BXMGHUWyBmgu/nC/khs+eJYdeitciqW7MWIvs9sZIG1rOTH2cuLjMu9VeK4bL0Jvg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Embedded",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.embedded.10.0.0.nupkg",
+      "sha256": "6F82B4965C4D79E17EBE1396A89FE4F13E700A895A654E5BBF9F09BEC72C6720",
+      "nugetSha512": "ECaTMB4NdV9W1es9J6tN0yoXRPUHKMi5+2L7hcVZ5k9zVdxccIx6+vMllwEYcdTaO0mCETEmdH4F0KxCqgnPaw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Physical",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.physical.10.0.0.nupkg",
+      "sha256": "D91C3F73004EFBF037418D888CDFDCF18D0B86D0B5A9304BED5749883D49D944",
+      "nugetSha512": "UZUQ74lQMmvcprlG8w+XpxBbyRDQqfb7GAnccITw32hdkUBlmm9yNC4xl4aR9YjgV3ounZcub194sdmLSfBmPA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileSystemGlobbing",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.filesystemglobbing.10.0.0.nupkg",
+      "sha256": "1137D54DDB1D06DA7AF448202E0FC00114D05B894B41855D565757210AEC8D90",
+      "nugetSha512": "5hfVl/e+bx1px2UkN+1xXhd3hu7Ui6ENItBzckFaRDQXfr+SHT/7qrCDrlQekCF/PBtEu2vtk87U2+gDEF8EhQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Hosting.Abstractions",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.hosting.abstractions.10.0.0.nupkg",
+      "sha256": "4AE6F74E16B2FFE791F3870438393F9CF875A18218B5AC2F0D7EABD1DB917AAA",
+      "nugetSha512": "KrN6TGFwCwqOkLLk/idW/XtDQh+8In+CL9T4M1Dx+5ScsjTq4TlVbal8q532m82UYrMr6RiQJF2HvYCN0QwVsA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Http",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.http.10.0.0.nupkg",
+      "sha256": "827B0EF5EAC48BBC4B4B743062E91CAF33C3A5C5204643459C6CCF0111D58EBB",
+      "nugetSha512": "r+mSvm/Ryc/iYcc9zcUG5VP9EBB8PL1rgVU6macEaYk45vmGRk9PntM3aynFKN6s3Q4WW36kedTycIctctpTUQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Localization",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.localization.10.0.1.nupkg",
+      "sha256": "EE445591CAF0B7B1EBA00F8FDC5E8317A1B9CD95473B3EABE927929D727C4CEB",
+      "nugetSha512": "yJBI3IRm9uTRu7cPc7i90/8+CuiiJJ5M4khj6iWQcYnq6VrG+H2U5GzpRLtkVCsgxc1LjtkNMEbSDatfBA+z5g==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Localization.Abstractions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.localization.abstractions.10.0.1.nupkg",
+      "sha256": "6B222B87E4604F7E605A2A8E87E1153FF01B3BA6B65C8989F2FEBB537985F6B3",
+      "nugetSha512": "TQSQWF+iZdtGNgPiu7gKUqrTEeRD/mhk7KeYiuEwmTUPbawsYfPSNzSvOOeueJ0nU1697X8HZ2vCp2ByHNHkZg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Debug",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.debug.10.0.0.nupkg",
+      "sha256": "9FFF8A45596C80A9B5EDC24899AA003C700E6C7A40A56FE17FA98CB10146AEF6",
+      "nugetSha512": "A/4vBtVaySLBGj4qluye+KSbeVCCMa6GcTbxf2YgnSDHs9b9105+VojBJ1eJPel8F1ny0JOh+Ci3vgCKn69tNQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options.ConfigurationExtensions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.configurationextensions.10.0.1.nupkg",
+      "sha256": "D423525576774401F8BF36D80EA7101E5F5CFD8061B927EB1545C22C8C79FEB6",
+      "nugetSha512": "pL78/Im7O3WmxHzlKUsWTYchKL881udU7E26gCD3T0+/tPhWVfjPwMzfN/MRKU7aoFYcOiqcG2k1QTlH5woWow==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Validation",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.validation.10.0.1.nupkg",
+      "sha256": "497C5330127B1DDCCA2CEABB8C85712B8FDD166D17803C7D9EF1FF05CD59457F",
+      "nugetSha512": "5bcu9zWhgY8AZUN1ERNH0BQKFh10xlx4UrCh+0cDn7wB01QkrK4S6Jh45fCgEqmWJWVGqBS2g8MN0Lu/99Zgdg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Graphics.Win2D",
+      "version": "1.3.2",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.graphics.win2d.1.3.2.nupkg",
+      "sha256": "80557BF78A05F40831E97946F6624B02D8D1ABF60B58DDB7C617113CF62EE0AD",
+      "nugetSha512": "xAv4+Xj8wePW1innIUSXebX6UHMGDzOxwKPwYNUNY7mBrsRL/hPFEtuPLpBSxc3iBnuaCogPDCDeN7T4b1xV0Q==",
+      "licence": "licenseUrl:http://www.microsoft.com/web/webpi/eula/eula_win2d_10012014.htm",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": "Microsoft Win2D licence (declared by URL). Microsoft redistributable, used only by the Windows device shell."
+    },
+    {
+      "id": "Microsoft.IO.RecyclableMemoryStream",
+      "version": "3.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.io.recyclablememorystream.3.0.1.nupkg",
+      "sha256": "BA7160FF911C53F5CA25BA1BE06B500B8DD87608B95637811ACEE17E18F8118A",
+      "nugetSha512": "s/s20YTVY9r9TPfTrN5g8zPF1YhwxyqO6PxUkrYTGI2B+OGPe9AdajWZrLhFqXIvqIW23fnUE4+ztrUWNU1+9g==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.JSInterop",
+      "version": "10.0.1",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.jsinterop.10.0.1.nupkg",
+      "sha256": "952768EADBD33208BDF91EA2E22656FA3FC0B404AE782EBEE80DD37829AC2231",
+      "nugetSha512": "pTfoYBjs7HKmTEk9cNWcSySdTKT8USjviLgmMaSs/YA0+oONufKy9hqqZ5EE4CNy9y24SDDc9lerXfV7aiVfWA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Controls",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.controls.10.0.0.nupkg",
+      "sha256": "C7E94D4C4276DB3C302CB1F4B8BAA3AED82FDBD538FF5590819196C14C67FA87",
+      "nugetSha512": "NP0HDpggHYNMTnzqlXAxospQyR6gu4GHzYEIFcAB1/Dmu0BodfvlPrNA2wYwTGE9ERERc9OjXRZUTYZDEYDNAA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.controls.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Controls.Build.Tasks",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.controls.build.tasks.10.0.0.nupkg",
+      "sha256": "72B46DC1E7C746B03DB342E4C4A7DCCC199D70095BFC5331CB7592AC74F15699",
+      "nugetSha512": "o95qon6rA6yFUaMakQzjSLWqCaWD1obzfc1zBCRTF0ctHX18WTBzxpHsvWelazqogOMlo0x2FLwhCt84OD7KPA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.controls.build.tasks.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Controls.Core",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.controls.core.10.0.0.nupkg",
+      "sha256": "A64AE64B349E2634B376972F047807ED8C575F5F32D01BCCFBD97AC348CE68D8",
+      "nugetSha512": "gzEDoTscHaxuJQ5A8BXjWDMOVsAF6zh4AWsSrLB0Q+1F8EWHB/R7YwHIjqBf9bZLroJBpot9lBLHXdyNwlSCvg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.controls.core.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Controls.Xaml",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.controls.xaml.10.0.0.nupkg",
+      "sha256": "7B728D75E83DFB8517F246ABEFD76E818BB8C63D4512BD10A91ECFD759017033",
+      "nugetSha512": "oLOGV0OWETnEl0iKLodBqDFT06Se+y7aP5HWhDyNcdW9wDhOz0wuOf1Jamj0HiBpP7fL7JT5N6o+hxdH1BtKtA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.controls.xaml.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Core",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.core.10.0.0.nupkg",
+      "sha256": "9EC59D9688F7BDB6C9BF125D7DF1B69159E09AF2E6CE2735B4530170FF76E83F",
+      "nugetSha512": "HkUxRS2qJyBgvtb5Pop8WQJCx4TkTjz9Ug+IIFasUbWpNHImERx4IbAG/S8iWi4cGYnc8xvNLVzXHrbHcCdfuw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.core.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Essentials",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.essentials.10.0.0.nupkg",
+      "sha256": "E2611EF16C6D8E7AAFB0D7D7C140B90495407CCC6A6469DBE7651761EC744CCF",
+      "nugetSha512": "Lq9QTJ3UrA9CZdFACmEtXHqju27I8CeRWRD0PSAZHNbvH2v3uAtfzKAaJunbopIxf5nOboYwt8Ja70jgUVDI+w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.essentials.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Graphics",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.graphics.10.0.0.nupkg",
+      "sha256": "651B742AD3113E3BF8AD895FED2A7DE276CD8A82367FE3B6EBB57F7A253C1B18",
+      "nugetSha512": "hHQdbaavPrUl25INCFRIr/PegJI8148AYe7D8qn8UMBGG/Djd/UvMPxM+3u2L0J6tyWlfWfwmDeiJs7Ab+OjLw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.graphics.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Graphics.Win2D.WinUI.Desktop",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.graphics.win2d.winui.desktop.10.0.0.nupkg",
+      "sha256": "BB59A43857FEA38F41F72B386A6C7A2CDFAC27F6AEC9A76B9380F9306CDB332F",
+      "nugetSha512": "/YTC7GZyitKChjDAPCmbxN8c/fp6oUJ6jXKokYG6nJq1jLc5/UOhnn4c5PMzchftEfgcZvktefmP2UMt1s1fqw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.graphics.win2d.winui.desktop.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Maui.Resizetizer",
+      "version": "10.0.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.maui.resizetizer.10.0.0.nupkg",
+      "sha256": "773F5D6E8BC1EB1A46958BA3F1867E4872936B301D2DA8ED17469934F4129E88",
+      "nugetSha512": "l8mkKHrqwNUF/gmKIANhIfzCaKzTWUT1h+oW4aJaMIMjhqTI9A69VJMq+AiTSdVUdzkIK3LZjDb1bnbQNoSjNQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.maui.resizetizer.10.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Web.WebView2",
+      "version": "1.0.3179.45",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.web.webview2.1.0.3179.45.nupkg",
+      "sha256": "70BD381C5D67F97A6A80294001CDE125AB5B24B6D36098AD901D8E15EFD752D0",
+      "nugetSha512": "3pokSH5CnN0G6rGhGFo1y87inxYhNxBQ2Vdf0wlvBj99KHxQJormjDACmqRnFeUsmuNFIhWwfAL1ztq7wD5qRA==",
+      "licence": "LICENSE.txt",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/microsoft.web.webview2.1.0.3179.45",
+      "reviewedException": "Microsoft WebView2 SDK licence (bundled LICENSE.txt). Redistributable, Windows device shell only."
+    },
+    {
+      "id": "Microsoft.Windows.SDK.BuildTools",
+      "version": "10.0.22621.756",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.windows.sdk.buildtools.10.0.22621.756.nupkg",
+      "sha256": "F3D491FAA6A237280130ECAF7E0394F0329EDF42F1014BA57F5A8AF7250DBE68",
+      "nugetSha512": "7ZL2sFSioYm1Ry067Kw1hg0SCcW5kuVezC2SwjGbcPE61Nn+gTbH86T73G3LcEOVj0S3IZzNuE/29gZvOLS7VA==",
+      "licence": "licenseUrl:https://aka.ms/WinSDKLicenseURL",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": "Windows SDK build tools licence (declared by URL). Build-time tooling; nothing of it ships as application code."
+    },
+    {
+      "id": "Microsoft.WindowsAppSDK",
+      "version": "1.7.250909003",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/microsoft.windowsappsdk.1.7.250909003.nupkg",
+      "sha256": "BAE24BDC5E3B43B484C52C1F092E14119D0F24E95C0529E1C3187AF87F0B72FD",
+      "nugetSha512": "zeVFVrkFYPkAL1cmXo62D1LVC66VqBiMx+WfZ3aDUmizNECCJewMTk0JwjlgYQcIqxqsK1SjF1CeG74TsokWpQ==",
+      "licence": "license.txt",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/microsoft.windowsappsdk.1.7.250909003",
+      "reviewedException": "Windows App SDK licence (bundled license.txt). Windows device shell runtime."
+    },
+    {
+      "id": "MudBlazor",
+      "version": "9.11.0",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/mudblazor.9.11.0.nupkg",
+      "sha256": "E472AC9F0C05ADD3796B07127D487492D003017C57A08CFFEF4B064CFF3CEF91",
+      "nugetSha512": "hboxF5cQuMYjB0w6+tScmNt0ACuoCu35TGPsCmCq8OeQgvtPtzQ1s9auAOrINj/J6I/ZyBB1rmUzrcMKj14RFA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/mudblazor.9.11.0",
+      "reviewedException": null
+    },
+    {
+      "id": "SQLitePCLRaw.bundle_e_sqlcipher",
+      "version": "2.1.10",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/sqlitepclraw.bundle_e_sqlcipher.2.1.10.nupkg",
+      "sha256": "C375B460986AA6353B49088EA3336CE47AA90DB71F316D0A49977AC03786E905",
+      "nugetSha512": "aWxuhHZjE27/u1S8/mJ+wwvKY6qJ83PGODTiftTWOh41+tGjstwIpPPnyvuYyZ9JXQlnErkTvQZziBeamj0DVg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "SQLitePCLRaw.core",
+      "version": "2.1.13",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/sqlitepclraw.core.2.1.13.nupkg",
+      "sha256": "D93D5F7AB3F864C47722A2D90048C31A1AAC743E153D87B9F4A07589EE2F9DAF",
+      "nugetSha512": "2joofoinuHBFs0nMX3nKuXgxpXryRkCOdM2Ua6HBqQLLy6IW+5f28ZI+HAvMyF8vG7XfNz/lwfBfE6V4juru8Q==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "SQLitePCLRaw.lib.e_sqlcipher",
+      "version": "2.1.10",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/sqlitepclraw.lib.e_sqlcipher.2.1.10.nupkg",
+      "sha256": "0430C782E5AC6A06176B76B9C4F24AB3EAF52C6355F738DEC5854F0C5CB0BB8E",
+      "nugetSha512": "IPLfZkNN9qnlk8IH7L4Z5xB0gWdQm4HCftZ2LVE54h17tRxjzUbwvx+3MfPE5nR/OgoeiQE2rsYycESXUekPMQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "SQLitePCLRaw.provider.e_sqlcipher",
+      "version": "2.1.10",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/sqlitepclraw.provider.e_sqlcipher.2.1.10.nupkg",
+      "sha256": "CCBB58DDE04B35B02B90FE6B3DC9924E66A5CE4D3D56C84A493A3F3B5AF38B38",
+      "nugetSha512": "XH9rdwv2+vDdfDymKF49+o5s252L4gdCb4/volPO3IqRBlhIBWTpO7+bS3Ghgzv7Nqh36pgeUSQj3M33iuiRxg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "System.Security.Cryptography.ProtectedData",
+      "version": "10.0.13",
+      "project": "QtsBilling.Maui/QtsBilling.Maui.csproj",
+      "file": "build-kit/packages/system.security.cryptography.protecteddata.10.0.13.nupkg",
+      "sha256": "B0B44ACE8B5DECC129B96DCC6281C7EA238975DD18493F525F0DD2A04DA98D6D",
+      "nugetSha512": "aUSmC6cPjFLSE0rDTsmkR3wvUOnscqewebOaaELEToh12sNmoltZqT3f0C81mJ1zhxKjWco25soHTvYwsXCsUw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Humanizer.Core",
+      "version": "2.14.1",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/humanizer.core.2.14.1.nupkg",
+      "sha256": "117BE88DD74FBBEF492A0386F4D4908144DF5AAD51A4E630EDA7710CF28327AA",
+      "nugetSha512": "lQKvtaTDOXnoVJ20ibTuSIOf2i0uO0MPbDhd1jm238I+U/2ZnRENj0cktKZhtchBMtCUSRQ5v4xBCUbKNmyVMw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Build.Framework",
+      "version": "18.0.2",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.build.framework.18.0.2.nupkg",
+      "sha256": "7CEDF5280743B36274454603D68BFD501DEE72C6C02DA9FB2B461D596FB283B0",
+      "nugetSha512": "sOSb+0J4G/jCBW/YqmRuL0eOMXgfw1KQLdC9TkbvfA5xs7uNm+PBQXJCOzSJGXtZcZrtXozcwxPmUiRUbmd7FA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.Analyzers",
+      "version": "3.11.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.analyzers.3.11.0.nupkg",
+      "sha256": "850DA5E84E8F3B89BB8BE66C7C5944C7EF7752C2CFA38218DF00E4346D75FD2C",
+      "nugetSha512": "v/EW3UE8/lbEYHoC2Qq7AR/DnmvpgdtAMndfQNmpuIMx/Mto8L5JnuCfdBYtgvalQOtfNCnxFejxuRrryvUTsg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.Common",
+      "version": "5.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.common.5.0.0.nupkg",
+      "sha256": "83800BBC148DC8712649BD65E5316D596EF31248919A1A8BC785D666EF6CAF65",
+      "nugetSha512": "ZXRAdvH6GiDeHRyd3q/km8Z44RoM6FBWHd+gen/la81mVnAdHTEsEkO5J0TCNXBymAcx5UYKt5TvgKBhaLJEow==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.CSharp",
+      "version": "5.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.csharp.5.0.0.nupkg",
+      "sha256": "72D042910185A47FF14F9AD1137C626EEF58C4F0F5D3C46E0B86B8676E64A06F",
+      "nugetSha512": "5DSyJ9bk+ATuDy7fp2Zt0mJStDVKbBoiz1DyfAwSa+k4H4IwykAUcV3URelw5b8/iVbfSaOwkwmPUZH6opZKCw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.CSharp.Workspaces",
+      "version": "5.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.csharp.workspaces.5.0.0.nupkg",
+      "sha256": "C9655C2EDFDFD82A2E39F172F7AEA094676D485CBE45C82B53575DF54B652FF4",
+      "nugetSha512": "Al/Q8B+yO8odSqGVpSvrShMFDvlQdIBU//F3E6Rb0YdiLSALE9wh/pvozPNnfmh5HDnvU+mkmSjpz4hQO++jaA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.Workspaces.Common",
+      "version": "5.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.workspaces.common.5.0.0.nupkg",
+      "sha256": "062AF97B5804860410EAEA509952901C028B45F7A702EEB40C0CCDBA936766C4",
+      "nugetSha512": "ZbUmIvT6lqTNKiv06Jl5wf0MTMi1vQ1oH7ou4CLcs2C/no/L7EhP3T8y3XXvn9VbqMcJaJnEsNA1jwYUMgc5jg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeAnalysis.Workspaces.MSBuild",
+      "version": "5.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.codeanalysis.workspaces.msbuild.5.0.0.nupkg",
+      "sha256": "FB9F3E8AA4DAC93884D290DAA20D54F268DA0C0F1B34D0CB03C823090659B9DA",
+      "nugetSha512": "/G+LVoAGMz6Ae8nm+PGLxSw+F5RjYx/J7irbTO5uKAPw1bxHyQJLc/YOnpDxt+EpPtYxvC9wvBsg/kETZp1F9Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.EntityFrameworkCore.Design",
+      "version": "10.0.13",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.entityframeworkcore.design.10.0.13.nupkg",
+      "sha256": "BE795DC3E652C1C4846602254360FD3D346E683945294D81435977A1C8132DF4",
+      "nugetSha512": "cxYpgXy9/5+ddwlKY7K196zV0W2W+N7JkPyAK0LVgf4XSJT4exfUURjsgcLHA4KOwWYQtyKZfIHpmTqDrkkCpg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.VisualStudio.SolutionPersistence",
+      "version": "1.0.52",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/microsoft.visualstudio.solutionpersistence.1.0.52.nupkg",
+      "sha256": "29918FB4E5DEE87BFC46B91CB20A0B29347268249C2294046B6361341DE2397C",
+      "nugetSha512": "oNv2JtYXhpdJrX63nibx1JT3uCESOBQ1LAk7Dtz/sr0+laW0KRM6eKp4CZ3MHDR2siIkKsY8MmUkeP5DKkQQ5w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Mono.TextTemplating",
+      "version": "3.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/mono.texttemplating.3.0.0.nupkg",
+      "sha256": "5658060EF80D65BECC7816C86780C4D8D9FF8F6683F64E97A8D1E70125120EBD",
+      "nugetSha512": "YqueG52R/Xej4VVbKuRIodjiAhV0HR/XVbLbNrJhCZnzjnSjgMJ/dCdV0akQQxavX6hp/LC6rqLGLcXeQYU7XA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/mono.texttemplating.3.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "Newtonsoft.Json",
+      "version": "13.0.4",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/newtonsoft.json.13.0.4.nupkg",
+      "sha256": "F09081D457405BAF35A973FA0C50D6BF272ED683F2568C5A620A49DA952F6529",
+      "nugetSha512": "pdgNNMai3zv51W5aq268sujXUyx7SNdE2bj1wZcWjAQrKMFZV260lbqYop1d2GM67JI1huLRwxo9ZqnfF/lC6A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/newtonsoft.json.13.0.4",
+      "reviewedException": null
+    },
+    {
+      "id": "System.CodeDom",
+      "version": "6.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.codedom.6.0.0.nupkg",
+      "sha256": "B8F7AD5056721DFC6349CBB9C786A08E4F692216C292DE6B1B80318F6E67A5C4",
+      "nugetSha512": "CPc6tWO1LAer3IzfZufDBRL+UZQcj5uS207NHALQzP84Vp/z6wF0Aa0YZImOQY8iStY0A2zI/e3ihKNPfUm8XA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.codedom.6.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.9.0.0.nupkg",
+      "sha256": "15E84E910DAED69F26434FF09F7719FB6E078E14CB75C93C55961603509C81B3",
+      "nugetSha512": "3Djj70fFTraOarSKmRnmRy/zm4YurICm+kiCtI0dYRqGJnLX6nJ+G3WYuFJ173cAPax/gh96REcbNiVqcrypFQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition.AttributedModel",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.attributedmodel.9.0.0.nupkg",
+      "sha256": "6BBCBB1FACE3FA499892594D1C0E34D83A157D8F486AA0B73A8CACF15CE5DB83",
+      "nugetSha512": "iri00l/zIX9g4lHMY+Nz0qV1n40+jFYAmgsaiNn16xvt2RDwlqByNG4wgblagnDYxm3YSQQ0jLlC/7Xlk9CzyA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.attributedmodel.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition.Convention",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.convention.9.0.0.nupkg",
+      "sha256": "B70E2F13925143AD2E6D36416F1A0C3E1B63390082DD7A031541FB3473BBA3C5",
+      "nugetSha512": "+vuqVP6xpi582XIjJi6OCsIxuoTZfR0M7WWufk3uGDeCl3wGW6KnpylUJ3iiXdPByPE0vR5TjJgR6hDLez4FQg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.convention.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition.Hosting",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.hosting.9.0.0.nupkg",
+      "sha256": "A0EC54F833C411F302B8D2E05BAC12919A74258E6062DE381493675ADFBDEBBB",
+      "nugetSha512": "OFqSeFeJYr7kHxDfaViGM1ymk7d4JxK//VSoNF9Ux0gpqkLsauDZpu89kTHHNdCWfSljbFcvAafGyBoY094btQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.hosting.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition.Runtime",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.runtime.9.0.0.nupkg",
+      "sha256": "03221EF9D8B54EAC1405B489FEC27C43CB73B274CDF9505D270E0AF31673E37B",
+      "nugetSha512": "w1HOlQY1zsOWYussjFGZCEYF2UZXgvoYnS94NIu2CBnAGMbXFAX8PY8c92KwUItPmowal68jnVLBCzdrWLeEKA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.runtime.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "System.Composition.TypedParts",
+      "version": "9.0.0",
+      "project": "QtsBilling.Persistence.Postgres/QtsBilling.Persistence.Postgres.csproj",
+      "file": "build-kit/packages/system.composition.typedparts.9.0.0.nupkg",
+      "sha256": "1797E94D4B3746BEF23FF372233AFE5E7E4D7535D7A7CAEB8C19C5F540415288",
+      "nugetSha512": "aRZlojCCGEHDKqh43jaDgaVpYETsgd7Nx4g1zwLKMtv4iTo0627715ajEFNpEEBTgLmvZuv8K0EVxc3sM4NWJA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.composition.typedparts.9.0.0",
+      "reviewedException": null
+    },
+    {
+      "id": "coverlet.collector",
+      "version": "10.1.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/coverlet.collector.10.1.0.nupkg",
+      "sha256": "E466FFB46FCF15B88DE183F214BACCCECCC624205C6EC6040848F90ECC962FCB",
+      "nugetSha512": "SlYCIHnBYxINSUpR75SiM5JEmnx11pqT+Ac/C/fUqTTA0dLPl9eYzmFXKKuxmQhL3ZdTQl4PBD3YdAxAauaKLQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.CodeCoverage",
+      "version": "18.11.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/microsoft.codecoverage.18.11.0.nupkg",
+      "sha256": "2EDC0C392BE09E7AC9A9BE448AD7DED8DCC34DFC8BFDA035FBA304DD0B87B168",
+      "nugetSha512": "MhN9wpvL1Es4hfIYslrsVgIsUdDFxuOBTbAl9mGIMvFo8PP5CLf4DrGdNrfwWSyn0lqi6sssm+I/qkkLL3MU+g==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.NET.Test.Sdk",
+      "version": "18.11.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/microsoft.net.test.sdk.18.11.0.nupkg",
+      "sha256": "FF5312A909399817DB8AB787139E935C016D65C0A7520B89CC26D775C59F4DA7",
+      "nugetSha512": "xf/bR0LNkhK0SnadDRlZIQmC4sac5Wk0e1WAdiQjRN3MSo6gQ9M2c4c1XRNnVGjfOvckh704W5CJ19AL0/Xsdg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.TestPlatform.ObjectModel",
+      "version": "18.11.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/microsoft.testplatform.objectmodel.18.11.0.nupkg",
+      "sha256": "D06BDCA1A2204B3142F39D98E3931A01E0BC5F57E6F5361979F9C2A39815F578",
+      "nugetSha512": "BXBHYnwSOljKute8UYCMXOLAdB7awxEMppPSpqOF1ZxLD/W/OH+vTBgFaXA7q0aditJTVXSMVenel+wOkEIyNg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.TestPlatform.TestHost",
+      "version": "18.11.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/microsoft.testplatform.testhost.18.11.0.nupkg",
+      "sha256": "F4508E332B0178C58AB5394D75BB76E2921085DFBD194262FD64C0769F4A8CC3",
+      "nugetSha512": "AKjwKpyRBwoQFQmpcchtoYlfJEBlaY/40uxBRi+qXP4NR7xT8t+XTJtOyEyumfvfJcH5pASs75LwNdXYRr4XNA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit",
+      "version": "2.9.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.2.9.3.nupkg",
+      "sha256": "04FAE949B8E5201ECFA07FA8702BACA8C0EB3198114194B3793789CC72BF23D7",
+      "nugetSha512": "TlXQBinK35LpOPKHAqbLY4xlEen9TBafjs0V5KnA4wZsoQLQJiirCR4CbIXvOH8NzkW4YeJKP5P/Bnrodm0h9Q==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.abstractions",
+      "version": "2.0.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.abstractions.2.0.3.nupkg",
+      "sha256": "D03D72FC2DF8880448F7A81BDDB00E1BCB5C18F323C7E7CC69B4CFA727469403",
+      "nugetSha512": "pot1I4YOxlWjIb5jmwvvQNbTrZ3lJQ+jUGkGjWE3hEFM0l5gOnBWS+H3qsex68s5cO52g+44vpGzhAt+42vwKg==",
+      "licence": "licenseUrl:https://raw.githubusercontent.com/xunit/xunit/master/license.txt",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": "xunit licence text (declared by URL), the same terms as the reviewed xunit package. Test-only: never in a shipped asset."
+    },
+    {
+      "id": "xunit.analyzers",
+      "version": "1.18.0",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.analyzers.1.18.0.nupkg",
+      "sha256": "0CE81A98B9DF8BD51AE480E6DC9566F4C68E15B4926E6AB997C8F634F3B7A9DD",
+      "nugetSha512": "OtFMHN8yqIcYP9wcVIgJrq01AfTxijjAqVDy/WeQVSyrDC1RzBWeQPztL49DN2syXRah8TYnfvk035s7L95EZQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.assert",
+      "version": "2.9.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.assert.2.9.3.nupkg",
+      "sha256": "BC760E75EF1B775D293A6AFB89301836D3E5A87CEC265E31DEDD430EE61D0C20",
+      "nugetSha512": "/Kq28fCE7MjOV42YLVRAJzRF0WmEqsmflm0cfpMjGtzQ2lR5mYVj1/i0Y8uDAOLczkL3/jArrwehfMD0YogMAA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.core",
+      "version": "2.9.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.core.2.9.3.nupkg",
+      "sha256": "AA4550F09C3F2D95A6C62AE43CEC22AF2EDBBD99F722E691CEEFECA761FC6A7C",
+      "nugetSha512": "BiAEvqGvyme19wE0wTKdADH+NloYqikiU0mcnmiNyXaF9HyHmE6sr/3DC5vnBkgsWaE6yPyWszKSPSApWdRVeQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.extensibility.core",
+      "version": "2.9.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.extensibility.core.2.9.3.nupkg",
+      "sha256": "99CA555FE9B447B1747AFF426819DB6A2F60B6EE0655CAA28C4B91A9EF3D0F48",
+      "nugetSha512": "kf3si0YTn2a8J8eZNb+zFpwfoyvIrQ7ivNk5ZYA5yuYk1bEtMe4DxJ2CF/qsRgmEnDr7MnW1mxylBaHTZ4qErA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.extensibility.execution",
+      "version": "2.9.3",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.extensibility.execution.2.9.3.nupkg",
+      "sha256": "DABC4CB360EDE1C01C98E14CC0FE587774693F40679A22FC71794ACAC5D8D23C",
+      "nugetSha512": "yMb6vMESlSrE3Wfj7V6cjQ3S4TXdXpRqYeNEI3zsX31uTsGMJjEw6oD5F5u1cHnMptjhEECnmZSsPxB6ChZHDQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "xunit.runner.visualstudio",
+      "version": "3.1.5",
+      "project": "QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj",
+      "file": "build-kit/packages/xunit.runner.visualstudio.3.1.5.nupkg",
+      "sha256": "3B9EB9EFCF3840695DB33B045901420D14D7562141999E06182FB8894FAEB124",
+      "nugetSha512": "tKi7dSTwP4m5m9eXPM2Ime4Kn7xNf4x4zT9sdLO/G4hZVnQCRiMTWoSZqI/pYTVeI27oPPqHBKYI/DjJ9GsYgA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Abstractions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.abstractions.10.0.1.nupkg",
+      "sha256": "B383C3A7EBEDCDDC4A2319CE4F7F9D0D1A130E8A7297C92A9A6C382839E43AD4",
+      "nugetSha512": "kPlU11hql+L9RjrN2N9/0GcRcRcZrNFlLLjadasFWeBORT6pL6OE+RYRk90GGCyVGSxTK+e1/f3dsMj5zpFFiQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.10.0.1.nupkg",
+      "sha256": "44A381FB33EBB503546C963FD63479E2B28E33C2873E0CA73C4C71BA092EDC8F",
+      "nugetSha512": "zerXV0GAR9LCSXoSIApbWn+Dq1/T+6vbXMHGduq1LoVQRHT0BXsGQEau0jeLUBUcsoF/NaUT8ADPu8b+eNcIyg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.abstractions.10.0.1.nupkg",
+      "sha256": "CCD5296AEE7576CEE241369251316DC931C85288A761CD76F56E740A7B9F31D4",
+      "nugetSha512": "oIy8fQxxbUsSrrOvgBqlVgOeCtDmrcynnTG+FQufcUWBrwyPfwlUkCDB2vaiBeYPyT+20u9/HeuHeBf+H4F/8g==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.abstractions.10.0.1.nupkg",
+      "sha256": "3519347DE344D5F822FE1C8ED005436D21894114FEF72B5EE8BA66E07CFFD81B",
+      "nugetSha512": "YkmyiPIWAXVb+lPIrM0LE5bbtLOJkCiRTFiHpkVOvhI7uTvCfoOHLEN0LcsY56GpSD7NqX3gJNpsaDe87/B3zg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.10.0.1.nupkg",
+      "sha256": "BC18924B5BEA002EDE0EBA49353E07DC0F6A2E29024807A99CD45BAF2D262A79",
+      "nugetSha512": "G6VVwywpJI4XIobetGHwg7wDOYC2L2XBYdtskxLaKF/Ynb5QBwLl7Q//wxAR2aVCLkMpoQrjSP9VoORkyddsNQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Primitives",
+      "version": "10.0.1",
+      "project": "QtsBilling.Ui/QtsBilling.Ui.csproj",
+      "file": "build-kit/packages/microsoft.extensions.primitives.10.0.1.nupkg",
+      "sha256": "1179AE92AD3D7AB4F8B3E9A2429052632DC86381F1C4A97010F2F8DFF2A8C847",
+      "nugetSha512": "DO8XrJkp5x4PddDuc/CH37yDBCs9BYN6ijlKyR3vMb55BP1Vwh90vOX8bNfnKxr5B2qEI3D8bvbY1fFbDveDHQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Blazored.LocalStorage",
+      "version": "4.5.0",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/blazored.localstorage.4.5.0.nupkg",
+      "sha256": "D2F9254C51C41A0346F15EA2BD089CB6EA28CA25D2DA7327FEA2E97D88440651",
+      "nugetSha512": "6nZuJwA7zNIKx83IsObiHXZb09ponJOpCClU3en+hI8ZFvrOKXeOw+H7TegQZQrvdR1n9fkrVkEBQZg8vx6ZTw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.App.Internal.Assets",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.app.internal.assets.10.0.12.nupkg",
+      "sha256": "CFE347A1D979D34CC80AD6F478AB2878A9294293E3D69B7C7BEBEB2D94F4FA9E",
+      "nugetSha512": "+sIBo9AMBZH46qHWHQdfzcGMt+RuBaPYrUMOAM9VjA7MQ9QtIez3lq1C3E05+Yroa94KKt3DSWaxmCI4H28a9Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Authorization",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.authorization.10.0.12.nupkg",
+      "sha256": "471F03175CB2085F57F74B97197074B9B256DD526F2AEFE983AD0B506944A745",
+      "nugetSha512": "k4UspALZJWyBlb4rGPjMYO3p1/muEN6cJZTlWPfoRFU/LRP4fx1m19imWI/i/x7Sh9kNnldqlq+DU6w8pPnOtQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.10.0.12.nupkg",
+      "sha256": "A961BC8C9283D02A8BF736CE80527237E98D6831B3E05E55F7D2DC52F8F602C9",
+      "nugetSha512": "NyGmmcvuo3fYpFDJKpKLHDqVfS0egBgx2E6d+oIeN0bu573INc6m8RWtFwkD+pDd8l34XkJKjO2vAOgEaeZUUg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Analyzers",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.analyzers.10.0.12.nupkg",
+      "sha256": "6CEC282563CDF7130E8421BEF173F6534EFA90FB361DCF7132D9183AB370E063",
+      "nugetSha512": "XXK/4sZejrRUFmm1uU6iSwcsfzURFpqXRzm3ycALmgmk8zl6HwXFMKjPgrO5azVPlrHeNPYRftMukjbwD4fa1w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Forms",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.forms.10.0.12.nupkg",
+      "sha256": "7458E6C1047AEC4394184E8F5AE5E624ECF918710AE80EC18F3F9F4683B6A364",
+      "nugetSha512": "11XKiT7Bmj4U87PGYUjX+SsgPClZZ9xsDQktERyxb5QgEyIEHHBbCGSADXHpZ2+b5Xpq7HvHvHdWEwD+XByE0Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Web",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.web.10.0.12.nupkg",
+      "sha256": "8E508D678D6A99DB13D495EA7190E5E66A76E549B5969F8D7ABC8B57CCE7E034",
+      "nugetSha512": "VFmcGnah8P8uxJ+/olJgw0e3IX6THGmxqKH+5E7K/kRKjcLXIYNTKsE4EyiJG8AjtxH65aKNUsobpI4Zqc6hmg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.WebAssembly",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.webassembly.10.0.12.nupkg",
+      "sha256": "2E2BE8473B417542414DD8350AD6A6A8DBB6A0C73A8A7629BC5D2EE191D4E726",
+      "nugetSha512": "/IEbzyCnW0t+1ZQcxcV3Aj65gus2ILsUaA8U0rnkSGRQbKlJxr/5YOifOLq0eLrM0m3kXEV/A3iEwrqT3tgwiw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Metadata",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.metadata.10.0.12.nupkg",
+      "sha256": "B5BAEB28582AAB6DB02B5864C1FB5ABB64CF2C242D12304A5719714F11866373",
+      "nugetSha512": "KxeBBg1dEf3/Qr3VzghQIG5WDl8v4a+Kzr1pizRVidi5qMm+ymHYSB6vfO9tL20AXv1a5prQtwNQZqTfdeFYCQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.WebUtilities",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.webutilities.10.0.12.nupkg",
+      "sha256": "E8082D13891A90C6D4612C146F4B2AE59DBFE209B05DF53648D0850CFADFC01D",
+      "nugetSha512": "wBMw0vyzxJt9I/FD2vfomsQ/XYBKdEixTbxR+F8du72zB1vEFSTo6yEQDzi/PE2lnFPhssFVHNzAf/6/dXP9dA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.10.0.12.nupkg",
+      "sha256": "D06DE9D376EE3D28B0FEC645B396993A3EB7B04FBC1EF7091654A08D9E1E72CB",
+      "nugetSha512": "e3IPP32CRNL031VZJAUTlCTG0YN7WFh4mN3fsSHTDQCJB+3+f0jGycv4fXk3rrftaY3B85XrQaj7sRthrOsavg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.abstractions.10.0.12.nupkg",
+      "sha256": "F7397DF285CB2A34C88A6929710C0B8ED84913382E2AE708F734060BC091CE51",
+      "nugetSha512": "8xaGcvS/qZ1otoxPQCEJkNva389CVL/plNcvIETZhQTETYdRkYDPEYhUMoAGONo4FU45ufdfE0j29AfWVVj0wA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Binder",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.binder.10.0.12.nupkg",
+      "sha256": "FE267B1321B7E183183ED3042071BCAF5E3AD244A83E1D27FB055071367EBA48",
+      "nugetSha512": "dAgIf1TOr8KLs+aBRIbXUZBjHoSH4rDG8+XkX/Q6AZwkQdMA0+yPDKTHsieeXdZDfpOpZVHzOnuAb5Z2nX3KsA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.FileExtensions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.fileextensions.10.0.12.nupkg",
+      "sha256": "010898CF57299C9E3B1950DB0CA798B553BB753273C846D008D3E0C9F25F3F12",
+      "nugetSha512": "PNPS7yYH9U2M0dExn0tMkQFVtE53xTlCs/dgTfsWTTFyCF6qwGT3VrTgm2nnnkSRlSmvM9/J+n9xCpyzd9xTpQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Json",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.json.10.0.12.nupkg",
+      "sha256": "4516D4C2CB973BAF931E0414BF9D87497D4775BD950EAFBD50B730A3C1233F9F",
+      "nugetSha512": "H4u2ZeIhjmRQvbHj7S7U4MK1kXb0khx3UtOWcir32VHczdFyIVF0lvHew/VVHmCF7Uk0QseAUaO7HyFKOCSiKA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.10.0.12.nupkg",
+      "sha256": "B979C630191F6C48B548CAD866D8224A0ED0E6E7BE0ABA87F454B57597B63779",
+      "nugetSha512": "lXyK2O5GoYvfxW8eCFcD16JFbcoSTM1sJkAM0UHS1jZyl9NYMW64Tqm6OQFT0IDBjZi+xHt95/Zg+nxZhGFhZg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.abstractions.10.0.12.nupkg",
+      "sha256": "4664FAB0AC4B56B8935333F59EE9E7801C8AB96DE7C57CB3B6EB8192A5A61C55",
+      "nugetSha512": "9/qymSh7hVDMGTGwrLz8MRp5zRyXy9adGDOs4HwRdnLil3oZGYuWeZjbmHgCQ9BL1qBroVfgUK3U/nb61617Cw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.10.0.12.nupkg",
+      "sha256": "6EDB9246A77906A0BB91BB63175C4F70CDF7B49328D3CEAAE6E6C4C7BACF89EA",
+      "nugetSha512": "amx0O/R4dReqKlC3T740+CHpX8D8tAIV0f5kAPfFi4XK9jYo9BSepGt9/rWfvvCoSMaZ1+XvnqPp/Vv2fmTdAg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.abstractions.10.0.12.nupkg",
+      "sha256": "5ECE1E660E3F707CB2D8BDA190329406434B5FAAB45D5EE6EA8E51C93C744EC0",
+      "nugetSha512": "fMp91qlRlMOuHfMyp7LuAnOS+MOeWTF1obJmyFcs4nZCXu6pr+QB1AbFJcl2qpBltBrqF/Y7+Rn9IuNcSuctig==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.abstractions.10.0.12.nupkg",
+      "sha256": "49DAD2381A98E644F68B711106F06C01DB62C7FC3B4B1E79799BA770D0D4D9E7",
+      "nugetSha512": "iQseV6HixWzEYQH4i++84ToIroXnM5jC1TJF4EqBz3lWNG1HBTMYDLkRb6Wm3wk5V6WqSfl7NukO/LYsloGyfg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Physical",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.physical.10.0.12.nupkg",
+      "sha256": "4A6FFDF4541F6FF2612FB4F8EB201BF795B47336CC9DF488ED8CF3499E4E4694",
+      "nugetSha512": "3cY+wo2+Qe65BVwShhr2fFqZv5Ns73h3kX4mpW3WvSgfT3AWCk0hKArKW4TF7Dg3mvbJdA6RhWPW7FR+PS5/1w==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileSystemGlobbing",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.filesystemglobbing.10.0.12.nupkg",
+      "sha256": "8630D8878798BEA4530828DAFA3A4EC868B528004C95EAF37102B2AB95956D4A",
+      "nugetSha512": "45cV+UeI0chPAIXrx9Wv7K4PJXuuIR2pnOur5MOAo6kOFclBHSLLDrvGAxMfWRMtUvpv/kQZkxlgaUN56jwzSQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Localization",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.localization.10.0.12.nupkg",
+      "sha256": "FA465F50584D5C4C5804EE79300BE4952595CB84CABD697E95249C85132798F7",
+      "nugetSha512": "xRUC4uO2SBZ2PCx5mSoJIW1c9mFPZSLjxTPe6TGNDstRatDU1LiPcjafu4PQ/3re7OijDwGvvfIgRNT3wh8Drw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Localization.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.localization.abstractions.10.0.12.nupkg",
+      "sha256": "CDA26EC4BFDB3375AEA195EB5F281C8D03A7A8AB0406284BBDDAD2F510345EC1",
+      "nugetSha512": "yB5BhsXB6wD0R1dTYtrI+YleVynL1XiVLbsO+QHw+bFsPAqH7SX1EPDaXpVNhuKtHRFSRfaL2B9aUDsUq2tc8Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.10.0.12.nupkg",
+      "sha256": "539919DC90956D273AC67D24E99AE7D92A893848B6EFD368C1D0E61E5BC955A9",
+      "nugetSha512": "6I46fTPfgYkrjRYfRXbho9WOvOelTnNjWuZws/hzGHDASH1LEJeA4VKK9k3wJvido8o7jJSB5WkMTonX7HM1bA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Abstractions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.abstractions.10.0.12.nupkg",
+      "sha256": "34EAAA60AFB61ED3D86E2E2669EAE0C690D0E237E8A7066BA5BDB45A386709E7",
+      "nugetSha512": "+24lC4plfbEDNfLAdTV/SWKS7dW+16X4HdydO3R++134kSNTzcbYA4KpR1Hdh6uWisB8Za3AzwyOn+K+NxWIug==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.10.0.12.nupkg",
+      "sha256": "EEC90916F11D84EA41E942B59CBF82F1E32726D87E99BE7EE2B2424E31570FF7",
+      "nugetSha512": "TDYD33TSRpXKZWlmTXNlj5kCihxatmv2Ec1u6C+bMYLphCS7PoSLE9Pjd/nunDoE7yETk+LLKjVJX78HYtWjpA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Options.ConfigurationExtensions",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.options.configurationextensions.10.0.12.nupkg",
+      "sha256": "71CBB9B3B179EE51D5416B3B8602D7109BDFC61AE741C0C3903FE4959E2ED7E1",
+      "nugetSha512": "rqpu4qj5WE9x1IHGXSIgHBKi7IUlQaHyp4aXCYIanG2OghlUMFZpZTgExaXwcvmLAJHsxKQWMPpc7D2WIbCVtA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Primitives",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.primitives.10.0.12.nupkg",
+      "sha256": "97EE742AFE0CB0634558262F925CC112B5882D09DB8D169575E559031DA63922",
+      "nugetSha512": "dYfCLR52UA+3DL7C4I/pvSaRPkNqxrUAQmbFL2u0zvYKKzqgrFCJl08Df+F1aYc8leu9JvpC9bsURUdpExcBXQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Validation",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.extensions.validation.10.0.12.nupkg",
+      "sha256": "811DD1772C4B90354B2716E79F6332A4DAF66518945F8EFBD0ED8C4A73A1AFB2",
+      "nugetSha512": "6aeYPe1BpiwZifwTQ07GzFrauMxRSh2lZC1oleWvaWB7afNR8cE8EvMuE6hP6X9yICVuKeBQC/jXhEGq1Y1QdQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.JSInterop",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.jsinterop.10.0.12.nupkg",
+      "sha256": "588909BB96F2EAF3B270C31892C90C869D4247EB5AD46FE5D290309CEE41B366",
+      "nugetSha512": "bLgqhSs2YS3i2sOe8Mo11JzgdktB+/VADJXx2oSCE1crpg3RbFESn1mEBfiO4MjX9icW+An1zdGBFucIwIYwmA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.JSInterop.WebAssembly",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.jsinterop.webassembly.10.0.12.nupkg",
+      "sha256": "B36319CA6789B1C033C5658B8D87BC18DA4AF100715B60A5F3B8B3117DB5AF40",
+      "nugetSha512": "v8A9+3yOF6yD2nJzkDyINlkWxiB6ufCutO4Tgo3edn+CyI2WdstA8VzXy7sJrbtB+OaTfUZdaBET2JMMWuJyig==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Net.Http.Headers",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.net.http.headers.10.0.12.nupkg",
+      "sha256": "BA131120B0FCBF384EB70C3ABB37AB3D9DF8E973D6521B00C08928EE19FCBDF7",
+      "nugetSha512": "7YfRtZxxv9vFyycxPQPJArcXvBvojzWpJmrnFnuepdrUVE5bYGSAUN1YDaa4VsIYgqMRLGAvAoklnoSVQQnwnw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.NET.ILLink.Tasks",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.net.illink.tasks.10.0.12.nupkg",
+      "sha256": "37AA984DA51FDC01CC7D57A8647893392F3539CDD5A1D32CE4982BE5309BC08B",
+      "nugetSha512": "xi+BDjFpW+Sb+MHFHaH6Y/gV9I8BluFwRXc1QyCdoZbIK26eNiBeFuMTe/FMwc33G1wdHCyDg7CVTmb8OdQrMQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.NET.Sdk.WebAssembly.Pack",
+      "version": "10.0.12",
+      "project": "QtsWebApp/QtsWebApp.Client/QtsWebApp.Client.csproj",
+      "file": "build-kit/packages/microsoft.net.sdk.webassembly.pack.10.0.12.nupkg",
+      "sha256": "BCE36565EE6DA85FEA0F34F916F951205D91389D1071A34084D17990F2EF8405",
+      "nugetSha512": "MIeBVeWkbKdggl3kmmIUnx8ZNEgjD2m1gTN/0W+TDRn6zcL1WZdq5hXhGQ0wjuSlw/8tvwwCg79PemfkJ3+5JA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.WebAssembly",
+      "version": "10.0.13",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.webassembly.10.0.13.nupkg",
+      "sha256": "8090D3E8A25BC8D55E77B46405DA333EC7A09B09724B1C6BAE4D219843BE7E43",
+      "nugetSha512": "w3V2ij4WptDXOLLu78o3/SIqHIVoW6uzCjKZzSr4hTJFKvv8/79YhwRyyGonktM+qP8hrFvBVNCQa51ZpoJ6Cw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.WebAssembly.Server",
+      "version": "10.0.13",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.webassembly.server.10.0.13.nupkg",
+      "sha256": "5B107A443DFDFAAAD49F0DF0F00324CE9FCD5C26153533B558C9E52A20AE8C06",
+      "nugetSha512": "EeFVBmuxdbvNcjty7Jkvck9LG1hGjFnRaJUKDrGfoMKmHJF7iRXcp4rx85Qhm+JmRKKIm4vZMUdv2i2KNsR5JQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.OpenApi",
+      "version": "10.0.13",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.openapi.10.0.13.nupkg",
+      "sha256": "355D1297F4EF020F16A91A44822130D0FB14D739CE53ABD44E81F9878F438FD3",
+      "nugetSha512": "XVuqUBGjVUVyb4DXR5BrSkrW0Br7sYKq39f723ILhQLlFHCyhAgWe1PkJBc42R/5mKBIgHiKVSY+PN5/4XtcQw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.AmbientMetadata.Application",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.ambientmetadata.application.10.8.0.nupkg",
+      "sha256": "E7CFC0C66642D90DB055538E2490BF19F70B2C9F8D88D9252232F8E3EA819E09",
+      "nugetSha512": "/FYCIyhRLrDwIg29tB/21/Rp7XMaEP/gWR5Cxyi4GgWcN/v/XXUpU52yhQux0s2SQy1Z0C1wnhptCMvLaaT45Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Compliance.Abstractions",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.compliance.abstractions.10.8.0.nupkg",
+      "sha256": "4FA5E97BD2F593283DA3452BA878768EFE095C3E6B84008090131C609A9444A2",
+      "nugetSha512": "7I0DXMTCqpXpXg+SLLDlfedtv6DN5Lgiv+PR3MclzqKPOHNB17YP42KMNI61ckSrffh0xsuIqQyCIjvWc6vUuw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.DependencyInjection.AutoActivation",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.dependencyinjection.autoactivation.10.8.0.nupkg",
+      "sha256": "3257EECBB527D8361A9CD73A6432DFA379B56B058562AB7579502844858D4213",
+      "nugetSha512": "LXwOAsnrflu2ln+Bxj7y3Zc/Pn4HquCCRzW81oOIuRsM8F75TxwA/ZpSFZ5E1+YkVpndz7BcHY4ThFSjjA4vbQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Diagnostics.ExceptionSummarization",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.diagnostics.exceptionsummarization.10.8.0.nupkg",
+      "sha256": "B38E7E06D585B641A81733FB3683BA122F63B12AA17AA6988ED86E9EB68D8919",
+      "nugetSha512": "tXmzwQeWgiycaLOtvSFnz0TPkJxXTyZrkwSVPTr83FgSiMj3BD/8eIbvrpGi5rzc2AgfKyegKo1ntJlJFey1Zg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Http.Diagnostics",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.http.diagnostics.10.8.0.nupkg",
+      "sha256": "CAEFCCF7F68361797BB087E0333B9044B6AB74A2CB7D146D94EA3236019EC654",
+      "nugetSha512": "2pYnolFkigH7N6A5WHdGx93iZ8dIhrBnu4ZkjvB6RwbHzYmIy/iXVe12pdrViNDdeBSmKZ5FA9YP/xhwLT7q7A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Http.Polly",
+      "version": "10.0.11",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.http.polly.10.0.11.nupkg",
+      "sha256": "BABA8C6BB6767AF3FCD3D774182BAA21A46BD1572DC8CAA594414ECD5A30E32B",
+      "nugetSha512": "DIxaTXWdbjRJihAIutpDIgPbpD9PwW8lW0EIawlNH4zs7coCgwPnd9rYlzXYkuKKphnjcKYlo6gXFeg6z15GLg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Http.Resilience",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.http.resilience.10.8.0.nupkg",
+      "sha256": "61C56C863ACF229C9CA4C5A1B0552D3A23641074466CBD2FD1BBE0B7401B03DC",
+      "nugetSha512": "XtbZyYVxSNn1Aj2Z0PA8yauS12hPszTWDZ3GtZ5Vww7Ai3d8Pm841jMBnTvoTf1t9mRf3eSB38V5KUWxH6/4oQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Resilience",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.resilience.10.8.0.nupkg",
+      "sha256": "121C667F5162EC5814EA7B49F7F4AE6E314480D7669C5594A1718553D97548EA",
+      "nugetSha512": "RH/gv0ZcCnQ3d30lxb8+T2o661TwZq/K5eMwp488goQLX1QYqWN3i8L8XlN9DhrqP2Zcf0EtsWaKpJO3yHDUTw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Telemetry",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.telemetry.10.8.0.nupkg",
+      "sha256": "4928E16FABF4761B59B36833CFB526C2CE4943CF289D4953341165CF99D6DE3D",
+      "nugetSha512": "IIWjDZguUJt6yNld9J4V88xuOUzpC76wBwfnRJLRmacmyTTl9jA8+KP5PuHPi7CKz/Vk/q+lQYmobiopuzapzA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Telemetry.Abstractions",
+      "version": "10.8.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.extensions.telemetry.abstractions.10.8.0.nupkg",
+      "sha256": "D15868D766F0D94FEEF5BD298D4F13C7B594EAE297DAEDDE19AEE5E29478C896",
+      "nugetSha512": "XHlOerNKjVrPJqbuFi196tyFhS7eNMoPUC800xJmCGsSiruE/goGoKyBKzS1HeelAGnoFPFrS+LgNitXNeEYRQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.IdentityModel.Protocols",
+      "version": "8.19.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.identitymodel.protocols.8.19.2.nupkg",
+      "sha256": "B2800311442C3A9D47CADB75A8BA3E8CE39EABBBB2EC8EED50E5A88177905C56",
+      "nugetSha512": "sGxSsSrZXNmca6D+jHH2rVRyo2nNRd/g4H9CFbPmLLq0xgoH1U0orLWE5minfijw7+zq49tBs7txenbfAErRoQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.JSInterop.WebAssembly",
+      "version": "10.0.13",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.jsinterop.webassembly.10.0.13.nupkg",
+      "sha256": "43EE17A902FE5AE1BF548B928EC74576615E5AE63A272483A5EB7738CB8C056C",
+      "nugetSha512": "kh68RQ3KmgKSsIpkQetbuHxxLEsIkjaJ+GfJhGn7NQCgrT067JXGmbCzXM42uiPcdXW5dJ8S5AKwJcyRDJFWzQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.OpenApi",
+      "version": "2.12.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/microsoft.openapi.2.12.2.nupkg",
+      "sha256": "3A35B85631E1C7B877B61244CA93E042F6A249CA2E055FD5C3D92B54F1B247A9",
+      "nugetSha512": "ZkT7qiJe0Kj0+DTZOZo+xrDy1kNmdsWFQVPIQLNx9ZJ0T9cB2LG7r+Bi60so8/+yg1nkS7QCPadrzsTG4VPKrA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.7.7.2.nupkg",
+      "sha256": "6B5FC36FE2163B4634A01C1D881E1482098E836CBB9CE8612682316D57E1A9A2",
+      "nugetSha512": "XMCdZzYZY7CRn3HgLheDI5aMuL6Tit1xO7VaiDVH/qz2Tf295RCbgpBCDcMRh3QYYBqi7RTJIiIKpqhlky91UQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.AspNetCore",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.aspnetcore.7.7.2.nupkg",
+      "sha256": "A016543DFDBF4B3108A55C2DAA0DFBFA0897D77BAD6BE74710433FD6F15F7932",
+      "nugetSha512": "b6cqAcvJfo0OhKVD7YZkfwcRq7PsXCAb39MaHE+/NGHZ9thmXH9VtlLEdxdH5nnH4pdsWppqsLJ3cprfr9gJrA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.7.7.2.nupkg",
+      "sha256": "0F225CF7D7063115079DD0C5E35A9C9E9D88726904A27F635EE21F389FF4A883",
+      "nugetSha512": "KontwqVvIJeuHilCTwVoCGu2C82To0qWGf+CSG3/iTdX6P8TLVP1pFrOsGzsdtIv/iQNU32mY+ODHcpfb5w6yg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client.AspNetCore",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.aspnetcore.7.7.2.nupkg",
+      "sha256": "CF734D9E4E8C0901C5743AD3F3161DCA191D4DB4C004B730E0979020592B7C94",
+      "nugetSha512": "a98jz1NJOeRHUnapuIAnNh+vtq2TYKE04Ui+xP+jPTT6SXMK1CHx99sjivV//DCmjppeAl8MCpjitWCpCnvdDQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client.DataProtection",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.dataprotection.7.7.2.nupkg",
+      "sha256": "AE43E1B050C8BBC71A3F05301225BDBB8FDB2FCB8CFEC299F440972655152C00",
+      "nugetSha512": "Yy+wKySBdjB7PCvCFP+YHDWBsgmzNbRHbpl9CoOy5tjRrWJ2OQvZg/4Wchw1bYBSri521d/IIloTp3HsZMXmNQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client.SystemIntegration",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.systemintegration.7.7.2.nupkg",
+      "sha256": "52FA8B8CA1F5AFAEBF6C5DEC52F176DD75CC2F53C334C3F75D5F6C872B4D0F85",
+      "nugetSha512": "4Do/ynyqKdVPyY4yu/mnIxz4YAe9gc9sIMiSrra+yl1Sj0RZytOTvCcV/3r8/wJWOqsnYsg/W/lkiG8AKfq5Xg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client.SystemNetHttp",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.systemnethttp.7.7.2.nupkg",
+      "sha256": "C6A404A14DE054057EE64F8A7F555C3314C30FA1B5622B728A9F0778430AB44E",
+      "nugetSha512": "u7Kw197UetHPvnGosaAWXmfjnP0F4OsvQG+vqyv58eJBmIs3zJKo+80AHYfs/CpOKjgZSIA56WnhStqZr5MflA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Client.WebIntegration",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.client.webintegration.7.7.2.nupkg",
+      "sha256": "DFB8BB1E6661538680B5FFC849BB47DB39CEDA0794655858463EAED6F28B68B9",
+      "nugetSha512": "7abzcKwUkVjMJLLamTNwE73RWLjzMKp3Fj972aQLte7XyYPKG8ZC4gMgZBPcSrL2EE/+hhemPjm8C07Yr10Gaw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Server",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.server.7.7.2.nupkg",
+      "sha256": "6770C885A245D1443867DACA32F25D5FA5D20A628318CAE695C7F6A502EA7667",
+      "nugetSha512": "azPkMKSMTSlvIKwdesbSaHvTdaNWndqrw/e6P9lyP5/6QG5IhrTK3y2rHWQlv14EU9xG/YegLimP61zapq+ocg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Server.AspNetCore",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.server.aspnetcore.7.7.2.nupkg",
+      "sha256": "FD6289805B8569AC2F913C9431D27C0C99B2C9585E50E905485F52EC022E50FB",
+      "nugetSha512": "Nde/hqZbxCbhP8KE5laXbLzsgMFEClaAPL3hiGUezob6ixsq5ga84yQ4aPVrI35sD8Cd6BOh74DkqwvWwZRrfg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Server.DataProtection",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.server.dataprotection.7.7.2.nupkg",
+      "sha256": "82DBB636341966B32E9D30D751D04469D919F8BDE38155597EAD1F47E5216916",
+      "nugetSha512": "TYzZUTRNAYOSHP8mJ0qq+R+N0AWDTDSycHEZhC/qVtjBjT0J7GMTVheBP2fhfHksleAsYNLpNuAIYK27rzTqGA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Validation",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.validation.7.7.2.nupkg",
+      "sha256": "88AC37D28927C0303F78B7A9E9D616B16CCB96E426B1DA1A0BAE094D61438716",
+      "nugetSha512": "B5hHtkAZsayfci4uUFmaNF2onJ/WllYbbb94oZyhG/759VB6S6f04Humye7q8dRJa1VoEN7P3I/ep32aCofQLQ==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Validation.AspNetCore",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.validation.aspnetcore.7.7.2.nupkg",
+      "sha256": "BA7271BACBCC5FCE08A9A167C92CA08D0420C7AB742EF13B018B67FC7C113AD7",
+      "nugetSha512": "amZ0SwrgqqUZUsQbGks3qKSlAMybv0YaqbT97hS2Ph3R/IcdTFTXe770LMR32MI6TxWKvEVWCMO+itqEIJCykw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Validation.DataProtection",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.validation.dataprotection.7.7.2.nupkg",
+      "sha256": "FC63236A857DC6EB4FAA7A8FE7941C751CFD1F6FD773AA9E99D3EC21E09F1D24",
+      "nugetSha512": "y5nCO4MGWnMffUA8NiPo7Td7S/JX1MnrbZqLAoof0ZPDqgKp0a8pYrfbRRLwUWd2xLRUJuODXRnsw6I4EbuAEA==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Validation.ServerIntegration",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.validation.serverintegration.7.7.2.nupkg",
+      "sha256": "86B485B1A25725EDF8B83792151D95505DCA72E5D15431601FE8E41DC52AF247",
+      "nugetSha512": "2h1LlTkWScAFQoYaKBJ3sbAd3lM7o0gRux0XLg+8D//3Bqlla6p9VjM53DrdnyGWQ1wK3x8cmFcEqDTPePoGZw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenIddict.Validation.SystemNetHttp",
+      "version": "7.7.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/openiddict.validation.systemnethttp.7.7.2.nupkg",
+      "sha256": "D5006C19773F1A58A2192AE605862512C65EF08F085ED79E69B2A5A4452B3207",
+      "nugetSha512": "aEIceyMGX92VokcMBGsJtongfs1z2yQma745CPPWq0Uk9exUqitvXbPm+7TGM0lNh7Fh8hB8QhvNPctDQcIqAg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "OpenTelemetry",
+      "version": "1.19.1",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/opentelemetry.1.19.1.nupkg",
+      "sha256": "D447B5BE4A21BBB674E398660EAE08270836D1CE13EABDDC83BEB0F0B29936AB",
+      "nugetSha512": "6ywhc3upf+dq8EsOohj7I7zS3l4yX9vfbtFkvyEC8xIUY4Z9iDIOVuke356eCAzIZaWtmwmmyl2UXYCp5n7I3Q==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/opentelemetry.1.19.1",
+      "reviewedException": null
+    },
+    {
+      "id": "OpenTelemetry.Api",
+      "version": "1.19.1",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/opentelemetry.api.1.19.1.nupkg",
+      "sha256": "714680742653ABE2C3BFAC673B658309CBEFC4F01B65659CB0ABB0DB9E4BB1AE",
+      "nugetSha512": "9JKIH+xrV0HNTFjQC8zrx9gZpDOMEljN5Htg/U0VE2IvO3N+7bKALCCsGy5tp09marX5dd8UkrgQFoLaulIBRw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/opentelemetry.api.1.19.1",
+      "reviewedException": null
+    },
+    {
+      "id": "OpenTelemetry.Api.ProviderBuilderExtensions",
+      "version": "1.19.1",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/opentelemetry.api.providerbuilderextensions.1.19.1.nupkg",
+      "sha256": "25B04AB6E18321AB6773E0CFAF0ADD63C17B5B7200D95BF4E688269E2EAB3950",
+      "nugetSha512": "HtGe72B/IhzKqdU0a3fNE5osax/Cegwxd+p4u6lOFy20nsgmeaFuP2NRyFs1WvrOv/bpkII3IvvBkKoZXG8BLg==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/opentelemetry.api.providerbuilderextensions.1.19.1",
+      "reviewedException": null
+    },
+    {
+      "id": "OpenTelemetry.Exporter.Prometheus.AspNetCore",
+      "version": "1.19.1-beta.1",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/opentelemetry.exporter.prometheus.aspnetcore.1.19.1-beta.1.nupkg",
+      "sha256": "D5D1E873488732AD7D007DF333512E1ED52DA3284A15BA386443F1DA4BAC0682",
+      "nugetSha512": "AMfdsdCo6rKCNJv0j3Yx1FJF3pmOgTZjHDpKllRwpxKlO6UIcpcbWFFJUFYd9+UkJWl7LO2IzTpA75Qrl0fvcw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/opentelemetry.exporter.prometheus.aspnetcore.1.19.1-beta.1",
+      "reviewedException": null
+    },
+    {
+      "id": "OpenTelemetry.Extensions.Hosting",
+      "version": "1.19.1",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/opentelemetry.extensions.hosting.1.19.1.nupkg",
+      "sha256": "7E69F27BB728D83685DF9F1F6250C35C13DD2A74902AB6A18B6AF6539F3A7251",
+      "nugetSha512": "3qqZfVmW8mKA2/fRwI83o8z+yZd33KbEqRlXrlX0+3e/U7i+z0MQiCr0L3Axxa0jGdiylIrpWX4DIT9nAbJ00A==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": true,
+      "notice": "build-kit/notices/opentelemetry.extensions.hosting.1.19.1",
+      "reviewedException": null
+    },
+    {
+      "id": "Polly",
+      "version": "7.2.4",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/polly.7.2.4.nupkg",
+      "sha256": "C10BCADD799096997223F76E56484CFA24618A41812F0AD0F1CA5C1494887053",
+      "nugetSha512": "bw00Ck5sh6ekduDE3mnCo1ohzuad946uslCDEENu3091+6UKnBuKLo4e+yaNcCzXxOZCXWY2gV4a35+K1d4LDA==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Polly.Core",
+      "version": "8.4.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/polly.core.8.4.2.nupkg",
+      "sha256": "E1F9F99FA06EDBDBAA5A0F1C8A28B7303B22F5B3B6FE6A0F6BD077709F4885EF",
+      "nugetSha512": "BpE2I6HBYYA5tF0Vn4eoQOGYTYIK1BlF5EXVgkWGn3mqUUjbXAr13J6fZVbp7Q3epRR8yshacBMlsHMhpOiV3g==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Polly.Extensions",
+      "version": "8.4.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/polly.extensions.8.4.2.nupkg",
+      "sha256": "A327FD08D8BC3572F278C2F00410A27C5BD5E9EAC811ABABB3C8BD05976BD229",
+      "nugetSha512": "GZ9vRVmR0jV2JtZavt+pGUsQ1O1cuRKG7R7VOZI6ZDy9y6RNPvRvXK1tuS4ffUrv8L0FTea59oEuQzgS0R7zSA==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Polly.Extensions.Http",
+      "version": "3.0.0",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/polly.extensions.http.3.0.0.nupkg",
+      "sha256": "9BF0DF02976E8F82C85BD70D8D41A2B7BD37B0CCCC2F3D0C746D155D019D2680",
+      "nugetSha512": "drrG+hB3pYFY7w1c3BD+lSGYvH2oIclH8GRSehgfyP5kjnFnHKQuuBhuHLv+PWyFuaTDyk/vfRpnxOzd11+J8g==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Polly.RateLimiting",
+      "version": "8.4.2",
+      "project": "QtsWebApp/QtsWebApp/QtsWebApp.csproj",
+      "file": "build-kit/packages/polly.ratelimiting.8.4.2.nupkg",
+      "sha256": "E37D937DB709F145210D628B700164B0C8DB714D0F94BACAF81AEB0F1170E3FF",
+      "nugetSha512": "ehTImQ/eUyO07VYW2WvwSmU9rRH200SKJ/3jku9rOkyWE0A2JxNFmAVms8dSn49QLSjmjFRRSgfNyOgr/2PSmA==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Bogus",
+      "version": "35.6.5",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/bogus.35.6.5.nupkg",
+      "sha256": "0D269FB69CF6357BFD9342082BD1907790A460FAE0BE44B1AEE28541283781B7",
+      "nugetSha512": "2FGZn+aAVHjmCgClgmGkTDBVZk0zkLvAKGaxEf5JL6b3i9JbHTE4wnuY4vHCuzlCmJdU6VZjgDfHwmYkQF8VAA==",
+      "licence": "LICENSE",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/bogus.35.6.5",
+      "reviewedException": "Bogus MIT licence bundled as LICENSE. Test-only data generator: never in a shipped asset."
+    },
+    {
+      "id": "Castle.Core",
+      "version": "5.2.1",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/castle.core.5.2.1.nupkg",
+      "sha256": "B8D7BFFCF0A76062E1C714292C3C9342EA081F9BBB7460E5CA3736C2A010E03E",
+      "nugetSha512": "wHARzQA695jwwKreOzNsq54KiGqKP38tv8hi8e2FXDEC/sA6BtrX90tVPDkOfVu13PbEzr00TCV8coikl+D1Iw==",
+      "licence": "Apache-2.0",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/castle.core.5.2.1",
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Authorization",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.authorization.10.0.13.nupkg",
+      "sha256": "46A79A08025BC6001C9BA001A367796C034909FAB7A0D9398C852CF0C59BC0AB",
+      "nugetSha512": "MrBBCX/GZ0V+juuyAhgftmlE/jzBA3lSYMSftTWlVKxace7LKnKSSyRKIKOBtty1VZyfgyh9G2Zz2zQPQ4j4xQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.10.0.13.nupkg",
+      "sha256": "4EA9AD56598941E012A6A0F26ADA800B1739E28288E959CCBFE215E7A8371EE6",
+      "nugetSha512": "AZFNywXXeK+joqu/zjA4dJjNtoCrUZPhLKjtRnZbW6BWHdq83av1eY3XhDkomsnsFDXPRiR8FH75rnVjA5taqA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Analyzers",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.analyzers.10.0.13.nupkg",
+      "sha256": "9ECCFD3D49D7E7BCE373CB8173B57443C7B30421F8613B527975759A28D15AE9",
+      "nugetSha512": "p70b12TdCOwuQD74IgSP1UGjaCFylksbL+mVqmv6MLNWaEmFKP2TuTfO8cVRA2r8s8NRL7m3jBWCBOSH4pU1Ng==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Forms",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.forms.10.0.13.nupkg",
+      "sha256": "EED700F2BDCB4D2013674DA3DD7A3D08F82C30119A03038914694D0F01F62587",
+      "nugetSha512": "iZp3lEip+ifKAd98x8Wq9H9BcSgZzCuiNGXSbmgkk4mJQLbs/rt6hwN+S1RtvbBy3OnFAfM2wvuY972tbLV8Ag==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Components.Web",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.components.web.10.0.13.nupkg",
+      "sha256": "A8854401BA2254EF96360649EB20B7839921AC1F4292C11A0A9E58EECF9FCFCA",
+      "nugetSha512": "AHPxdA+s3W33/0lWgMhzBrA4nglgA6bxxI7KSihVbTmwFMTXOtWwLgFy5BDe0TpriMIeH2JbN9aKYczQLj6knQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.DataProtection",
+      "version": "10.0.11",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.dataprotection.10.0.11.nupkg",
+      "sha256": "6D115D23B5C450120436FA42ECA89602F640D5AA7F084A1678908A21C917E32A",
+      "nugetSha512": "1m+CJd0mookt7PzOqOv+ADZtEzS6530xYPjm2kwrI+yJILxNtD6+r80fZczYy1kAf6cwxtp+eSSFrouZ+bCBDA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.DataProtection.Abstractions",
+      "version": "10.0.11",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.dataprotection.abstractions.10.0.11.nupkg",
+      "sha256": "C09285A815BE5FA71EE0FD7AE2D224ADF9C68ECBF096DCD092AF1813C7CE4F5B",
+      "nugetSha512": "nqpcXNw0g8nlFep5IQKEGRXyXi596uM8WNydR7VikKlokUkAr1cOZh1qstc6AotdfJg1oWUfFS+lY7wlbW3YnA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Metadata",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.metadata.10.0.13.nupkg",
+      "sha256": "76BECA7FA37A9FEF213285B2C6E561668E603421D8524DA8E6C78BECB7A253E1",
+      "nugetSha512": "5JyoyyJS4Gt6MbR8mJSrax9hYbrgJlUUBojUd9R+b2D/Xn3DI2kQO+2ERLDix26GbzvMYgj7t4zpxzM8ZZX1Vw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.Mvc.Testing",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.mvc.testing.10.0.13.nupkg",
+      "sha256": "08AE708E82BFD8D62D704A3A97CBFE3FF93DC6A8A2B15F5FC6CB538B99A2A57B",
+      "nugetSha512": "AiQkwLuYCtZoWD1lm6ll/tqVf+u1GVdVJw+EEBQnCOgdofcwpMCnZ6h8HEwD04rOdmF1v+pVfGzr9HFCmq3zdw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.AspNetCore.TestHost",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.aspnetcore.testhost.10.0.13.nupkg",
+      "sha256": "BB4F9FB3F9C554C72C2E5975F8E9097F6DE98C91BB51C73C382AB889C49A956B",
+      "nugetSha512": "8xzbDfEOWg5GRp5byA42Axr4TbockbxCvdHTYk27ZIdst79DO0CLBp/Zw5sduK2goRii7of4EeuTjG/yPH4tsg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.CommandLine",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.commandline.10.0.13.nupkg",
+      "sha256": "AB825FBE57ECFE8A8ECA48839574E97D7FF895447FBC9D7210DD73FB97509725",
+      "nugetSha512": "RwdNZ9JdGs8eZmeL5qRe7ugp0Irk3KVkWpC/w1c8kjJwu1R4HvCXYz9kwHZxn45WiaRBG5lphQKtqnBaJOQC+Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.EnvironmentVariables",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.environmentvariables.10.0.13.nupkg",
+      "sha256": "8490AB1984FEC0EA1149C9F49C35891DCF0D39B5481E41F68644C7E96DC6F17C",
+      "nugetSha512": "qJK2dm9/AxyPVfqqBaZtjkUFl2hnBR/CQnMJtSO5LdEoyATMqvZjeQVY+8l0oa6PM6qlVe28iMEyXIRQ0wyZjA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.FileExtensions",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.fileextensions.10.0.13.nupkg",
+      "sha256": "BCF4CD18286DE0E7914A9682023F56CEFFE0D77E8F53FF3B78895FABF95780C1",
+      "nugetSha512": "kwC1DY55CsqPmDtJAz+7alD3G+gJcM+XwHSZrcRO8mJGYB9hRq1qC6ZH8DL0SPW9WtJ/Bae5ikzPic8SxSv6Vw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.Json",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.json.10.0.13.nupkg",
+      "sha256": "A8DADFEB0C4F0548DCF510A072CE8DF5A30DFA32AB08D561F4F25AFAFEBCFECB",
+      "nugetSha512": "acCWM2+WR67kBAz6gAhD2zG+IZH9Q2VpKv5le7Msiu0vAMsnnLXpnV3BAzxd8/i+uOEo/dfb2XRYTynRVTDvEg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Configuration.UserSecrets",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.configuration.usersecrets.10.0.13.nupkg",
+      "sha256": "468F0B5CCC7C2ED9EAD0E438F9DC629B92795A8D515E02B119F9F3BCEFE88B05",
+      "nugetSha512": "kQ/Tx972unP+ueQL8SSninthIj6w6XP2o0VnJPFC5HQIimPMwEN704MOspEgDkmm4FUL5SuxLEU0bNiW4HEZFA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Abstractions",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.abstractions.10.0.13.nupkg",
+      "sha256": "3B778466535EDE401102CD8EE5E466B44A446FA416385A141F44CCAE76E0C0EE",
+      "nugetSha512": "BZDwtN3uoWRghDi5lRRZPDjMMCg2Ds7J6YEYjqka/TLjqnzquEpXyvchrIMeoubwT1ns23ow6PPeAoBHJO81Rw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileProviders.Physical",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.fileproviders.physical.10.0.13.nupkg",
+      "sha256": "798E2295F8B2C44B46530D5E29AA27EA22789CEDD90BDCC23EA58A04B8A0A1CE",
+      "nugetSha512": "U7HkgGCNPICN5k7NVK6dmLsSPSPeO/EbNcuxOl/5qdC9Ahjp9UZWKOvlnUC+rYurmoxIlwyv9e5j0BaQlTOELA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.FileSystemGlobbing",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.filesystemglobbing.10.0.13.nupkg",
+      "sha256": "7E05D4B38EC017C4FEF5E5963259CCA7A5AC02C078102C3DF0C8133D7DF4BA97",
+      "nugetSha512": "vQVzmAbnzlhXSXA2caYnlxtG9GXxEwtj5bODiWLu06A6iqeJmfBtlfKjuOSJGRy0/CFaNUrm7u9nxEUlljc2Rg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Hosting",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.hosting.10.0.13.nupkg",
+      "sha256": "378E8790CAC3367F1CF8997DB9314284FCF8DBF00487E8DC80C655D2AA1B90D7",
+      "nugetSha512": "Q+hmPoDqeHipHyJcY7mDCQiLDUcn9jIgjoCThcgaOgjLTTT3ApTe8p6M2+twsDyfKuuCsKhSNlnNjaaggtXxRA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Hosting.Abstractions",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.hosting.abstractions.10.0.13.nupkg",
+      "sha256": "0BAD01C257D0DBB11B744439E418458F5904FFC6D53EE2C93567BA46E427C190",
+      "nugetSha512": "zIrbe9vkIFXxW3mOApIOWXw+xMwX7Cgsptr3ZSlglJt4hW2qp4fB/JU1NHgAevteBNH4PicvU9DsFPHxlnnloA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Http",
+      "version": "10.0.11",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.http.10.0.11.nupkg",
+      "sha256": "782D8720767525C9CEE9C694A1510DC708C5E5E4DD9362E17600B2747490D07B",
+      "nugetSha512": "ujx8RvcKzkxPFBguwgiygbwWVHVK0P7HFlNJ6I0JBRb28tzwe42jixBoA+dGmqG9IHepPVcm04vv2IDnU93ekA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Configuration",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.configuration.10.0.13.nupkg",
+      "sha256": "E370774FC536A3FABA809464095447ECA802C19CE25F8CD22D954386FC0E8762",
+      "nugetSha512": "OyYJOaE9WbBx1Hp+Dd2zrqeFM0JwH5M/x0VL6tNUv3V18vIAVpix8UjhvY9eW/iXpguEHy68JO/Z9YkBOwftIw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Console",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.console.10.0.13.nupkg",
+      "sha256": "932804E1222A4F4F50C4B29BB119889B7149E1DAF884273F8B8E73BCFEC0BC97",
+      "nugetSha512": "i9rn0rHkiCxfNVbf4DRG7LOFcKPy/BioAxS07w6daWvIpLNRjskqDJcGGaYVFWndsq0iTRaS8Msry0t5fRYQug==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.Debug",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.debug.10.0.13.nupkg",
+      "sha256": "2676C45AE7C7A64935248CCB995FEBE185A2ED7AA2233FF9E5ADB627732D29D1",
+      "nugetSha512": "yBig0DNMq+3UgliwxYlUC48dg0fPqvqI5B3ljzmLTrpR6maoKTOO5i9QnPgQUmQoaQWZMgu74fuF6oSDihb6pg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.EventLog",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.eventlog.10.0.13.nupkg",
+      "sha256": "D156B038576B24BEE153D8567CE5E649197429F72B59BFBEA36395C729A0B8AA",
+      "nugetSha512": "OAK40lXhgMuvyNwvzW3fxLvvucN8yr5XS7dQRcPmtnPf+Pt1lpbMgao5T4Wa6VdFagtIeDZNgPtV5Ig4xstziQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Logging.EventSource",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.logging.eventsource.10.0.13.nupkg",
+      "sha256": "B6C4CE6BF0C21AFE851B4AD9F5AF0515B1E7D7EA902E480AC9B443E2853BE192",
+      "nugetSha512": "SxJu3oczk+TJtHvpgAmCVzEkzx69/obA6GZCbGrbqYqc981YOAyfEprySBdFX7Yc5qatHJKHNTlpGeeBAQkZcA==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.ObjectPool",
+      "version": "10.0.10",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.objectpool.10.0.10.nupkg",
+      "sha256": "072535F5C9FF6410B4A292D28B0AFEB9FAE47567F78E3AB3D70C14C8E8BDBB86",
+      "nugetSha512": "Tx0R6PY9MNSh0mDKSxbpHLuuec93IxF1cel+1ithQnMNr/vbfLSSHOQHGHIppAJCGfPcEo/wO1Ylj+QpXtzo3A==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.Extensions.Validation",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.extensions.validation.10.0.13.nupkg",
+      "sha256": "FFEA4CD9E63CC08A6C06501641BA6296C12B3CBEE6441FEC567FE408ABD1E909",
+      "nugetSha512": "3zzyZ0oZWtI5qIFv8bnHcyu2VWvnaZDzLgsQcdy1BwgBXRLDzANpIvN9J96LPDDL7LK6tybvDaEewjNcirCbcg==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Microsoft.JSInterop",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/microsoft.jsinterop.10.0.13.nupkg",
+      "sha256": "59D698B7DB8BBE3E83FD7987EC31AC6C4FEC369CD316E6D84454E1AF56151AFA",
+      "nugetSha512": "BMeeoyNQHGWC/1KxTvCCgC9BpLjgGlIeLqRl5A6U+dg0CfuV+Ui8dT44oQxePNrU1RXY5IKgo5IvMjNPJt1dlw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": true,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "Moq",
+      "version": "4.21.0",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/moq.4.21.0.nupkg",
+      "sha256": "266D99204031191B849685FACAA6BFAAD28CB9A483F79E9B999F7A18855B9A6B",
+      "nugetSha512": "HUjrhhzEJ/AfbSBCnR8lPkpveVGpV/dNuOlnpfqBNTME93izly1CRV4N5zBySqz4m2yCRlHLPy/PnPzYokbwIg==",
+      "licence": "BSD-3-Clause",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "System.Diagnostics.EventLog",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/system.diagnostics.eventlog.10.0.13.nupkg",
+      "sha256": "0F9ACF5968CD1CDAC7C8E82A5D4F2AA254D8CCE29CCD912BF8129850EE444FC9",
+      "nugetSha512": "DkNjtQyPR5Ud/zHnWHdsOuKbFRL9nIC92Q76z0NmHVDoQm40toLtsGFTIWq7toBoVa6fo/DInL3PLxY3Asixyw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "System.Security.Cryptography.Pkcs",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/system.security.cryptography.pkcs.10.0.13.nupkg",
+      "sha256": "54ED24578EAD34B5B50D259084243432F11733E2754B8B196E799D3418D304A7",
+      "nugetSha512": "a+EovgC1fBnwdlQ6cn3j4JFBfKqiFaFvoAhjisOoSvazLAcIznaBzPQP0oYnvccmeXfqUH1KebVZOxSeH6rMaw==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "System.Security.Cryptography.Xml",
+      "version": "10.0.13",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/system.security.cryptography.xml.10.0.13.nupkg",
+      "sha256": "6EC31ECBC9F51102D9FB7FF0E9607AE7699BF203299A4702A31D5273322A4E89",
+      "nugetSha512": "v6/GHhLaHkuN/ISgbKzBeyC7TP7S6Qm/dVyKA+p0ay9nlJyLif+spozjAGclY/FRIv2TC+KNQCo7dSNmupvWtQ==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": null,
+      "reviewedException": null
+    },
+    {
+      "id": "System.Threading.RateLimiting",
+      "version": "8.0.0",
+      "project": "TestQtsBilling/TestQtsBilling.csproj",
+      "file": "build-kit/packages/system.threading.ratelimiting.8.0.0.nupkg",
+      "sha256": "28E11612DE99B61BD91C9D96A7BD1DF6706106B3EAA1B1900E2DADC2529887FC",
+      "nugetSha512": "7mu9v0QDv66ar3DpGSZHg9NuNcxDaaAcnMULuZlaTpP9+hwXhrxNGsF5GmLkSHxFdb5bBc1TzeujsRgTrPWi+Q==",
+      "licence": "MIT",
+      "requireLicenceAcceptance": false,
+      "notice": "build-kit/notices/system.threading.ratelimiting.8.0.0",
+      "reviewedException": null
+    }
+  ]
+}

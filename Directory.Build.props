@@ -1,0 +1,13 @@
+<Project>
+  <!--
+    Specification task 11: every retained project restores against a committed packages.lock.json.
+
+    Restore writes or refreshes that file, so an ordinary connected build keeps working. The build kit's
+    admission check then restores in locked mode (RestoreLockedMode), which fails when the resolved graph no
+    longer matches the reviewed lock. That is the difference between a pinned offline build and a hope, and it
+    is the reason the property lives here instead of in twelve project files.
+  -->
+  <PropertyGroup>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+</Project>
