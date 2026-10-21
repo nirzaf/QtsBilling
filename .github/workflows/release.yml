@@ -54,7 +54,7 @@ jobs:
       - name: Provision migration and runtime roles
         run: >
           pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Provision
-          -HostName postgres -Port 5432 -Database postgres -AdminUser qtsbilling
+          -HostName localhost -Port 5432 -Database postgres -AdminUser qtsbilling
           -AdminPassword qtsbilling -MigratorUser qts_migrator -MigratorPassword qtsbilling
           -AppUser qts_app -AppPassword qtsbilling
 
@@ -74,7 +74,7 @@ jobs:
       - name: Verify runtime role has DML privileges only
         run: >
           pwsh -File scripts/provision-postgres-roles.ps1 -Mode Psql -Action Verify
-          -HostName postgres -Port 5432 -Database postgres -AppUser qts_app -AppPassword qtsbilling
+          -HostName localhost -Port 5432 -Database postgres -AppUser qts_app -AppPassword qtsbilling
 
       - name: Test PostgreSQL/API integration suite
         run: dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release
