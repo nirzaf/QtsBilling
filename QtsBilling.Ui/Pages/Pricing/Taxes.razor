@@ -1,0 +1,122 @@
+@page "/catalog/taxes"
+@namespace QtsBilling.Ui.Pages.Pricing
+@using QtsBilling.Contracts.Identity
+@using QtsBilling.Contracts.Pricing
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Taxes - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Taxes</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The rates this business can charge with. A rate is stored as an exact fraction; the percent you see is
+            how it is read back.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Reload</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="BeginCreate" Disabled="@(!_canManage || _busy)">
+            Add rate
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    Two facts an operator must not lose while editing a rate, because they are the difference between a tax setup
+    and a re-priced history (specification D05/D10, task 16 recipe step 2).
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    A document line carries the rate and the inclusive or exclusive mode it was priced with, so changing a rate here
+    never rewrites an invoice that is already posted. Whether a product's tax is added on top or already included is
+    decided on the product, not on the rate.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    <MudTable Items="_rates" Loading="_busy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Tax rates">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh Style="text-align:right">Rate</MudTh>
+            <MudTh>Stored as</MudTh>
+            <MudTh>Default</MudTh>
+            <MudTh>State</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Rate" Style="text-align:right">@PercentOf(context.Rate)</MudTd>
+            <MudTd DataLabel="Stored as">@context.Rate.ToString("0.############", System.Globalization.CultureInfo.InvariantCulture)</MudTd>
+            <MudTd DataLabel="Default">
+                @if (context.IsDefault)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Primary" Variant="Variant.Text">Default for new products</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="State">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(context.IsActive ? Color.Success : Color.Default)">
+                    @(context.IsActive ? "Active" : "Out of service")
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginEdit(context))" Disabled="@(!_canManage)">Change</MudButton>
+                    @if (context.IsActive)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
+                                   OnClick="@(() => DeactivateAsync(context))" Disabled="@(!_canManage || _busy)">
+                            Take out of service
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No tax rate is defined, so a taxed product has nothing to charge with.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Spacing="2" Class="mt-3">
+        <MudSwitch T="bool" @bind-Value="_includeInactive" @bind-Value:after="LoadAsync"
+                   Label="Include rates taken out of service" Color="Color.Primary" />
+    </MudStack>
+
+    @if (_editing is not null || _creating)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@(_creating ? "Add a tax rate" : $"Change {_editing?.Name}")</MudText>
+
+            <MudGrid Spacing="2" Class="mt-2">
+                <MudItem xs="12" md="5">
+                    <MudTextField @bind-Value="_name" Label="Name" MaxLength="200"
+                                  HelperText="What prints on the document, for example VAT 15."
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudNumericField T="decimal" @bind-Value="_percent" Label="Rate as a percentage" Min="0" Max="100" Step="0.01m"
+                                     Adornment="Adornment.End" AdornmentText="%"
+                                     HelperText="@FractionHint"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSwitch T="bool" @bind-Value="_isDefault" Label="Default for new products" Color="Color.Primary" Class="pt-2" />
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        Only one rate can be the default; setting this one moves it here in the same transaction.
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || _name.Trim().Length == 0)">
+                    @(_creating ? "Create rate" : "Save rate")
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

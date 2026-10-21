@@ -29,6 +29,8 @@ builder.Services.AddScoped<IAdministrationUserApiClient, AdministrationUserApiCl
 builder.Services.AddScoped<IDeviceAdministrationApiClient, DeviceAdministrationApiClient>();
 builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>();
 builder.Services.AddScoped<ISupplierApiClient, SupplierApiClient>();
+builder.Services.AddScoped<IMasterDataApiClient, MasterDataApiClient>();
+builder.Services.AddScoped<QtsBilling.Contracts.Pricing.IPricingApiClient, QtsBilling.Contracts.Pricing.PricingApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();
 builder.Services.AddScoped<IInventoryApiClient, InventoryApiClient>();
 builder.Services.AddScoped<IBankingApiClient, BankingApiClient>();

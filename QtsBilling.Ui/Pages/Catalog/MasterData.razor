@@ -1,0 +1,160 @@
+@page "/catalog/master-data"
+@namespace QtsBilling.Ui.Pages.Catalog
+@using QtsBilling.Contracts.Catalog
+@using QtsBilling.Contracts.Identity
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Catalog reference lists - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Catalog reference lists</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The units, categories, brands and product groups a product is described with. A product only ever
+            selects from these - it cannot invent one.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">
+            Reload
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="BeginCreate" Disabled="@(!_canWrite || _busy)">
+            Add to @TabName
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    Three rules the server enforces and the screen states first: a name is unique per business, a category cannot
+    be its own ancestor, and a record is retired rather than erased (specification task 16, recipe steps 1 and 4).
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    Names are unique within this business, a category may sit under an active category that is not one of its own
+    descendants, and taking a record out of service leaves every product that already uses it readable. A unit's
+    decimal rule is what its products inherit when a quantity is entered.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    @* The four lists are shown one at a time, chosen by buttons that say which one is on screen: the reference a
+       product picks must be unambiguous, and a tab strip that hides its own state is worse than a plain choice. *@
+    <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap" aria-label="Which reference list is shown" Class="mb-3">
+        @foreach (var kind in Kinds)
+        {
+            var index = IndexOf(kind);
+            <MudButton Variant="@(Tab == kind ? Variant.Filled : Variant.Outlined)"
+                       Color="@(Tab == kind ? Color.Primary : Color.Default)"
+                       OnClick="@(() => SelectTab(index))"
+                       aria-pressed="@(Tab == kind ? "true" : "false")">
+                @TabNameOf(kind)
+            </MudButton>
+        }
+    </MudStack>
+
+    <MudTable Items="RowsOf(Tab)" Loading="_busy" Dense="true" Hover="true" Striped="true"
+              Breakpoint="Breakpoint.Sm" aria-label="@(TabNameOf(Tab))">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            @if (Tab == MasterDataResource.Units)
+            {
+                <MudTh>Short name</MudTh>
+                <MudTh>Decimal quantities</MudTh>
+            }
+            @if (Tab == MasterDataResource.Categories)
+            {
+                <MudTh>Sits under</MudTh>
+            }
+            <MudTh>State</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            @if (Tab == MasterDataResource.Units)
+            {
+                <MudTd DataLabel="Short name">@(context.ShortName ?? "-")</MudTd>
+                <MudTd DataLabel="Decimal quantities">@(context.AllowDecimals == true ? "allowed" : "whole numbers only")</MudTd>
+            }
+            @if (Tab == MasterDataResource.Categories)
+            {
+                <MudTd DataLabel="Sits under">@ParentName(context)</MudTd>
+            }
+            <MudTd DataLabel="State">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Color="@(context.IsActive != false ? Color.Success : Color.Default)">
+                    @(context.IsActive != false ? "Active" : "Out of service")
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginEdit(context))" Disabled="@(!_canWrite)">
+                        Change
+                    </MudButton>
+                    @if (context.IsActive != false)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
+                                   OnClick="@(() => DeactivateAsync(context))" Disabled="@(!_canWrite || _busy)">
+                            Take out of service
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">
+                Nothing is on this list yet, so a product cannot be described with it. Add the first one.
+            </MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    @if (_editing is not null || _creating)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@(_creating ? $"Add to {TabName}" : $"Change {_editing?.Name}")</MudText>
+
+            <MudGrid Spacing="2" Class="mt-2">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_name" Label="Name" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+
+                @if (Tab == MasterDataResource.Units)
+                {
+                    <MudItem xs="12" md="4">
+                        <MudTextField @bind-Value="_shortName" Label="Short name" MaxLength="16"
+                                      HelperText="What prints on a document line."
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudSwitch T="bool" @bind-Value="_allowDecimals" Label="Quantities may be fractional" Color="Color.Primary" Class="pt-2" />
+                    </MudItem>
+                }
+
+                @if (Tab == MasterDataResource.Categories)
+                {
+                    <MudItem xs="12" md="6">
+                        <MudSelect T="Guid?" @bind-Value="_parentId" Label="Sits under"
+                                   HelperText="An active category, never this one or one of its own descendants."
+                                   Variant="Variant.Outlined" Margin="Margin.Dense">
+                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">No parent - this is a top-level category</MudSelectItem>
+                            @foreach (var candidate in ParentCandidates)
+                            {
+                                <MudSelectItem T="Guid?" Value="@((Guid?)candidate.Id)">@candidate.Name</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || !CanSave)">
+                    Save
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

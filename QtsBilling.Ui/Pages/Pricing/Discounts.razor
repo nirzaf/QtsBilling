@@ -1,0 +1,153 @@
+@page "/catalog/discounts"
+@namespace QtsBilling.Ui.Pages.Pricing
+@using QtsBilling.Contracts.Identity
+@using QtsBilling.Contracts.Pricing
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Discount policy - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Discount policy</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The discount definitions a cashier or an order may apply: one kind, one value, one scope and one
+            window each. They do not stack, and nothing here invents a promotion engine.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Reload</MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="BeginCreate" Disabled="@(!_canManage || _busy)">
+            Add definition
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    A percentage is between 0 and 100 and a fixed amount cannot be negative; the window must end after it starts, and
+    both instants are stored in UTC and shown in this business's own time zone (@BusinessTimeZone). A definition that
+    has expired is still shown for the documents that used it, and a cashier's own allowance is a separate limit set
+    on their account.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    <MudTable Items="_discounts" Loading="_busy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Discount definitions">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Kind</MudTh>
+            <MudTh Style="text-align:right">Value</MudTh>
+            <MudTh>Applies to</MudTh>
+            <MudTh>Window</MudTh>
+            <MudTh>Usable now</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">@context.Name</MudTd>
+            <MudTd DataLabel="Kind">@context.Kind</MudTd>
+            <MudTd DataLabel="Value" Style="text-align:right">@PricingRules.ValueText(context)</MudTd>
+            <MudTd DataLabel="Applies to">@context.AppliesTo</MudTd>
+            <MudTd DataLabel="Window">@PricingRules.WindowText(context, BusinessZone)</MudTd>
+            <MudTd DataLabel="Usable now">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Color="@(PricingRules.AppliesNow(context, NowUtc) ? Color.Success : Color.Default)">
+                    @PricingRules.StatusText(context, NowUtc)
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginEdit(context))" Disabled="@(!_canManage)">Change</MudButton>
+                    @if (context.IsActive)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
+                                   OnClick="@(() => DeactivateAsync(context))" Disabled="@(!_canManage || _busy)">
+                            Take out of service
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No discount definition exists, so nothing can be discounted by policy.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Spacing="2" Class="mt-3">
+        <MudSwitch T="bool" @bind-Value="_includeInactive" @bind-Value:after="LoadAsync"
+                   Label="Include definitions taken out of service" Color="Color.Primary" />
+        <MudSelect T="string" @bind-Value="_scopeFilter" Label="Scope"
+                   Variant="Variant.Outlined" Margin="Margin.Dense">
+            <MudSelectItem T="string" Value="@AnyScope">Every scope</MudSelectItem>
+            @foreach (var scope in Scopes)
+            {
+                <MudSelectItem T="string" Value="@scope">@scope</MudSelectItem>
+            }
+        </MudSelect>
+        <MudButton Variant="Variant.Outlined" OnClick="LoadAsync" Disabled="@_busy">Apply</MudButton>
+    </MudStack>
+
+    @if (_editing is not null || _creating)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@(_creating ? "Add a discount definition" : $"Change {_editing?.Name}")</MudText>
+
+            <MudGrid Spacing="2" Class="mt-2">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_name" Label="Name" MaxLength="200" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_kind" Label="Kind" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@("Percentage")">Percentage of the line</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Fixed")">Fixed amount off</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudNumericField T="decimal" @bind-Value="_value"
+                                     Label="@(_kind == "Percentage" ? "Percentage" : "Amount")"
+                                     Min="0" Max="@(_kind == "Percentage" ? 100m : 0m)"
+                                     HelperText="@ValueHint"
+                                     Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_appliesTo" Label="Applies to" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var scope in Scopes)
+                        {
+                            <MudSelectItem T="string" Value="@scope">@scope</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        The scope names what the definition may be applied to. Which product, category or customer is
+                        chosen when a line is discounted - this screen does not pick one.
+                    </MudText>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudDatePicker @bind-Date="_startsOn" Label="Starts on (this business's date)"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudDatePicker @bind-Date="_endsOn" Label="Ends on (this business's date)"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSwitch T="bool" @bind-Value="_isActive" Label="Active" Color="Color.Primary" Class="pt-2" />
+                </MudItem>
+            </MudGrid>
+
+            @if (WindowProblem is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2" role="alert">@WindowProblem</MudAlert>
+            }
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || !CanSave)">
+                    @(_creating ? "Create definition" : "Save definition")
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="Cancel">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

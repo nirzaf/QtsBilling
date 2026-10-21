@@ -78,10 +78,9 @@ public static class ShellNavigation
             "Arrives with task 29."),
         new("Stock counts", "inventory/counts", Icons.Material.Filled.FactCheck, GroupInventory, Permissions.InventoryAdjust, ShellAvailability.Planned,
             "Arrives with task 30."),
-        new("Taxes", "catalog/taxes", Icons.Material.Filled.Percent, GroupInventory, Permissions.TaxesManage, ShellAvailability.Planned,
-            "Arrives with task 16."),
-        new("Discount policy", "catalog/discounts", Icons.Material.Filled.Sell, GroupInventory, Permissions.DiscountsManage, ShellAvailability.Planned,
-            "Arrives with task 16."),
+        new("Reference lists", "catalog/master-data", Icons.Material.Filled.FormatListBulleted, GroupInventory, Permissions.ProductsRead, ShellAvailability.Available),
+        new("Taxes", "catalog/taxes", Icons.Material.Filled.Percent, GroupInventory, Permissions.TaxesManage, ShellAvailability.Available),
+        new("Discount policy", "catalog/discounts", Icons.Material.Filled.Sell, GroupInventory, Permissions.DiscountsManage, ShellAvailability.Available),
 
         // Finance: the customer ledger, money received, and the books.
         new("Customers", "customers", Icons.Material.Filled.People, GroupFinance, Permissions.CustomersRead, ShellAvailability.Available),
