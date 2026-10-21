@@ -162,6 +162,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
+    public DbSet<InstanceBootstrap> InstanceBootstraps => Set<InstanceBootstrap>();
+
     public DbSet<IdempotencyReceipt> IdempotencyReceipts => Set<IdempotencyReceipt>();
 
     public DbSet<ProcessedOperation> ProcessedOperations => Set<ProcessedOperation>();
@@ -231,6 +233,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         ConfigureSalesOrders(modelBuilder);
         ConfigureFulfillment(modelBuilder);
         ConfigurePlatform(modelBuilder);
+        ConfigureInstanceBootstrap(modelBuilder);
         ConfigureOpenIddict(modelBuilder);
 
         ApplyGlobalConventions(modelBuilder);

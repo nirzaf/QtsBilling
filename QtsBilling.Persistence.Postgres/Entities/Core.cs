@@ -121,3 +121,31 @@ public sealed class DeviceRegistration : TenantEntity
 
     public DateTimeOffset? RevokedAtUtc { get; set; }
 }
+
+/// <summary>
+/// The single instance-level marker written by the operator bootstrap (specification task 05). The fixed
+/// singleton key makes a second completed bootstrap impossible; the row holds no secret.
+/// </summary>
+public sealed class InstanceBootstrap
+{
+    public const short SingletonValue = 1;
+
+    public short SingletonKey { get; set; } = SingletonValue;
+
+    public Guid InstanceId { get; set; }
+
+    public string State { get; set; } = "Completed";
+
+    public int SchemaVersion { get; set; }
+
+    public Guid FirstOwnerUserId { get; set; }
+
+    public Guid FirstBusinessId { get; set; }
+
+    public DateTimeOffset InitialisedAtUtc { get; set; }
+
+    /// <summary>NewBusiness (zero openings acknowledged) or PendingNativeOpening (cannot post until native openings exist).</summary>
+    public string OpeningMode { get; set; } = string.Empty;
+
+    public string? ApprovedOpeningManifestHash { get; set; }
+}

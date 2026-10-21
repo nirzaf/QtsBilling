@@ -411,8 +411,22 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!principal.TryGetCurrentUserId(out var listUserId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var size = Math.Clamp(pageSize ?? 25, 1, 200);
         var query = db.Invoices.AsNoTracking().Where(invoice => invoice.BusinessId == businessId);
+
+        // Location-limited memberships never see another location's invoices, and invoices without a location
+        // are visible only to memberships that hold every location.
+        var accessibleLocations = await BusinessScope.AccessibleLocationIdsAsync(db, listUserId, businessId, cancellationToken).ConfigureAwait(false);
+        if (accessibleLocations is not null)
+        {
+            var locationIds = accessibleLocations.ToArray();
+            query = query.Where(invoice => invoice.LocationId != null && locationIds.Contains(invoice.LocationId.Value));
+        }
 
         if (!string.IsNullOrWhiteSpace(status))
         {
@@ -506,11 +520,17 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!principal.TryGetCurrentUserId(out var readUserId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var invoice = await db.Invoices.AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        if (invoice is null)
+        // An invoice outside the caller's locations is reported as missing: its existence is not disclosed.
+        if (invoice is null || !await CanAccessInvoiceLocationAsync(db, readUserId, businessId, invoice.LocationId, cancellationToken).ConfigureAwait(false))
         {
             return NotFoundInvoice();
         }
@@ -529,11 +549,16 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!principal.TryGetCurrentUserId(out var printUserId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var invoice = await db.Invoices.AsNoTracking()
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        if (invoice is null)
+        if (invoice is null || !await CanAccessInvoiceLocationAsync(db, printUserId, businessId, invoice.LocationId, cancellationToken).ConfigureAwait(false))
         {
             return NotFoundInvoice();
         }
@@ -774,11 +799,16 @@ public static class InvoiceEndpoints
 
         if (!TryGetUserId(principal, out var updateUserId)) return BusinessScope.MissingMembership();
 
+        if (!principal.TryGetCurrentUserId(out var locationUserId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var invoice = await db.Invoices
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        if (invoice is null)
+        if (invoice is null || !await CanAccessInvoiceLocationAsync(db, locationUserId, businessId, invoice.LocationId, cancellationToken).ConfigureAwait(false))
         {
             return NotFoundInvoice();
         }
@@ -870,11 +900,16 @@ public static class InvoiceEndpoints
             return BusinessScope.MissingMembership();
         }
 
+        if (!principal.TryGetCurrentUserId(out var locationUserId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var invoice = await db.Invoices
             .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
             .ConfigureAwait(false);
 
-        if (invoice is null)
+        if (invoice is null || !await CanAccessInvoiceLocationAsync(db, locationUserId, businessId, invoice.LocationId, cancellationToken).ConfigureAwait(false))
         {
             return NotFoundInvoice();
         }
@@ -956,7 +991,7 @@ public static class InvoiceEndpoints
                     .FirstOrDefaultAsync(cancellationToken)
                     .ConfigureAwait(false);
 
-                if (invoice is null)
+                if (invoice is null || !await CanAccessInvoiceLocationAsync(db, userId, businessId, invoice.LocationId, cancellationToken).ConfigureAwait(false))
                 {
                     throw new DomainRuleException(
                         StatusCodes.Status404NotFound,
@@ -2325,6 +2360,20 @@ public static class InvoiceEndpoints
             ["recognitionMode"] = ["Choose Service or DirectGoods. Sale and delivery representations use their source workflows."],
         });
 
+    private static IResult ForbiddenLocation()
+        => ApiResults.Problem(StatusCodes.Status403Forbidden, ApiErrorCodes.Forbidden, "The membership cannot access this location.");
+
+    private static async Task<bool> CanAccessInvoiceLocationAsync(
+        BillingDbContext db,
+        Guid userId,
+        Guid businessId,
+        Guid? locationId,
+        CancellationToken cancellationToken)
+    {
+        var accessible = await BusinessScope.AccessibleLocationIdsAsync(db, userId, businessId, cancellationToken).ConfigureAwait(false);
+        return accessible is null || (locationId is { } location && accessible.Contains(location));
+    }
+
     private static void AddLines(BillingDbContext db, Guid businessId, Guid invoiceId, IReadOnlyList<PricedLine> lines)
     {
         var lineNo = 1;
@@ -2440,8 +2489,10 @@ public static class InvoiceEndpoints
                 LedgerWriter.Round(invoiceLine.LineTotal - prior.LineTotal));
         }
 
+        // A partial credit follows the tax composition the line was issued with; it is never recomputed as Exclusive.
+        var taxMode = CommercialAmountCalculator.ParseTaxMode(invoiceLine.TaxMode, "lines");
         var discount = LedgerWriter.Round(invoiceLine.DiscountAmount * requestedQuantity / invoiceLine.Quantity);
-        if (invoiceLine.TaxRate == 1m)
+        if (taxMode == QtsModels.ValueObjects.CommercialTaxMode.Exclusive && invoiceLine.TaxRate == 1m)
         {
             // Invoice snapshots accept a 100% exclusive tax rate, while the shared commercial
             // calculator deliberately supports rates below 100% only. Preserve the issued invoice's
@@ -2454,7 +2505,7 @@ public static class InvoiceEndpoints
         var amounts = CommercialAmountCalculator.ComputeLine(
             requestedQuantity,
             invoiceLine.UnitPrice,
-            QtsModels.ValueObjects.CommercialTaxMode.Exclusive,
+            taxMode,
             invoiceLine.TaxRate,
             discount,
             field: "lines");
@@ -2541,7 +2592,9 @@ public static class InvoiceEndpoints
                 line.DiscountAmount,
                 line.TaxRate,
                 line.TaxAmount,
-                line.LineTotal))
+                line.LineTotal,
+                line.TaxMode,
+                line.RevenueBaseAmount))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 

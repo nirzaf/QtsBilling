@@ -23,6 +23,30 @@ public partial class BillingDbContext
         modelBuilder.Entity<IdentityRoleClaim<Guid>>(b => b.ToTable("role_claims"));
     }
 
+    /// <summary>
+    /// The instance-level bootstrap marker. It is not tenant-scoped: its fixed singleton key is the database-level
+    /// guarantee that an instance is initialised once.
+    /// </summary>
+    private void ConfigureInstanceBootstrap(ModelBuilder modelBuilder)
+    {
+        modelBuilder.Entity<InstanceBootstrap>(b =>
+        {
+            b.ToTable("instance_bootstrap");
+            b.HasKey(e => e.SingletonKey);
+            b.Property(e => e.SingletonKey).ValueGeneratedNever();
+            b.Property(e => e.State).HasMaxLength(32).IsRequired();
+            b.Property(e => e.OpeningMode).HasMaxLength(32).IsRequired();
+            b.Property(e => e.ApprovedOpeningManifestHash).HasMaxLength(128);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.FirstOwnerUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Business>().WithMany().HasForeignKey(e => e.FirstBusinessId).OnDelete(DeleteBehavior.Restrict);
+            b.ToTable(t => t.HasCheckConstraint("ck_instance_bootstrap_singleton", "singleton_key = 1"));
+            b.ToTable(t => t.HasCheckConstraint("ck_instance_bootstrap_state", "state = 'Completed'"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_instance_bootstrap_opening_mode",
+                "opening_mode IN ('NewBusiness', 'PendingNativeOpening')"));
+        });
+    }
+
     private void ConfigureCore(ModelBuilder modelBuilder)
     {
         modelBuilder.Entity<Business>(b =>

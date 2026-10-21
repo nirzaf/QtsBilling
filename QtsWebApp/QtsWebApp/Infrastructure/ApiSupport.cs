@@ -36,6 +36,9 @@ public static class BusinessScope
             && Guid.TryParse(value, out businessId);
     }
 
+    public static bool TryGetCurrentUserId(this ClaimsPrincipal principal, out Guid userId)
+        => Guid.TryParse(principal.FindFirst(ClaimTypes.NameIdentifier)?.Value, out userId);
+
     public static IResult MissingMembership()
         => ApiResults.Problem(
             StatusCodes.Status403Forbidden,
@@ -48,6 +51,71 @@ public static class BusinessScope
     /// </summary>
     public static bool HasPermission(this ClaimsPrincipal principal, string permission)
         => principal.HasClaim(QtsClaims.Permission, permission);
+
+    /// <summary>
+    /// The current permission of the user in the business, read from the membership and user rows rather than
+    /// from the claims issued at sign-in. A deactivated user, locked user or revoked membership holds nothing.
+    /// </summary>
+    public static async Task<bool> HasCurrentPermissionAsync(
+        BillingDbContext db,
+        Guid userId,
+        Guid businessId,
+        string permission,
+        CancellationToken cancellationToken)
+    {
+        var actor = await db.Users.AsNoTracking()
+            .Where(user => user.Id == userId)
+            .Select(user => new { user.IsActive, user.LockoutEnd })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (actor is null || !actor.IsActive || (actor.LockoutEnd is { } lockedUntil && lockedUntil > DateTimeOffset.UtcNow))
+        {
+            return false;
+        }
+
+        var role = await db.BusinessMemberships.AsNoTracking()
+            .Where(membership => membership.UserId == userId && membership.BusinessId == businessId && membership.IsActive)
+            .Select(membership => (MembershipRole?)membership.Role)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return role is { } current && RolePermissions.For(current).Contains(permission, StringComparer.Ordinal);
+    }
+
+    /// <summary>
+    /// The locations the membership may read, or <c>null</c> when it holds every location of the business.
+    /// An inactive membership reads no location.
+    /// </summary>
+    public static async Task<IReadOnlyList<Guid>?> AccessibleLocationIdsAsync(
+        BillingDbContext db,
+        Guid userId,
+        Guid businessId,
+        CancellationToken cancellationToken)
+    {
+        var membership = await db.BusinessMemberships.AsNoTracking()
+            .Where(row => row.UserId == userId && row.BusinessId == businessId && row.IsActive)
+            .Select(row => new { row.Id, row.AllLocations })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (membership is null)
+        {
+            return [];
+        }
+
+        if (membership.AllLocations)
+        {
+            return null;
+        }
+
+        return await db.BusinessMembershipLocations.AsNoTracking()
+            .Join(db.BusinessLocations.AsNoTracking(), grant => new { grant.BusinessId, grant.LocationId }, location => new { BusinessId = location.BusinessId, LocationId = location.Id }, (grant, location) => new { grant, location })
+            .Where(row => row.grant.BusinessId == businessId && row.grant.MembershipId == membership.Id && row.location.IsActive)
+            .Select(row => row.grant.LocationId)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+    }
 
     public static async Task<bool> CanAccessLocationAsync(
         BillingDbContext db,

@@ -130,7 +130,8 @@ public sealed class InvoiceSequence : TenantEntity
 /// <summary>Controlled invoice issuance; lines always carry historical snapshots.</summary>
 public sealed class Invoice : TenantEntity
 {
-    public string RecognitionMode { get; set; } = "LegacyHistorical";
+    /// <summary>Economic recognition source; rows created before the mode existed stay HistoricalUnknown.</summary>
+    public string RecognitionMode { get; set; } = "HistoricalUnknown";
 
     public Guid? LocationId { get; set; }
 

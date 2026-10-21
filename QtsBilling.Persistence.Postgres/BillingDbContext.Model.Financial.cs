@@ -493,6 +493,9 @@ public partial class BillingDbContext
             b.ToTable(t => t.HasCheckConstraint(
                 "ck_invoices_balance_math",
                 "balance_due = GREATEST(0, total_amount - amount_paid - credited_amount) AND amount_paid >= 0 AND credited_amount >= 0"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_invoices_recognition_mode",
+                "recognition_mode IN ('Service', 'DirectGoods', 'SaleRepresentation', 'Delivery', 'HistoricalUnknown')"));
             b.HasOne<BusinessLocation>()
                 .WithMany()
                 .HasForeignKey(e => new { e.LocationId, e.BusinessId })

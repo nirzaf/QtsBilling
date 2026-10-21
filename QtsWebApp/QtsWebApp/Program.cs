@@ -14,6 +14,7 @@ using System.Threading.RateLimiting;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Orders;
 using QtsBilling.Contracts.Invoices;
+using QtsBilling.Contracts.Inventory;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
@@ -320,6 +321,9 @@ builder.Services.AddHttpClient<IFulfillmentApiClient, FulfillmentApiClient>(clie
 builder.Services.AddHttpClient<IInvoiceApiClient, InvoiceApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+builder.Services.AddHttpClient<IInventoryApiClient, InventoryApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
@@ -332,6 +336,14 @@ builder.Services.AddSingleton(serviceProvider =>
 });
 
 var app = builder.Build();
+
+// The operator bootstrap runs as a command: it initialises an empty migrated instance and exits before any listener
+// starts, so no public route can ever create the first owner.
+if (LocalBootstrap.IsBootstrapCommand(args))
+{
+    Environment.ExitCode = await LocalBootstrap.RunCommandAsync(app.Services, args);
+    return;
+}
 
 app.UseOpenTelemetryPrometheusScrapingEndpoint();
 

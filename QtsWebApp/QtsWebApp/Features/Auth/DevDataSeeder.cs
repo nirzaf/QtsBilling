@@ -188,7 +188,8 @@ public static class DevDataSeeder
         }
     }
 
-    private static readonly (string Code, string Name, AccountType Type)[] DefaultChart =
+    /// <summary>The default chart of accounts; shared with the operator bootstrap, which seeds the same codes.</summary>
+    internal static readonly (string Code, string Name, AccountType Type)[] DefaultChart =
     [
         ("1000", "Cash on Hand", AccountType.Asset),
         ("1010", "Bank", AccountType.Asset),

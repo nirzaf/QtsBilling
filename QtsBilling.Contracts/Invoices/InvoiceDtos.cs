@@ -81,7 +81,11 @@ public sealed record InvoiceLineDto(
     decimal DiscountAmount,
     decimal TaxRate,
     decimal TaxAmount,
-    decimal LineTotal);
+    decimal LineTotal,
+    /// <summary>Immutable tax composition of the line (Exclusive, Inclusive or Exempt); later credits follow it.</summary>
+    string TaxMode = "Exclusive",
+    /// <summary>Immutable revenue base of the line (payable amount minus the tax it carries).</summary>
+    decimal RevenueBaseAmount = 0m);
 
 public sealed record InvoicePaymentDto(
     Guid Id,

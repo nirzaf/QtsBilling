@@ -3,6 +3,8 @@
 @using QtsBilling.Contracts.Clients
 @using QtsBilling.Contracts.Customers
 @using QtsBilling.Contracts.Inventory
+@using QtsBilling.Contracts.Pos
+@using QtsModels.ValueObjects
 
 <PageTitle>@(_isNew ? "New invoice" : "Invoice") - QTS Billing</PageTitle>
 
@@ -26,28 +28,26 @@ else
 {
     @if (!string.IsNullOrWhiteSpace(_error))
     {
-        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3">@_error</MudAlert>
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_error</MudAlert>
     }
 
-    @if (_detail is not null && _detail.Invoice.Status != InvoiceState.Draft)
+    @if (_detail is not null && !_isEditable)
     {
-        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
-            This invoice is @StatusLabel(_detail.Invoice.Status). Draft fields are locked after issue.
-            @if (!string.IsNullOrWhiteSpace(_detail.Invoice.Note)) { <span> @_detail.Invoice.Note</span> }
-        </MudAlert>
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">@ReadOnlyMessage</MudAlert>
         <MudPaper Class="pa-4" Outlined="true">
             <MudGrid Spacing="2">
                 <MudItem xs="12" sm="6"><MudText><b>Customer:</b> @(_detail.Invoice.CustomerName ?? "Walk-in / service")</MudText></MudItem>
                 <MudItem xs="12" sm="6"><MudText><b>Dates:</b> @_detail.Invoice.IssueDate.ToString("d") · due @(_detail.Invoice.DueDate?.ToString("d") ?? "—")</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Recognition:</b> @RecognitionLabel(_detail.Invoice.RecognitionMode)</MudText></MudItem>
                 <MudItem xs="12"><MudTable Items="_detail.Lines" Dense="true" Hover="true" aria-label="Invoice lines">
                     <HeaderContent><MudTh>Item</MudTh><MudTh>Qty</MudTh><MudTh>Unit price</MudTh><MudTh>Tax</MudTh><MudTh>Total</MudTh></HeaderContent>
                     <RowTemplate><MudTd DataLabel="Item">@context.ProductName</MudTd><MudTd DataLabel="Qty">@context.Quantity</MudTd><MudTd DataLabel="Unit price">@context.UnitPrice.ToString("N2")</MudTd><MudTd DataLabel="Tax">@context.TaxAmount.ToString("N2")</MudTd><MudTd DataLabel="Total">@context.LineTotal.ToString("N2")</MudTd></RowTemplate>
                 </MudTable></MudItem>
                 <MudItem xs="12" sm="6"><MudText><b>Total:</b> @_detail.Invoice.TotalAmount.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
                 <MudItem xs="12" sm="6"><MudText><b>Balance due:</b> @_detail.Invoice.BalanceDue.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
-                @if (_detail.Invoice.Status == InvoiceState.Draft && _canIssue)
+                @if (_isIssuable)
                 {
-                    <MudItem xs="12"><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="IssueAsync" Disabled="@_busy">Issue invoice</MudButton></MudItem>
+                    <MudItem xs="12"><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="IssueAsync" Disabled="@_busy">@(_busy ? "Issuing…" : "Issue invoice")</MudButton></MudItem>
                 }
                 @if (_detail.Invoice.Status != InvoiceState.Draft)
                 {
@@ -56,17 +56,17 @@ else
             </MudGrid>
         </MudPaper>
     }
-    else if (_isNew || _detail?.Invoice.Status == InvoiceState.Draft)
+    else if (_isEditable)
     {
         <MudPaper Class="pa-4" Outlined="true">
             <EditForm Model="_form" OnValidSubmit="SaveAsync">
                 <DataAnnotationsValidator />
                 <MudGrid Spacing="2">
                     <MudItem xs="12" sm="6">
-                        <MudSelect T="Guid?" Label="Customer" @bind-Value="_form.CustomerId" Variant="Variant.Outlined" Clearable="true">
-                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">Walk-in / service</MudSelectItem>
-                            @foreach (var customer in _customers) { <MudSelectItem T="Guid?" Value="@((Guid?)customer.Id)">@customer.Name</MudSelectItem> }
-                        </MudSelect>
+                        <MudAutocomplete T="CustomerDto" Label="Customer" Value="_selectedCustomer" ValueChanged="OnCustomerChanged"
+                                         SearchFunc="SearchCustomersAsync" ToStringFunc="@(customer => customer?.Name ?? string.Empty)"
+                                         Clearable="true" ResetValueOnEmptyText="true" DebounceInterval="300" Variant="Variant.Outlined"
+                                         HelperText="Leave empty for a walk-in or service customer" />
                     </MudItem>
                     <MudItem xs="12" sm="6">
                         <MudSelect T="Guid?" Label="Location" @bind-Value="_form.LocationId" Variant="Variant.Outlined" Clearable="true">
@@ -88,8 +88,20 @@ else
                         <MudItem xs="12" md="1" Class="d-flex align-center"><MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="Remove invoice line" OnClick="@(() => RemoveLine(index))" Disabled="@(_form.Lines.Count <= 1)" /></MudItem>
                     }
                     <MudItem xs="12"><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine" Disabled="@_busy">Add line</MudButton></MudItem>
-                    <MudItem xs="12"><MudTextField Label="Invoice total (server calculated)" Value="@EstimatedTotal.ToString("N2")" ReadOnly="true" Variant="Variant.Outlined" /></MudItem>
-                    <MudItem xs="12"><MudStack Row="true" Spacing="2"><MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy">@(_busy ? "Saving…" : "Save draft")</MudButton>@if (!_isNew && _detail is not null) { <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync" Disabled="@_busy">Delete draft</MudButton> }</MudStack></MudItem>
+                    <MudItem xs="12"><MudTextField Label="Estimated total (the server calculates the final total on save)" Value="@EstimateText" ReadOnly="true" Variant="Variant.Outlined" HelperText="Estimate only: tax rates are entered as percentages and converted once." /></MudItem>
+                    <MudItem xs="12">
+                        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                            <MudButton ButtonType="ButtonType.Submit" Variant="Variant.Filled" Color="Color.Primary" Disabled="@_busy">@(_busy ? "Saving…" : "Save draft")</MudButton>
+                            @if (_isIssuable)
+                            {
+                                <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="IssueAsync" Disabled="@_busy">Issue invoice</MudButton>
+                            }
+                            @if (!_isNew && _detail is not null && _canManage)
+                            {
+                                <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="DeleteAsync" Disabled="@_busy">Delete draft</MudButton>
+                            }
+                        </MudStack>
+                    </MudItem>
                 </MudGrid>
             </EditForm>
         </MudPaper>
@@ -102,10 +114,11 @@ else
     [Inject] private IAccountApiClient Accounts { get; set; } = default!;
     [Inject] private ICustomerApiClient CustomersApi { get; set; } = default!;
     [Inject] private IInventoryApiClient InventoryApi { get; set; } = default!;
+    [Inject] private IDialogService DialogService { get; set; } = default!;
     [Inject] private NavigationManager Navigation { get; set; } = default!;
     private readonly InvoiceForm _form = new();
-    private readonly List<CustomerDto> _customers = [];
     private IReadOnlyList<BusinessLocationDto> _locations = [];
+    private CustomerDto? _selectedCustomer;
     private InvoiceDetailDto? _detail;
     private DateTime? _issueDate = DateTime.Today;
     private DateTime? _dueDate;
@@ -114,78 +127,265 @@ else
     private bool _canRead;
     private bool _canManage;
     private bool _canIssue;
+    private int _loadVersion;
     private bool _isNew => InvoiceId is null;
     private string? _error;
-    private decimal EstimatedTotal => _form.Lines.Sum(x => Math.Max(0, x.Quantity * x.UnitPrice - x.DiscountAmount) * (1 + x.TaxRate / 100));
+
+    // Only draft Service and DirectGoods invoices are edited here; source-linked and unknown-mode drafts are read-only.
+    private bool _isEditable => _canManage && (_isNew || _detail is { Invoice.Status: InvoiceState.Draft } && IsEditableMode(_detail.Invoice.RecognitionMode));
+    private bool _isIssuable => _canIssue && _detail is { Invoice.Status: InvoiceState.Draft } && IsEditableMode(_detail.Invoice.RecognitionMode);
+
+    private string ReadOnlyMessage => _detail is null ? string.Empty
+        : _detail.Invoice.Status != InvoiceState.Draft ? $"This invoice is {StatusLabel(_detail.Invoice.Status)}. Draft fields are locked after issue."
+        : !_canManage ? "You can view this draft, but your role cannot edit it."
+        : _detail.Invoice.RecognitionMode == InvoiceRecognitionMode.HistoricalUnknown
+            ? "This draft predates recognition modes, so it cannot be issued. Create a new draft instead."
+            : $"This draft is maintained by its {RecognitionLabel(_detail.Invoice.RecognitionMode)} workflow.";
+
+    private string EstimateText => ComputeEstimate() is { } total ? total.ToString("N2") : "—";
 
     protected override async Task OnParametersSetAsync()
     {
+        // Each load gets a version; an older response that completes late is discarded instead of replacing the new route.
+        var version = ++_loadVersion;
+        ResetState();
         _loading = true;
+
         try
         {
             var session = await Accounts.GetSessionAsync();
+            if (version != _loadVersion) return;
+
             _canRead = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true || session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
             _canManage = session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
             _canIssue = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true;
             if (!_canRead) return;
-            if (!_canManage) { _error = "Your current role cannot create or edit invoices."; return; }
-            var customers = await CustomersApi.GetCustomersAsync(pageSize: 200);
-            _customers.AddRange(customers.Items);
-            _locations = await InventoryApi.GetLocationsAsync();
+
+            if (_canManage)
+            {
+                _locations = await InventoryApi.GetLocationsAsync();
+                if (version != _loadVersion) return;
+            }
+
             if (InvoiceId is { } id)
             {
-                _detail = await InvoiceApi.GetAsync(id);
-                var invoice = _detail.Invoice;
+                var detail = await InvoiceApi.GetAsync(id);
+                if (version != _loadVersion) return;
+
+                _detail = detail;
+                var invoice = detail.Invoice;
                 _form.CustomerId = invoice.CustomerId;
-                _form.LocationId = _detail.LocationId;
+                _form.LocationId = detail.LocationId;
                 _form.Note = invoice.Note;
                 _issueDate = invoice.IssueDate.ToDateTime(TimeOnly.MinValue);
                 _dueDate = invoice.DueDate?.ToDateTime(TimeOnly.MinValue);
                 _form.Lines.Clear();
-                _form.Lines.AddRange(_detail.Lines.Select(line => new InvoiceLineForm { VariantId = line.VariantId, ProductName = line.ProductName, Quantity = line.Quantity, UnitPrice = line.UnitPrice, DiscountAmount = line.DiscountAmount, TaxRate = line.TaxRate }));
+                _form.Lines.AddRange(detail.Lines.Select(line => new InvoiceLineForm
+                {
+                    VariantId = line.VariantId,
+                    ProductName = line.ProductName,
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountAmount = line.DiscountAmount,
+                    // The wire carries a fraction (0.15); the form edits percent units (15).
+                    TaxRate = line.TaxRate * 100m,
+                }));
+
+                if (_canManage && invoice.CustomerId is { } customerId && !string.IsNullOrWhiteSpace(invoice.CustomerName))
+                {
+                    _selectedCustomer = await FindCustomerAsync(customerId, invoice.CustomerName);
+                    if (version != _loadVersion) return;
+                }
             }
-            else if (_locations.Count == 1) _form.LocationId = _locations[0].Id;
+            else if (_locations.Count == 1)
+            {
+                _form.LocationId = _locations[0].Id;
+            }
         }
-        catch (ApiException ex) { _error = ex.Message; }
-        finally { _loading = false; }
+        catch (ApiException ex)
+        {
+            if (version == _loadVersion) _error = ex.Message;
+        }
+        finally
+        {
+            if (version == _loadVersion) _loading = false;
+        }
+    }
+
+    private void ResetState()
+    {
+        _detail = null;
+        _error = null;
+        _selectedCustomer = null;
+        _locations = [];
+        _form.CustomerId = null;
+        _form.LocationId = null;
+        _form.Note = null;
+        _form.Lines.Clear();
+        _form.Lines.Add(new InvoiceLineForm());
+        _issueDate = DateTime.Today;
+        _dueDate = null;
+        _canRead = false;
+        _canManage = false;
+        _canIssue = false;
+    }
+
+    private async Task<IEnumerable<CustomerDto>> SearchCustomersAsync(string text, CancellationToken cancellationToken)
+    {
+        try
+        {
+            var page = await CustomersApi.GetCustomersAsync(
+                search: string.IsNullOrWhiteSpace(text) ? null : text.Trim(),
+                pageSize: 25,
+                cancellationToken: cancellationToken);
+            return page.Items;
+        }
+        catch (OperationCanceledException)
+        {
+            return [];
+        }
+        catch (ApiException)
+        {
+            return [];
+        }
+    }
+
+    private async Task<CustomerDto?> FindCustomerAsync(Guid customerId, string customerName)
+    {
+        try
+        {
+            var page = await CustomersApi.GetCustomersAsync(search: customerName, pageSize: 25);
+            return page.Items.FirstOrDefault(customer => customer.Id == customerId);
+        }
+        catch (ApiException)
+        {
+            return null;
+        }
+    }
+
+    private void OnCustomerChanged(CustomerDto? customer)
+    {
+        _selectedCustomer = customer;
+        _form.CustomerId = customer?.Id;
+    }
+
+    private decimal? ComputeEstimate()
+    {
+        try
+        {
+            var lines = _form.Lines
+                .Select(line => new CommercialLineInput
+                {
+                    Quantity = line.Quantity,
+                    UnitPrice = line.UnitPrice,
+                    DiscountAmount = line.DiscountAmount,
+                    TaxRate = line.TaxRate / 100m,
+                    TaxMode = CommercialTaxMode.Exclusive,
+                })
+                .ToArray();
+            return CommercialAmountCalculator.ComputeDocument(lines).PayableAmount;
+        }
+        catch (CommercialAmountException)
+        {
+            return null;
+        }
     }
 
     private async Task SaveAsync()
     {
-        if (!_canManage || _busy) return;
-        if (_form.Lines.Count == 0 || _form.Lines.Any(x => string.IsNullOrWhiteSpace(x.ProductName) || x.Quantity <= 0 || x.UnitPrice < 0 || x.DiscountAmount < 0 || x.TaxRate < 0))
-        { _error = "Enter a description and valid quantity, price, discount, and tax for every line."; return; }
-        _busy = true; _error = null;
+        if (!_isEditable || _busy) return;
+        if (_form.Lines.Count == 0 || _form.Lines.Any(x => string.IsNullOrWhiteSpace(x.ProductName) || x.Quantity <= 0 || x.UnitPrice < 0 || x.DiscountAmount < 0 || x.TaxRate < 0 || x.TaxRate > 100))
+        { _error = "Enter a description and valid quantity, price, discount, and tax (0–100%) for every line."; return; }
+
+        _busy = true;
+        _error = null;
         try
         {
-            var request = new SaveInvoiceRequest(_form.LocationId, _form.CustomerId, DateOnly.FromDateTime(_issueDate ?? DateTime.Today), _dueDate is null ? null : DateOnly.FromDateTime(_dueDate.Value), _form.Note, _form.Lines.Select(x => new InvoiceLineRequest(x.VariantId, x.ProductName.Trim(), x.Quantity, x.UnitPrice, x.DiscountAmount, x.TaxRate)).ToArray(), InvoiceRecognitionMode.Service, ExpectedVersion: _isNew ? null : _detail?.Invoice.Version);
+            // Updates keep the recognition mode the draft already has; only new drafts are created as Service.
+            var mode = _isNew ? InvoiceRecognitionMode.Service : _detail!.Invoice.RecognitionMode;
+            var request = new SaveInvoiceRequest(
+                _form.LocationId,
+                _form.CustomerId,
+                DateOnly.FromDateTime(_issueDate ?? DateTime.Today),
+                _dueDate is null ? null : DateOnly.FromDateTime(_dueDate.Value),
+                _form.Note,
+                _form.Lines.Select(x => new InvoiceLineRequest(x.VariantId, x.ProductName.Trim(), x.Quantity, x.UnitPrice, x.DiscountAmount, x.TaxRate / 100m)).ToArray(),
+                mode,
+                ExpectedVersion: _isNew ? null : _detail?.Invoice.Version);
+
             var saved = _isNew ? await InvoiceApi.CreateAsync(request) : await InvoiceApi.UpdateAsync(InvoiceId!.Value, request);
             Navigation.NavigateTo($"invoices/{saved.Invoice.Id:D}", replace: true);
         }
-        catch (ApiException ex) { _error = ex.Message; }
-        finally { _busy = false; }
+        catch (ApiException ex)
+        {
+            // The entered values stay in the form so the operator can reload or review them after a version conflict.
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task IssueAsync()
     {
-        if (!_canIssue || _detail is null || _busy) return;
-        _busy = true; _error = null;
-        try { _detail = await InvoiceApi.IssueAsync(_detail.Invoice.Id); }
-        catch (ApiException ex) { _error = ex.Message; }
-        finally { _busy = false; }
+        if (!_isIssuable || _detail is null || _busy) return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            _detail = await InvoiceApi.IssueAsync(_detail.Invoice.Id);
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private async Task DeleteAsync()
     {
         if (!_canManage || _detail is null || _busy) return;
-        _busy = true; _error = null;
-        try { await InvoiceApi.DeleteAsync(_detail.Invoice.Id); Navigation.NavigateTo("invoices"); }
-        catch (ApiException ex) { _error = ex.Message; }
-        finally { _busy = false; }
+
+        var confirmed = await DialogService.ShowMessageBoxAsync(
+            "Delete draft",
+            "This removes the draft invoice. Issued invoices cannot be deleted; they are voided or credited.",
+            yesText: "Delete",
+            cancelText: "Keep draft");
+        if (confirmed != true) return;
+
+        _busy = true;
+        _error = null;
+        try
+        {
+            await InvoiceApi.DeleteAsync(_detail.Invoice.Id);
+            Navigation.NavigateTo("invoices");
+        }
+        catch (ApiException ex)
+        {
+            _error = ex.Message;
+        }
+        finally
+        {
+            _busy = false;
+        }
     }
 
     private void AddLine() => _form.Lines.Add(new InvoiceLineForm());
     private void RemoveLine(int index) { if (_form.Lines.Count > 1) _form.Lines.RemoveAt(index); }
+    private static bool IsEditableMode(InvoiceRecognitionMode mode) => mode is InvoiceRecognitionMode.Service or InvoiceRecognitionMode.DirectGoods;
+    private static string RecognitionLabel(InvoiceRecognitionMode mode) => mode switch
+    {
+        InvoiceRecognitionMode.Service => "service",
+        InvoiceRecognitionMode.DirectGoods => "direct-goods",
+        InvoiceRecognitionMode.SaleRepresentation => "sale representation",
+        InvoiceRecognitionMode.Delivery => "delivery",
+        _ => "unknown (historical)",
+    };
     private static string StatusLabel(InvoiceState status) => status == InvoiceState.PartiallyPaid ? "partially paid" : status.ToString().ToLowerInvariant();
 
     private sealed class InvoiceForm
@@ -195,6 +395,7 @@ else
         public string? Note { get; set; }
         public List<InvoiceLineForm> Lines { get; } = [new()];
     }
+
     private sealed class InvoiceLineForm
     {
         public Guid? VariantId { get; set; }
@@ -202,6 +403,7 @@ else
         public decimal Quantity { get; set; } = 1m;
         public decimal UnitPrice { get; set; }
         public decimal DiscountAmount { get; set; }
+        /// <summary>Tax as a percentage (15 = 15%); converted once to a fraction at the wire boundary.</summary>
         public decimal TaxRate { get; set; }
     }
 }

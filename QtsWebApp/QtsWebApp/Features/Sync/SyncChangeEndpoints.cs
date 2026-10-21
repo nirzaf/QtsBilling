@@ -58,8 +58,15 @@ public static class SyncChangeEndpoints
                 });
         }
 
+        if (!principal.TryGetCurrentUserId(out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
         var size = Math.Clamp(limit ?? DefaultLimit, 1, MaxLimit);
-        var canReadCustomers = principal.HasPermission(Permissions.CustomersRead);
+
+        // Customer projections follow the membership held now, not the claims issued when the session started.
+        var canReadCustomers = await BusinessScope.HasCurrentPermissionAsync(db, userId, businessId, Permissions.CustomersRead, cancellationToken).ConfigureAwait(false);
 
         var current = await db.SyncRevisions.AsNoTracking()
             .Where(candidate => candidate.BusinessId == businessId)
