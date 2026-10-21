@@ -19,6 +19,7 @@ using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Pages;
+using QtsBilling.Ui.Smoke;
 
 var failures = 0;
 
@@ -34,27 +35,27 @@ void Check(string name, bool ok, string? detail = null)
 
 Console.WriteLine("== QB-16 platform-injection smoke: shared MudBlazor component outside the web host ==");
 
-// 1. The RCL must not reference any data-access assembly.
+// 1. The RCL must reference only the approved positive dependency graph.
 var sharedAssembly = typeof(Customers).Assembly;
 var referenced = sharedAssembly.GetReferencedAssemblies()
     .Select(reference => reference.Name ?? string.Empty)
     .ToArray();
-string[] forbidden =
-[
-    "QtsBilling.Persistence",
-    "Microsoft.EntityFrameworkCore",
-    "Npgsql",
-    "MongoDB",
-    "QtsServices",
-    "QtsWebApp",
-];
 
-var leaks = referenced
-    .Where(name => forbidden.Any(prefix => name.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)))
-    .ToArray();
+// A controlled fault injection proves the allow-list rejects persistence references. It can only add a
+// disallowed name, never suppress the real assembly references.
+var injectedReference = Environment.GetEnvironmentVariable("QTS_SMOKE_INJECT_REFERENCE");
+if (!string.IsNullOrWhiteSpace(injectedReference))
+{
+    referenced = [.. referenced, injectedReference];
+}
 
-Check("shared assembly has no data-access/host references", leaks.Length == 0, leaks.Length == 0 ? sharedAssembly.GetName().Name : string.Join(", ", leaks));
-Console.WriteLine($"     references: {string.Join(", ", referenced.Where(name => !name.StartsWith("System") && !name.StartsWith("Microsoft") && !name.StartsWith("netstandard")).OrderBy(name => name))}");
+var leaks = SharedUiDependencyPolicy.Disallowed(referenced);
+
+Check(
+    "shared assembly references only the approved Contracts/UI graph",
+    leaks.Length == 0,
+    leaks.Length == 0 ? sharedAssembly.GetName().Name : string.Join(", ", leaks));
+Console.WriteLine($"     references: {string.Join(", ", referenced.Where(name => !name.StartsWith("System", StringComparison.Ordinal) && !name.StartsWith("Microsoft", StringComparison.Ordinal) && !name.StartsWith("netstandard", StringComparison.Ordinal)).OrderBy(name => name, StringComparer.Ordinal))}");
 
 // 2. The routable page lives in the shared assembly (hosts only add it as an additional assembly).
 var route = typeof(Customers).GetCustomAttributes(typeof(RouteAttribute), inherit: false)

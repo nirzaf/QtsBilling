@@ -12,7 +12,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Shared UI talks to feature interfaces only: no persistence, EF, Npgsql or Mongo reference may
+    <!-- Shared UI talks to feature interfaces only: no persistence, EF, server provider or source-era reference may
          reach this project or the bundles that consume it (QB-15/QB-16). -->
     <ProjectReference Include="..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
   </ItemGroup>

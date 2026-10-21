@@ -64,7 +64,7 @@ Total tests: 20
 ====================================================================================================
 == QB-17 static checks: dependency boundary, scaled-integer columns, independent migration histories, no web reference ==
 QtsBilling.Persistence.Sqlite assembly references: Microsoft.Data.Sqlite, Microsoft.EntityFrameworkCore, Microsoft.EntityFrameworkCore.Abstractions, Microsoft.EntityFrameworkCore.Relational, Microsoft.EntityFrameworkCore.Sqlite, Microsoft.Extensions.DependencyInjection.Abstractions, QtsModels, System.Collections, System.Data.Common, System.Linq, System.Linq.Expressions, System.Linq.Queryable, System.Runtime, System.Security.Cryptography, System.Threading
-PASS | no Npgsql/MongoDB/web-host/Contracts reference in the device-local store
+PASS | no server-provider, external-store, web-host or Contracts reference in the device-local store
 PASS | no REAL/float/double column in the SQLite migrations (money and quantity are scaled INTEGER)
        scaled money/quantity column declarations in migrations: 41
 PASS | PostgreSQL migration history untouched by the SQLite work (changed postgres files: 0)

@@ -18,7 +18,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The browser talks to the server API only; no data-access or Mongo assemblies may reach the bundle (QB-15/F-19). -->
+    <!-- The browser talks to the server API only; no data-access or source-era assemblies may reach the bundle (QB-15/F-19). -->
     <ProjectReference Include="..\..\QtsBilling.Contracts\QtsBilling.Contracts.csproj" />
     <!-- Shared, host-agnostic MudBlazor components (QB-16): interfaces come from Contracts, nothing from the host. -->
     <ProjectReference Include="..\..\QtsBilling.Ui\QtsBilling.Ui.csproj" />

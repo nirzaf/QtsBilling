@@ -1,179 +1,20 @@
-﻿# QB-23/24/25 live evidence - 2026-10-19
-# The historical import chain against a representative legacy snapshot.
-# The repository has NO MongoDB dependency: the snapshot is exported once with the operator's own tooling
-# (outside this repository) and is verified by its manifest hashes before anything is read.
+﻿# QB-23 … QB-25 evidence — retirement note
 
-====================================================================================================
-1. Inventory of the snapshot (counts, field types, duplicate keys, credential fields)
-====================================================================================================
-Business                                2 documents  duplicates=0  credentials=False
-BusinessLocation                        1 documents  duplicates=0  credentials=False
-TaxRate                                 2 documents  duplicates=0  credentials=False
-Customer                                5 documents  duplicates=0  credentials=False
-Product                                 2 documents  duplicates=0  credentials=False
-ProductVariant                          2 documents  duplicates=0  credentials=False
-Account                                 2 documents  duplicates=0  credentials=False
-inventory written to C:\Users\DELL\AppData\Local\Temp\opencode\legacy-snapshot\inventory.json
+Status: **RETIRED** (Task 02). The source-format import CLI, its tests and the mapping sample were
+removed from the supported tree. The original evidence remains in Git history before the Task 02
+commit and in archived backups; it is not current runtime evidence.
 
-====================================================================================================
-2. Deterministic transform (rows, quarantine, reconciliation exceptions)
-====================================================================================================
-Business                         -> businesses               rows=2 quarantined=0 reconciliation=0
-BusinessLocation                 -> business_locations       rows=1 quarantined=0 reconciliation=0
-TaxRate                          -> tax_rates                rows=2 quarantined=0 reconciliation=0
-Customer                         -> customers                rows=4 quarantined=1 reconciliation=4
-Product                          -> products                 rows=2 quarantined=0 reconciliation=0
-ProductVariant                   -> product_variants         rows=2 quarantined=0 reconciliation=0
-Account                          -> accounts                 rows=2 quarantined=0 reconciliation=0
-transformed into C:\Users\DELL\AppData\Local\Temp\opencode\legacy-rows (1 quarantined, 4 reconciliation exceptions)
+Replacement evidence (current tree):
 
-====================================================================================================
-3. Import run 1 (rows written)
-====================================================================================================
-businesses               rows=2 updated=2
-business_locations       rows=1 updated=1
-customers                rows=4 updated=4
-tax_rates                rows=2 updated=2
-products                 rows=2 updated=2
-product_variants         rows=2 updated=2
-accounts                 rows=2 updated=2
-identifier map rows: 0; quarantined: 1
+- `TestQtsBilling/DataImport/NativePackageTests.cs` — signed native package shape, tamper and
+  rejection cases (5/5).
+- `TestQtsBilling/DataImport/NativeImportWriterTests.cs` — real PostgreSQL atomic import, rerun,
+  tenant refusal, control totals and rollback cases (6/6).
+- `TestQtsBilling/DataImport/ReconciliationTests.cs` — canonical body, digest/HMAC, independent
+  owner approvals and non-waivable financial exceptions (5/5 pure cases).
+- `T20_06_reconciliation_of_real_import_is_exact_and_reproducible` — real PostgreSQL import,
+  reconciliation and verification.
 
-====================================================================================================
-4. Import run 2 - the same rows are updated, nothing is duplicated
-====================================================================================================
-businesses               rows=2 updated=2
-business_locations       rows=1 updated=1
-customers                rows=4 updated=4
-tax_rates                rows=2 updated=2
-products                 rows=2 updated=2
-product_variants         rows=2 updated=2
-accounts                 rows=2 updated=2
-identifier map rows: 0; quarantined: 1
-
-====================================================================================================
-5. Signed reconciliation report (summary)
-====================================================================================================
-reconciliation: 7 collection(s), 5 exception(s), hash 9682728ca7c2d1b60612b268028b3630a96b2081c07d83f108ecc6e4eb32992c, signature 056941f341b055e9dc9c6f2625891bf0249ce588e441c5cbe030420c3bf2303c
-report written to C:\Users\DELL\AppData\Local\Temp\opencode\reconciliation-report.json
-
-====================================================================================================
-6. The identifier map after the runs
-====================================================================================================
- source_collection | count 
--------------------+-------
- Account           |     2
- Business          |     2
- BusinessLocation  |     1
- Customer          |     4
- Product           |     2
- ProductVariant    |     2
- TaxRate           |     2
-(7 rows)
-
-
-====================================================================================================
-7. Target table counts (the development data plus the imported rows)
-====================================================================================================
-     ?column?     | count 
-------------------+-------
- businesses       |     3
- customers        |    17
- products         |    17
- product_variants |    17
- tax_rates        |     2
- accounts         |    13
-(6 rows)
-
-
-====================================================================================================
-8. The signed report itself (hash + HMAC signature over the canonical body)
-====================================================================================================
-{
-  "sourceEnvironment": "legacy-mongo",
-  "transformationVersion": 1,
-  "generatedAtUtc": "2026-10-19T19:16:05.1576066\u002B00:00",
-  "entries": [
-    {
-      "Collection": "Business",
-      "TargetTable": "businesses",
-      "SourceCount": 2,
-      "TransformedCount": 2,
-      "ImportedCount": 2,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    },
-    {
-      "Collection": "BusinessLocation",
-      "TargetTable": "business_locations",
-      "SourceCount": 1,
-      "TransformedCount": 1,
-      "ImportedCount": 1,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    },
-    {
-      "Collection": "Customer",
-      "TargetTable": "customers",
-      "SourceCount": 5,
-      "TransformedCount": 4,
-      "ImportedCount": 4,
-      "QuarantinedCount": 1,
-      "QuarantineReasons": {
-        "missing_value": 1
-      },
-      "Totals": []
-    },
-    {
-      "Collection": "TaxRate",
-      "TargetTable": "tax_rates",
-      "SourceCount": 2,
-      "TransformedCount": 2,
-      "ImportedCount": 2,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    },
-    {
-      "Collection": "Product",
-      "TargetTable": "products",
-      "SourceCount": 2,
-      "TransformedCount": 2,
-      "ImportedCount": 2,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    },
-    {
-      "Collection": "ProductVariant",
-      "TargetTable": "product_variants",
-      "SourceCount": 2,
-      "TransformedCount": 2,
-      "ImportedCount": 2,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    },
-    {
-      "Collection": "Account",
-      "TargetTable": "accounts",
-      "SourceCount": 2,
-      "TransformedCount": 2,
-      "ImportedCount": 2,
-      "QuarantinedCount": 0,
-      "QuarantineReasons": {},
-      "Totals": []
-    }
-  ],
-  "exceptions": [
-    "Customer/64e000000000000000000001: reconciliation_required - \u0027Balance\u0027 = 1250.5 has no counterpart in the new schema.",
-    "Customer/64e000000000000000000002: reconciliation_required - \u0027Balance\u0027 = -40.25 has no counterpart in the new schema.",
-    "Customer/64e000000000000000000003: reconciliation_required - \u0027Balance\u0027 = 10 has no counterpart in the new schema.",
-    "Customer/64e000000000000000000004: reconciliation_required - \u0027Balance\u0027 = not-a-number has no counterpart in the new schema.",
-    "Customer/64e000000000000000000005: missing_value - The source field \u0027Balance\u0027 is missing and the field has no default."
-  ],
-  "reportSha256": "9682728ca7c2d1b60612b268028b3630a96b2081c07d83f108ecc6e4eb32992c",
-  "signature": "056941f341b055e9dc9c6f2625891bf0249ce588e441c5cbe030420c3bf2303c"
-}
+No source-format project, package, dependency, credential or decoder remains in the current tree.
+No applied migration, posted fact, imported row or unresolved local cash operation was changed by
+the retirement.

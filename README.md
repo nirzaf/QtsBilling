@@ -220,12 +220,12 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | [`QtsWebApp`](QtsWebApp/QtsWebApp/) | ASP.NET Core host | `net10.0` | Blazor Server UI + `/api/v1` (auth, customers, catalog, accounting, inventory, sales, cash register, refunds, invoices, purchasing, expenses, pricing, reports, audit, sync, health); Identity cookie auth + permission policies; correlation IDs; ProblemDetails; OpenAPI in Dev | ✅ QB-05…QB-14 |
 | [`QtsWebApp.Client`](QtsWebApp/QtsWebApp.Client/) | Blazor WebAssembly | `net10.0` | Browser UI + shared components — references Contracts and `QtsBilling.Ui`; **no database or credential material** ships in the bundle | ✅ QB-15 / QB-16 |
 | [`TestQtsBilling`](TestQtsBilling/) | xUnit project | `net10.0` | Value-object + contract tests (no external services required) | ✅ Active |
-| [`QtsBilling.Ui`](QtsBilling.Ui/) | Razor Class Library | `net10.0` | Shared MudBlazor components (customer page/dialog, layout, nav) — Contracts + MudBlazor only, feature-interface injection, no render modes | ✅ QB-16 |
+| [`QtsBilling.Ui`](QtsBilling.Ui/) | Razor Class Library | `net10.0` | Shared MudBlazor components (customer page/dialog, layout, nav) — Contracts/QtsModels + MudBlazor only, feature-interface injection, no render modes | ✅ QB-16 |
 | [`QtsBilling.Ui.Smoke`](QtsBilling.Ui.Smoke/) | Console harness | `net10.0` | HTML-render platform smoke: renders the shared customer component with stub feature interfaces outside the web host | ✅ QB-16 |
 | [`QtsBilling.Persistence.Sqlite`](QtsBilling.Persistence.Sqlite/) | Class library | `net10.0` | Device-local store: one WAL SQLite file per device (discardable cache + durable outbox/receipts/sync state), checked scaled-integer money, own migration history, single-writer gate (QB-17) | ✅ QB-17 |
 | [`QtsBilling.Persistence.Sqlite.Tests`](QtsBilling.Persistence.Sqlite.Tests/) | xUnit project | `net10.0` | 20 temp-file SQLite tests: atomic capture, rollback, idempotency, restart/cache-rebuild durability, crash recovery, integer comparisons, schema upgrade with pending records (QB-17) | ✅ QB-17 |
 | [`QtsBilling.Maui`](QtsBilling.Maui/) | .NET MAUI Blazor Hybrid | `net10.0-windows10.0.19041.0` | Windows desktop client: shared `QtsBilling.Ui` components in a WebView2, device identity, DPAPI secure session, device-local SQLite store, offline-tolerant API adapters (QB-18) | ✅ QB-18 |
-| [`QtsBilling.Migration`](QtsBilling.Migration/) | Console CLI | `net10.0` | Historical import chain: snapshot inventory, deterministic transform, idempotent PostgreSQL load and the signed reconciliation report - no MongoDB dependency (QB-23…QB-25) | ✅ QB-23…QB-25 |
+| [`QtsBilling.DataImport`](QtsBilling.DataImport/) | Console CLI + library | `net10.0` | Native onboarding: hash/signature-verified package validation, idempotent PostgreSQL import with named control totals, canonical reconciliation reports and owner-bound approvals | ✅ Tasks 18–20 |
 
 > **Platform note.** Only the MAUI Windows desktop host needs a Windows-specific TFM
 > (`net10.0-windows10.0.19041.0`). The web host, browser client and all libraries are plain `net10.0`
@@ -259,10 +259,10 @@ ships database credentials or drivers. The desktop keeps a device-local SQLite s
 | Change feed (QB-21) | ✅ Done, verified live |
 | Device sync loop + conflict queue (QB-22) | ✅ Done, verified live |
 | OIDC/PKCE device flow | 📋 TODO — the client still uses the session endpoint |
-| Historical data import + reconciliation (QB-23 … QB-25) | ✅ Done — the import CLI works from an exported snapshot; MongoDB is gone from the repository |
+| Native onboarding import + reconciliation (Tasks 18–20) | ✅ Done on a real PostgreSQL import — signed package, atomic openings, exact reconciliation and independent owner approvals; the legacy source-format CLI is retired |
 | Tests, CI/CD, secret scanning (QB-26) | ✅ Done — the CI and release pipelines are in place |
 | Runbooks, packaging/MSIX, observability, rehearsal (QB-27 / QB-28) | ✅ Done — the runbooks live in docs/migration/deployment.md, the rehearsal passes 7/7 |
-| Production cutover (QB-30) | ✅ The cutover script and the go/no-go gate are in place; the production run needs the real environment and the owner codeword |
+| Production cutover (QB-30 / Task 21) | 🟡 Fail-closed admission and execution are implemented and harness-tested; the production run still needs the real environment, a signed approval manifest and the owner-held codeword |
 
 Full task-by-task view: [`docs/migration/task-status.md`](docs/migration/task-status.md).
 Definition of Done per task: [`docs/migration/tasks/`](docs/migration/tasks/).

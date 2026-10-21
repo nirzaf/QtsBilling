@@ -2,7 +2,7 @@
   "schemaVersion": "1.0",
   "generatedAtUtc": "2026-10-19T00:00:00Z",
   "status": "PARTIAL_UNVERIFIED",
-  "statusNote": "Code-level inventory only. No live MongoDB/deployment was inspected. All live counts/data facts are unverified (see inventory.md section 8).",
+  "statusNote": "Historical code-level inventory only. No live external datastore or deployment was inspected. All live counts/data facts remain unverified (see inventory.md section 8). Provider names are deliberately omitted from the current tree; Git history retains the original record.",
   "source": {
     "repository": "local clone of nirzaf/QtsBilling (open-source snapshot)",
     "commit": "9a7c09371d090e0b463446ece913c24594821e03",
@@ -11,23 +11,22 @@
     "specificationBaseline": "952c9b26a23af165dc42e6c83de99ed5dc8922c1",
     "specificationBaselinePresentLocally": false,
     "divergence": [
-      "secrets removed: MongoDB/encryption secrets now environment-provided",
+      "secrets removed: external-store and encryption secrets are environment-provided",
       "solution already on .NET 10 / C# 14"
     ]
   },
   "projects": [
-    { "name": "QtsModels", "tfm": "net10.0", "kind": "library", "mongoDependency": true, "disposition": "keep domain, strip Mongo (QB-02/QB-29)" },
-    { "name": "QtsServices", "tfm": "net10.0", "kind": "library", "mongoDependency": true, "disposition": "keep semantics, EF persistence (QB-03..QB-13)" },
-    { "name": "QtsBilling", "tfm": "net10.0-windows", "kind": "winforms-winExe", "mongoDependency": "transitive", "disposition": "delete at authorized cleanup (QB-29); replaced by QtsBilling.Maui" },
-    { "name": "QtsWebApp", "tfm": "net10.0-windows", "kind": "aspnetcore-host", "mongoDependency": "transitive", "disposition": "retarget net10.0, drop WinForms ref (QB-01); becomes API host" },
-    { "name": "QtsWebApp.Client", "tfm": "net10.0-windows", "kind": "blazor-wasm", "mongoDependency": true, "disposition": "HTTP-only client, remove DB dependency (QB-01 interim/QB-15)" },
-    { "name": "TestQtsBilling", "tfm": "net10.0", "kind": "xunit", "mongoDependency": true, "disposition": "replace with domain/PG/SQLite/API tests (QB-26)" }
+    { "name": "QtsModels", "tfm": "net10.0", "kind": "library", "externalStoreDependency": true, "disposition": "keep domain, strip external-store dependency (QB-02/QB-29)" },
+    { "name": "retired-source-library", "tfm": "net10.0", "kind": "library", "externalStoreDependency": true, "disposition": "semantics retained in native services; EF persistence (QB-03..QB-13)" },
+    { "name": "retired-desktop-host", "tfm": "net10.0-windows", "kind": "winforms-winExe", "externalStoreDependency": "transitive", "disposition": "retired at authorized cleanup (QB-29); replaced by QtsBilling.Maui" },
+    { "name": "QtsWebApp", "tfm": "net10.0-windows", "kind": "aspnetcore-host", "externalStoreDependency": "transitive", "disposition": "retarget net10.0, drop WinForms ref (QB-01); becomes API host" },
+    { "name": "QtsWebApp.Client", "tfm": "net10.0-windows", "kind": "blazor-wasm", "externalStoreDependency": true, "disposition": "HTTP-only client, remove DB dependency (QB-01 interim/QB-15)" },
+    { "name": "TestQtsBilling", "tfm": "net10.0", "kind": "xunit", "externalStoreDependency": true, "disposition": "replace with domain/PG/SQLite/API tests (QB-26)" }
   ],
   "databases": {
     "name": "qtsBilling",
     "topologyObservedInCode": {
-      "local": { "envVar": "QTS_MONGODB_LOCAL", "defaultConnectionString": "mongodb://localhost:27017/qts-Billing" },
-      "remote": { "envVar": "QTS_MONGODB_REMOTE" }
+      "historicalSource": { "configuration": "environment-provided; no connection string retained in the current tree" }
     },
     "liveInventory": "UNVERIFIED"
   },
@@ -58,25 +57,25 @@
     "notReferencedByServices": ["AccountTransaction", "AccountType", "ActivityLog", "Barcode", "BaseEntity", "Booking", "Brand", "Business", "BusinessLocation", "CashRegister", "CashRegisterTransaction", "Category", "Contact", "Currency", "CustomerGroup", "DashboardConfiguration", "DiscountVariation", "DocumentAndNote", "EntryType", "ExpenseCategory", "FinancialReport", "GroupSubTax", "InvoiceLayout", "InvoiceScheme", "Ledger", "Media", "ModelHasPermission", "ModelHasRole", "Models", "Notification", "NotificationTemplate", "PasswordReset", "PaymentMethodType", "Permission", "Printer", "ProductLocation", "ProductRack", "ProductVariation", "PurchaseLine", "ReferenceCount", "ResProductModifierSet", "ResTable", "Role", "RoleHasPermission", "SellingPriceGroup", "SellLineWarranty", "Session", "StockAdjustmentLine", "StockAdjustmentTemp", "TransactionEntry", "TransactionPayment", "TransactionSellLine", "TransactionSellLinesPurchaseLine", "TypeOfService", "Unit", "UserContactAccess", "Variation", "VariationGroupPrice", "VariationLocationDetail", "VariationTemplate", "VariationValueTemplate", "Warranty"]
   },
   "findings": [
-    { "id": "F-01", "severity": "P0", "status": "confirmed", "file": "QtsServices/PosService.cs", "line": 28, "summary": "non-atomic sale + inventory update, no stock check" },
-    { "id": "F-02", "severity": "P0", "status": "confirmed", "file": "QtsServices/InventoryManagementService.cs", "line": 16, "summary": "local vs remote split write path on Products" },
-    { "id": "F-03", "severity": "P0", "status": "confirmed", "file": "QtsServices/AccountingService.cs", "line": 38, "summary": "no debit/credit balance validation on posting" },
-    { "id": "F-04", "severity": "P0", "status": "confirmed", "files": ["QtsServices/AccountingService.cs", "QtsServices/JournalEntryService.cs"], "summary": "two ledger stores on one model; destructive deletes allowed" },
-    { "id": "F-05", "severity": "P0", "status": "confirmed", "file": "QtsServices/SystemUtilitiesService.cs", "lines": [30, 49, 68, 87], "summary": "raw collection copy sync without revisions/tombstones/idempotency" },
-    { "id": "F-06", "severity": "P0", "status": "confirmed", "file": "QtsServices/UserManagementService.cs", "lines": [22, 27], "summary": "login compares plaintext password" },
+    { "id": "F-01", "severity": "P0", "status": "confirmed", "file": "retired-source/PosService.cs", "line": 28, "summary": "non-atomic sale + inventory update, no stock check" },
+    { "id": "F-02", "severity": "P0", "status": "confirmed", "file": "retired-source/InventoryManagementService.cs", "line": 16, "summary": "local vs remote split write path on Products" },
+    { "id": "F-03", "severity": "P0", "status": "confirmed", "file": "retired-source/AccountingService.cs", "line": 38, "summary": "no debit/credit balance validation on posting" },
+    { "id": "F-04", "severity": "P0", "status": "confirmed", "files": ["retired-source/AccountingService.cs", "retired-source/JournalEntryService.cs"], "summary": "two ledger stores on one model; destructive deletes allowed" },
+    { "id": "F-05", "severity": "P0", "status": "confirmed", "file": "retired-source/SystemUtilitiesService.cs", "lines": [30, 49, 68, 87], "summary": "raw collection copy sync without revisions/tombstones/idempotency" },
+    { "id": "F-06", "severity": "P0", "status": "confirmed", "file": "retired-source/UserManagementService.cs", "lines": [22, 27], "summary": "login compares plaintext password" },
     { "id": "F-07", "severity": "P0", "status": "confirmed", "file": "QtsModels/TransactionPayment.cs", "lines": [26, 36], "summary": "CardNumber and CardSecurity (CVV) persisted" },
-    { "id": "F-08", "severity": "P0", "status": "confirmed", "file": "QtsServices/UtilityServices/EncryptionService.cs", "summary": "static-IV AES-CBC without authenticity tag (key from env)" },
-    { "id": "F-09", "severity": "P0", "status": "confirmed", "file": "QtsServices/PosService.cs", "lines": [59, 65, 75], "summary": "HandlePayment unconditional true; receipt stub" },
+    { "id": "F-08", "severity": "P0", "status": "confirmed", "file": "retired-source/UtilityServices/EncryptionService.cs", "summary": "static-IV AES-CBC without authenticity tag (key from env)" },
+    { "id": "F-09", "severity": "P0", "status": "confirmed", "file": "retired-source/PosService.cs", "lines": [59, 65, 75], "summary": "HandlePayment unconditional true; receipt stub" },
     { "id": "F-10", "severity": "P1", "status": "confirmed", "files": ["QtsModels/Invoice.cs:14", "QtsModels/PurchaseOrder.cs:14"], "summary": "embedded List<Product> instead of line snapshots" },
-    { "id": "F-11", "severity": "P1", "status": "confirmed", "file": "QtsServices/BalanceSheetService.cs", "summary": "manual Assets/Liabilities/Equity CRUD as report source" },
-    { "id": "F-12", "severity": "P1", "status": "confirmed", "file": "QtsServices/InventoryManagementService.cs", "lines": [123, 124], "summary": "upsert result reported via ModifiedCount" },
-    { "id": "F-13", "severity": "P1", "status": "confirmed", "summary": "int references vs ObjectId string identifiers" },
-    { "id": "F-14", "severity": "P1", "status": "confirmed", "file": "QtsServices/CustomerService.cs", "summary": "unawaited index creation; unordered paging" },
+    { "id": "F-11", "severity": "P1", "status": "confirmed", "file": "retired-source/BalanceSheetService.cs", "summary": "manual Assets/Liabilities/Equity CRUD as report source" },
+    { "id": "F-12", "severity": "P1", "status": "confirmed", "file": "retired-source/InventoryManagementService.cs", "lines": [123, 124], "summary": "upsert result reported via ModifiedCount" },
+    { "id": "F-13", "severity": "P1", "status": "confirmed", "summary": "integer references vs opaque external string identifiers" },
+    { "id": "F-14", "severity": "P1", "status": "confirmed", "file": "retired-source/CustomerService.cs", "summary": "unawaited index creation; unordered paging" },
     { "id": "F-15", "severity": "P1", "status": "confirmed", "summary": "hard deletes of referenced master/financial records" },
-    { "id": "F-16", "severity": "P1", "status": "confirmed", "file": "QtsServices/SystemUtilitiesService.cs", "lines": [146, 162], "summary": "backup metadata only; restore no-op returning success" },
-    { "id": "F-17", "severity": "P1", "status": "confirmed", "file": "QtsServices/ExceptionService.cs", "line": 19, "summary": "recursive DB logging; failures masked as empty results" },
+    { "id": "F-16", "severity": "P1", "status": "confirmed", "file": "retired-source/SystemUtilitiesService.cs", "lines": [146, 162], "summary": "backup metadata only; restore no-op returning success" },
+    { "id": "F-17", "severity": "P1", "status": "confirmed", "file": "retired-source/ExceptionService.cs", "line": 19, "summary": "recursive DB logging; failures masked as empty results" },
     { "id": "F-18", "severity": "P1", "status": "confirmed", "file": "QtsModels/Tax.cs", "line": 13, "summary": "double tax rate" },
-    { "id": "F-19", "severity": "P1", "status": "confirmed", "file": "QtsWebApp/QtsWebApp.Client/Program.cs", "summary": "WASM client constructs Mongo-backed services" },
+    { "id": "F-19", "severity": "P1", "status": "confirmed", "file": "QtsWebApp/QtsWebApp.Client/Program.cs", "summary": "WASM client constructs external-store-backed services" },
     { "id": "F-20", "severity": "P1", "status": "confirmed", "file": "TestQtsBilling/TestPosServicesMethods.cs", "summary": "false-positive tests (fake IDs, no-exception sync assertions)" },
     { "id": "F-21", "severity": "P1", "status": "confirmed", "summary": "fifo/lifo/avco declared but unimplemented" },
     { "id": "F-22", "severity": "P1", "status": "confirmed", "summary": "incomplete tenant ownership across core models" }
@@ -84,7 +83,7 @@
   "unknowns": [
     { "id": "U-01", "summary": "live collections/counts/types/backups", "blocks": "G5", "status": "unverified" },
     { "id": "U-02", "summary": "tenant ownership of records", "blocks": "G5", "status": "unverified" },
-    { "id": "U-03", "summary": "int<->ObjectId reference mapping", "blocks": "G5", "status": "unverified" },
+    { "id": "U-03", "summary": "integer-to-external-key reference mapping", "blocks": "G5", "status": "unverified" },
     { "id": "U-04", "summary": "identity provider / user contactability", "blocks": "G1,G5", "status": "open" },
     { "id": "U-05", "summary": "invoice numbering/series and tax compliance", "blocks": "G2", "status": "open" },
     { "id": "U-06", "summary": "stock costing method", "blocks": "G2", "status": "open" },

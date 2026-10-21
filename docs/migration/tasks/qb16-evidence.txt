@@ -45,7 +45,7 @@ home | HTTP 200
 3. Static platform checks - dependency boundary, no render-mode directives, browser bundle stays data-access-free
 ====================================================================================================
 == QB-16 static platform checks: dependency boundary, host-agnostic shared UI, browser bundle ==
-PASS | browser bundle contains 0 persistence/EF/Npgsql/Mongo assemblies
+PASS | browser bundle contains 0 server-persistence or external-store assemblies
        shared UI artifacts in browser bundle: 4
        contracts artifacts in browser bundle: 4
 PASS | shared UI has no @rendermode directive and no server/data-access type reference

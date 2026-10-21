@@ -28,6 +28,14 @@
         <!-- The integration harness runs the real host against a disposable PostgreSQL database. -->
         <ProjectReference Include="..\QtsWebApp\QtsWebApp\QtsWebApp.csproj" />
         <ProjectReference Include="..\QtsBilling.DataImport\QtsBilling.DataImport.csproj" />
+        <ProjectReference Include="..\QtsBilling.Persistence.Sqlite\QtsBilling.Persistence.Sqlite.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+        <!-- Task 02: compile the smoke's exact positive policy into the test assembly. A project
+             reference would collide with the web host's top-level Program type. -->
+        <Compile Include="..\QtsBilling.Ui.Smoke\SharedUiDependencyPolicy.cs"
+                 Link="Architecture\SharedUiDependencyPolicy.cs" />
     </ItemGroup>
 
 </Project>

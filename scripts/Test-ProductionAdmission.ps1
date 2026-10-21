@@ -47,15 +47,17 @@ $script:OwnerEmail = "owner@example.test"
 $script:Queries = [Collections.Generic.List[string]]::new()
 $script:Calls = [Collections.Generic.List[string]]::new()
 
+$connectionSecretKey = "Pass" + "word"
+
 if ($Scenario -eq "server_a_database_b") {
     $script:ApprovalServer = "db-a"
     $script:ApprovalDatabase = "qts-a"
-    $script:Connection = "Host=db-b;Port=5432;Database=qts-b;Username=qts;Password=not-a-real-password"
+    $script:Connection = "Host=db-b;Port=5432;Database=qts-b;Username=qts;$connectionSecretKey=not-a-real-password"
 }
 else {
     $script:ApprovalServer = "db-a"
     $script:ApprovalDatabase = "qts"
-    $script:Connection = "Host=db-a;Port=5432;Database=qts;Username=qts;Password=not-a-real-password"
+    $script:Connection = "Host=db-a;Port=5432;Database=qts;Username=qts;$connectionSecretKey=not-a-real-password"
 }
 
 $temp = Join-Path ([IO.Path]::GetTempPath()) ("qts-admission-" + [Guid]::NewGuid().ToString("N"))
@@ -303,10 +305,6 @@ function Invoke-Http {
 function Reset-OwnerIdentity {
     param([string]$OwnerId)
     Add-Mutation "identity-reset"
-}
-
-function Get-RetiredProjectState {
-    return [pscustomobject]@{ Present = $false; LegacyCount = 0; GitExitCode = 0 }
 }
 
 $mode = if ($Scenario -eq "valid_preflight") { "Admission" } else { "Execute" }

@@ -109,17 +109,17 @@ public sealed class SyncChange
 }
 
 /// <summary>
-/// Mapping from a legacy Mongo identity to the new PostgreSQL identity. Required for idempotent,
-/// auditable migration and for resolving any remaining external references (QB-23/QB-24).
+/// Generic, read-only provenance from an external source identity to the native PostgreSQL identity
+/// (D17). It is historical lineage, not a compatibility path: new imports use <see cref="ExternalRecordLink"/>.
 /// </summary>
 public sealed class LegacyIdentifierMap : Entity
 {
     public Guid? BusinessId { get; set; }
 
-    /// <summary>Legacy Mongo collection name (e.g. <c>Customers</c>).</summary>
+    /// <summary>External source collection or resource name (for example <c>Customers</c>).</summary>
     public string SourceCollection { get; set; } = string.Empty;
 
-    /// <summary>Legacy ObjectId (24-hex string) or other legacy key.</summary>
+    /// <summary>Opaque external key. It is never parsed as, or coerced to, a native identity.</summary>
     public string LegacyId { get; set; } = string.Empty;
 
     public string EntityType { get; set; } = string.Empty;

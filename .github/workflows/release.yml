@@ -84,9 +84,6 @@ jobs:
       - name: Test SQLite device store
         run: dotnet test QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj -c Release
 
-      - name: Test migration tooling
-        run: dotnet test QtsBilling.Migration.Tests/QtsBilling.Migration.Tests.csproj -c Release
-
   release:
     name: Build & publish versioned assets
     runs-on: windows-latest

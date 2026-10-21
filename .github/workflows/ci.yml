@@ -93,9 +93,6 @@ jobs:
       - name: Test device store (SQLite, no external services)
         run: dotnet test QtsBilling.Persistence.Sqlite.Tests/QtsBilling.Persistence.Sqlite.Tests.csproj -c Release
 
-      - name: Test migration tooling
-        run: dotnet test QtsBilling.Migration.Tests/QtsBilling.Migration.Tests.csproj -c Release
-
       # Task 21: the production admission is fail-closed and environment-bound. The harness replaces
       # every external command with a controlled double; it never runs against a real target. A
       # missing PowerShell 7 fails the test instead of skipping it.
