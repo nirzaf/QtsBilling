@@ -383,6 +383,7 @@ app.MapStaticAssets();
 app.MapAuthEndpoints();
 app.MapNativeAuthorizationEndpoints();
 app.MapBusinessAdministrationEndpoints();
+app.MapUserAdministrationEndpoints();
 app.MapDeviceEndpoints();
 app.MapCustomerEndpoints();
 app.MapProductEndpoints();

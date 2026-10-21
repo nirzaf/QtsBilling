@@ -156,3 +156,29 @@ public sealed class InstanceBootstrap
 
     public string? ApprovedOpeningManifestHash { get; set; }
 }
+
+/// <summary>
+/// A short-lived, single-use local handoff ticket (specification task 07). The secret itself is never
+/// stored: only a SHA-256 verifier is, so a database copy cannot sign anybody in. Issue, consumption and
+/// revocation are audited, and a consumed or revoked row is never reusable.
+/// </summary>
+public sealed class SetupTicket : TenantEntity
+{
+    public Guid UserId { get; set; }
+
+    public SetupTicketPurpose Purpose { get; set; } = SetupTicketPurpose.Setup;
+
+    /// <summary>Hex SHA-256 of the handed-over secret; 64 characters, never the secret.</summary>
+    public string VerifierHash { get; set; } = string.Empty;
+
+    public Guid IssuerUserId { get; set; }
+
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+
+    public DateTimeOffset? RevokedAtUtc { get; set; }
+
+    /// <summary>Why the ticket was issued or revoked; required, because handoff of authority is reviewable.</summary>
+    public string Reason { get; set; } = string.Empty;
+}

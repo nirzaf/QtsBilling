@@ -97,6 +97,11 @@ public sealed class DeviceAccountApiClient : IAccountApiClient
         CancellationToken cancellationToken = default)
         => GuardAsync(() => _inner.CompletePasswordResetAsync(request, cancellationToken));
 
+    public Task CompleteSetupTicketAsync(
+        QtsBilling.Contracts.Administration.CompleteSetupTicketRequest request,
+        CancellationToken cancellationToken = default)
+        => GuardAsync(() => _inner.CompleteSetupTicketAsync(request, cancellationToken));
+
     private static bool IsTransportFailure(Exception exception)
         => exception is HttpRequestException or TaskCanceledException or IOException;
 

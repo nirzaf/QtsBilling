@@ -21,6 +21,12 @@ public interface IAccountApiClient
     Task<PasswordResetTicketDto?> RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default);
 
     Task CompletePasswordResetAsync(ResetPasswordRequest request, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Redeems a one-time local setup/recovery ticket and chooses the account's own password. The ticket decides
+    /// whose password is set, so the caller cannot name a target account (specification task 07).
+    /// </summary>
+    Task CompleteSetupTicketAsync(QtsBilling.Contracts.Administration.CompleteSetupTicketRequest request, CancellationToken cancellationToken = default);
 }
 
 /// <inheritdoc cref="IAccountApiClient" />
@@ -85,6 +91,14 @@ public sealed class AccountApiClient : IAccountApiClient
     {
         using var response = await _http
             .PostAsJsonAsync($"{RouteBase}/password-reset/complete", request, ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task CompleteSetupTicketAsync(QtsBilling.Contracts.Administration.CompleteSetupTicketRequest request, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http
+            .PostAsJsonAsync("/api/v1/auth/setup-ticket/complete", request, ContractJson.Options, cancellationToken)
             .ConfigureAwait(false);
         await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
     }

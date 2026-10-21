@@ -186,8 +186,10 @@ public static class AuthEndpoints
             return Results.Ok(new PasswordResetTicketDto(user.Email ?? email, token, DateTimeOffset.UtcNow.Add(ResetTicketLifetime)));
         }
 
-        // Production: the ticket leaves the process through the ops invitation channel, never the API response.
-        logger.LogWarning("Password reset ticket generated for {Email}; deliver it out of band.", user.Email);
+        // Nothing is delivered by this instance: there is no email, SMS or hosted channel to claim. The token is
+        // created so an owner or administrator who is already authenticated can complete recovery through the
+        // local setup-ticket flow, and this response stays identical to the unknown-account answer (task 07).
+        logger.LogInformation("Password reset requested for an active account; recovery continues through the local ticket flow.");
 
         return Results.Accepted();
     }

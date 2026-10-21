@@ -36,6 +36,9 @@ public static class ApiErrorCodes
     public const string RefundNotSupported = "REFUND_NOT_SUPPORTED";
     public const string AlreadyReversed = "ALREADY_REVERSED";
     public const string CreditLimitExceeded = "CREDIT_LIMIT_EXCEEDED";
+
+    /// <summary>A one-time setup/recovery ticket is unknown, already used, revoked or past its lifetime.</summary>
+    public const string SetupTicketInvalid = "TICKET_INVALID";
     public const string ApprovalRequired = "APPROVAL_REQUIRED";
     public const string QuoteNotDraft = "QUOTE_NOT_DRAFT";
     public const string QuoteExpired = "QUOTE_EXPIRED";

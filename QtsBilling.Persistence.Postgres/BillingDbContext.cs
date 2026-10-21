@@ -58,6 +58,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<BusinessMembershipLocation> BusinessMembershipLocations => Set<BusinessMembershipLocation>();
 
+    public DbSet<SetupTicket> SetupTickets => Set<SetupTicket>();
+
     public DbSet<DeviceEnrolmentChallenge> DeviceEnrolmentChallenges => Set<DeviceEnrolmentChallenge>();
 
     public DbSet<DeviceRegistration> DeviceRegistrations => Set<DeviceRegistration>();

@@ -225,3 +225,13 @@ public enum SyncOutcome
     TransientRetry,
     SameKeyDifferentPayload,
 }
+
+/// <summary>
+/// Why a one-time local handoff ticket exists: first password setup for a newly created account, or
+/// administrator-mediated recovery for an account that cannot sign in.
+/// </summary>
+public enum SetupTicketPurpose
+{
+    Setup,
+    Recovery,
+}

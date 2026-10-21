@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Components;
 using MudBlazor;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Identity;
 
@@ -15,6 +16,8 @@ public partial class Login
     private string _email = string.Empty;
     private string _password = string.Empty;
     private string _token = string.Empty;
+    private string _ticketId = string.Empty;
+    private string _ticketSecret = string.Empty;
     private string _newPassword = string.Empty;
     private string? _error;
     private bool _needsSetup;
@@ -66,14 +69,15 @@ public partial class Login
             var ticket = await Accounts.RequestPasswordResetAsync(_email);
             _needsSetup = true;
 
+            // The acknowledgement is deliberately identical whether or not the account exists. This instance
+            // sends no email or SMS: an owner hands the one-time ticket over locally.
+            Snackbar.Add(ticket is null
+                ? "Your request was recorded. Ask an owner of this business for a one-time setup ticket."
+                : "Development only: the reset token is filled in below.", Severity.Info);
+
             if (ticket is not null)
             {
                 _token = ticket.Token;
-                Snackbar.Add("Development ticket filled in automatically; production delivers it out of band.", Severity.Info);
-            }
-            else
-            {
-                Snackbar.Add("If the account exists, a setup ticket has been issued. Contact your administrator.", Severity.Info);
             }
         }
         catch (ApiException exception)
@@ -93,7 +97,22 @@ public partial class Login
 
         try
         {
-            await Accounts.CompletePasswordResetAsync(new ResetPasswordRequest(_email, _token, _newPassword));
+            // A ticket decides whose password is set, so no target account is typed in here.
+            if (Guid.TryParse(_ticketId, out var ticketId) && !string.IsNullOrWhiteSpace(_ticketSecret))
+            {
+                await Accounts.CompleteSetupTicketAsync(new CompleteSetupTicketRequest(ticketId, _ticketSecret.Trim(), _newPassword));
+                _ticketSecret = string.Empty;
+            }
+            else if (!string.IsNullOrWhiteSpace(_token))
+            {
+                await Accounts.CompletePasswordResetAsync(new ResetPasswordRequest(_email, _token, _newPassword));
+            }
+            else
+            {
+                _error = "Paste the ticket id and secret from your administrator, or a reset token.";
+                return;
+            }
+
             Snackbar.Add("Password established. Sign in with the new password.", Severity.Success);
             _password = _newPassword;
             _needsSetup = false;

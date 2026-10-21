@@ -95,8 +95,12 @@ public partial class BillingDbContext
             b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.UserId }).IsUnique();
             b.Property(e => e.AuthorizationRevision).HasDefaultValue(1L);
-            b.Property(e => e.MaxDiscountRate).HasDefaultValue(1.000000m);
-            b.Property(e => e.AllLocations).HasDefaultValue(true);
+
+            // Both columns carry a database default for rows created elsewhere, but an insert must always
+            // carry what the caller asked for: EF would otherwise omit a CLR-default value (false, 0m) and
+            // the database default would silently grant all locations or a 100 % discount allowance.
+            b.Property(e => e.MaxDiscountRate).HasDefaultValue(1.000000m).ValueGeneratedNever();
+            b.Property(e => e.AllLocations).HasDefaultValue(true).ValueGeneratedNever();
             b.Property(e => e.MaxDiscountRate).HasPrecision(9, 6);
             b.ToTable(t => t.HasCheckConstraint("ck_business_memberships_max_discount_rate", "max_discount_rate >= 0 AND max_discount_rate <= 1"));
         });
@@ -155,6 +159,27 @@ public partial class BillingDbContext
             b.Property(e => e.AppVersion).HasMaxLength(64);
             b.HasIndex(e => new { e.BusinessId, e.Status });
             b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
+        });
+
+        modelBuilder.Entity<SetupTicket>(b =>
+        {
+            b.ToTable("setup_tickets", table =>
+            {
+                table.HasCheckConstraint("ck_setup_tickets_purpose", "purpose IN ('Setup', 'Recovery')");
+                table.HasCheckConstraint("ck_setup_tickets_verifier_length", "char_length(verifier_hash) = 64");
+                // One ticket reaches exactly one terminal state, so a consumed secret cannot be revived by revoking.
+                table.HasCheckConstraint("ck_setup_tickets_single_terminal_state", "NOT (consumed_at_utc IS NOT NULL AND revoked_at_utc IS NOT NULL)");
+                table.HasCheckConstraint("ck_setup_tickets_reason", "char_length(reason) BETWEEN 1 AND 500");
+            });
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.UserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.IssuerUserId).OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.VerifierHash).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Reason).HasMaxLength(500).IsRequired();
+            b.HasIndex(e => e.VerifierHash).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.UserId, e.ConsumedAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.ExpiresAtUtc });
         });
     }
 

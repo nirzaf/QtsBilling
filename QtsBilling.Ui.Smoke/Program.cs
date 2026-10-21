@@ -296,6 +296,9 @@ internal sealed class StubAccountApiClient : IAccountApiClient
 
     public Task CompletePasswordResetAsync(ResetPasswordRequest request, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+
+    public Task CompleteSetupTicketAsync(QtsBilling.Contracts.Administration.CompleteSetupTicketRequest request, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }
 
 internal sealed class StubNavigationManager : NavigationManager

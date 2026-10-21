@@ -15,16 +15,19 @@
         @if (_needsSetup)
         {
             <MudAlert Severity="Severity.Info" Class="mt-3">
-                Account setup is required before this account can sign in. Paste the reset ticket and choose a password
-                (in Development the ticket is filled in automatically).
+                This account must set its own password first. An owner of this business issues a one-time ticket and
+                hands it to you in person or on paper; it works once and expires shortly after.
             </MudAlert>
-            <MudTextField @bind-Value="_token" Label="Reset ticket" Class="mt-2" Lines="3" />
+            <MudTextField @bind-Value="_ticketId" Label="Ticket id" Class="mt-2" />
+            <MudTextField @bind-Value="_ticketSecret" Label="Ticket secret" InputType="InputType.Password" Class="mt-2" HelperText="Pasted once; the server keeps only its hash." />
             <MudTextField @bind-Value="_newPassword" Label="New password" InputType="InputType.Password" Class="mt-2" HelperText="At least 12 characters with upper, lower, digit and symbol." />
+            <MudText Typo="Typo.caption" Class="mt-2">Or paste a password-reset token issued by this server:</MudText>
+            <MudTextField @bind-Value="_token" Label="Reset token (optional)" Class="mt-1" Lines="3" />
         }
     </MudCardContent>
     <MudCardActions>
         <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SignInAsync" Disabled="@_busy">Sign in</MudButton>
-        <MudButton Variant="Variant.Text" OnClick="RequestTicketAsync" Disabled="@_busy">Request setup link</MudButton>
+        <MudButton Variant="Variant.Text" OnClick="RequestTicketAsync" Disabled="@_busy">Ask for a setup ticket</MudButton>
         @if (_needsSetup)
         {
             <MudButton Variant="Variant.Filled" Color="Color.Secondary" OnClick="CompleteSetupAsync" Disabled="@_busy">Complete setup</MudButton>
