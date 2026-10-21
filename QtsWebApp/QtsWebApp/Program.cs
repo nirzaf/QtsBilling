@@ -229,9 +229,12 @@ builder.Services.ConfigureApplicationCookie(options =>
     options.Cookie.IsEssential = true;
 
     // CSRF defence: SameSite=Strict plus no cross-origin CORS means a hostile site can never ride the
-    // session cookie, even for state-changing verbs (QB-04 checks).
+    // session cookie, even for state-changing verbs (QB-04 checks). Explicit anti-forgery proof is demanded
+    // on top of that for every cookie-authenticated mutation (task 09), so the defence does not rest on one flag.
     options.Cookie.SameSite = SameSiteMode.Strict;
-    options.Cookie.SecurePolicy = CookieSecurePolicy.SameAsRequest;
+    options.Cookie.SecurePolicy = LocalSecurityPolicy.AllowsDevelopmentConveniences(builder.Environment)
+        ? CookieSecurePolicy.SameAsRequest
+        : CookieSecurePolicy.Always;
     options.ExpireTimeSpan = TimeSpan.FromHours(8);
     options.SlidingExpiration = true;
 
@@ -283,6 +286,7 @@ builder.Services.ConfigureApplicationCookie(options =>
 // API plumbing (QB-05) and the typed API clients used by server prerender and the browser.
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddProblemDetails();
+builder.Services.AddAntiforgery(options => LocalSecurityPolicy.ConfigureAntiforgery(options, builder.Environment));
 builder.Services.ConfigureHttpJsonOptions(options => QtsBilling.Contracts.Serialization.ContractJson.Apply(options.SerializerOptions));
 builder.Services.AddOpenApi();
 builder.Services.AddTransient<LocalApiHandler>();
@@ -292,17 +296,18 @@ builder.Services.AddTransient<LocalApiHandler>();
 builder.Services.AddScoped<QtsBilling.Contracts.Pos.ILocalPosService, QtsWebApp.Features.Pos.WebLocalPosService>();
 builder.Services.TryAddScoped<IPaymentTerminalProvider, DisabledPaymentTerminalProvider>();
 
-// Key-ring persistence (QB-14): set QTS_DATAPROTECTION_PATH in production so session-cookie and ticket
-// keys survive restarts and rotation is a deliberate, reviewed operation. Unset (development) keeps an
-// ephemeral ring; no key material is ever committed or written next to the database.
-var dataProtectionPath = builder.Configuration["QTS_DATAPROTECTION_PATH"];
+// Key-ring persistence (QB-14, task 09): QTS_DATAPROTECTION_PATH points the ring at a private, backed-up
+// directory so session-cookie and ticket keys survive restarts and rotation is a deliberate, reviewed
+// operation. A development or harness ring stays ephemeral, and a deployed instance without one is refused
+// by LocalSecurityPolicy.Enforce below rather than silently regenerating keys. No key material is ever
+// written inside the application directory, where it would be servable and deployable over.
+LocalSecurityPolicy.ConfigureDataProtection(builder.Services, builder.Configuration, builder.Environment);
 
-if (!string.IsNullOrWhiteSpace(dataProtectionPath))
-{
-    builder.Services.AddDataProtection()
-        .PersistKeysToFileSystem(new DirectoryInfo(dataProtectionPath))
-        .SetApplicationName("QtsBilling");
-}
+// Forwarded headers are trusted only for an explicitly configured local proxy, and the Host header only for
+// the owned origin (plus any reviewed alias). With neither configured, a client cannot describe itself as the
+// office proxy or borrow another name (task 09, step 2).
+LocalSecurityPolicy.ConfigureForwardedHeaders(builder.Services, builder.Configuration);
+LocalSecurityPolicy.ConfigureHostFiltering(builder.Services, builder.Configuration);
 
 builder.Services.AddHttpClient<ICustomerApiClient, CustomerApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
@@ -346,7 +351,17 @@ if (LocalBootstrap.IsBootstrapCommand(args))
     return;
 }
 
-app.UseOpenTelemetryPrometheusScrapingEndpoint();
+// Fail closed before anything is served: a production instance with missing keys, an unowned origin or an
+// ephemeral key ring must refuse to start rather than run a financial system on a convenience (task 09).
+LocalSecurityPolicy.Enforce(app.Configuration, app.Environment, app.Logger);
+
+// Forwarded values are believed only after the peer address has matched the reviewed proxy list, so this runs
+// before anything reads the client address. With no configured proxy the headers stay untrusted and the host
+// filter (if an owned origin is configured) answers only the names the operator declared (task 09, step 2).
+if (LocalSecurityPolicy.HasTrustedProxies(app.Configuration))
+{
+    app.UseForwardedHeaders();
+}
 
 if (app.Environment.IsDevelopment())
 {
@@ -377,6 +392,15 @@ app.UseAuthentication();
 app.UseMiddleware<BusinessScopeHeaderMiddleware>();
 app.UseAuthorization();
 app.UseAntiforgery();
+
+// A cookie session may only be mutated with an explicit proof, and only for cookie principals: a native
+// bearer request never inherits one (specification D04, task 09).
+app.UseMiddleware<CookieAntiforgeryMiddleware>();
+
+// Metrics sit behind the management boundary and after authentication, so an unauthenticated scrape of
+// operational data is not a property of the self-hosted profile.
+app.UseMiddleware<MetricsAccessMiddleware>();
+app.UseOpenTelemetryPrometheusScrapingEndpoint();
 
 app.MapStaticAssets();
 

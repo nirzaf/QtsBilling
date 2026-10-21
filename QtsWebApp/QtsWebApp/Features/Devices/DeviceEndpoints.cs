@@ -756,9 +756,10 @@ public static class DeviceEndpoints
 /// The RSA key that signs offline grants. In development/test an ephemeral key is generated per host;
 /// every other environment fails closed unless the reviewed key file is configured.
 /// </summary>
-public sealed class OfflineGrantKeyRing : IDisposable
+public sealed class OfflineGrantKeyRing
 {
-    private const string PrivateKeyVariable = "QTS_OFFLINE_GRANT_PRIVATE_KEY_PATH";
+    /// <summary>Configuration key naming the reviewed offline-grant signing key; the startup policy checks it.</summary>
+    public const string PrivateKeyVariable = "QTS_OFFLINE_GRANT_PRIVATE_KEY_PATH";
 
     private static readonly object CreationGate = new();
     private static OfflineGrantKeyRing? _shared;
@@ -772,7 +773,9 @@ public sealed class OfflineGrantKeyRing : IDisposable
 
     /// <summary>
     /// One signing key per process. A host restart must never invalidate a grant that is still inside
-    /// its lifetime, so the key is loaded once and shared by every host instance in the process.
+    /// its lifetime, so the key is loaded once and shared by every host instance in the process. The type is
+    /// deliberately not <see cref="IDisposable"/>: a container that disposes one host would otherwise destroy the
+    /// key the next host, or a grant still being verified, depends on (task 09 review).
     /// </summary>
     public static OfflineGrantKeyRing Shared(IConfiguration configuration, IWebHostEnvironment environment)
     {
@@ -818,8 +821,6 @@ public sealed class OfflineGrantKeyRing : IDisposable
         throw new InvalidOperationException(
             $"{PrivateKeyVariable} must name the reviewed offline-grant private key outside development.");
     }
-
-    public void Dispose() => PrivateKey.Dispose();
 }
 
 /// <summary>The typed errors the endpoints return without touching the exception middleware.</summary>

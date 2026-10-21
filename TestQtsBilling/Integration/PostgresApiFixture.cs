@@ -109,6 +109,10 @@ public sealed class PostgresApiFixture : IAsyncLifetime
     {
         var client = Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
 
+        // Signing in is itself a cookie mutation from task 09 onwards, so the proof is taken before the login
+        // post and then renewed for the session that post just established.
+        await AttachAntiforgeryAsync(client).ConfigureAwait(false);
+
         var response = await client.PostAsJsonAsync(
             "/api/v1/auth/login",
             new Dictionary<string, string>
@@ -119,7 +123,32 @@ public sealed class PostgresApiFixture : IAsyncLifetime
 
         response.EnsureSuccessStatusCode();
 
+        await AttachAntiforgeryAsync(client).ConfigureAwait(false);
+
         return client;
+    }
+
+    /// <summary>
+    /// Obtains this session's anti-forgery proof and sends it on every mutation, exactly as the typed browser
+    /// client does (specification task 09). A test that signs in by hand must call this before it posts.
+    /// </summary>
+    public static async Task AttachAntiforgeryAsync(HttpClient client)
+    {
+        var tokenResponse = await client.GetAsync(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryTokenEndpoint).ConfigureAwait(false);
+        var tokenBody = await tokenResponse.Content.ReadAsStringAsync().ConfigureAwait(false);
+        if (!tokenResponse.IsSuccessStatusCode)
+        {
+            throw new InvalidOperationException(
+                $"the host refused to issue an anti-forgery proof: {(int)tokenResponse.StatusCode} {tokenBody}");
+        }
+
+        using var document = System.Text.Json.JsonDocument.Parse(tokenBody);
+        var token = document.RootElement.GetProperty("requestToken").GetString()
+            ?? throw new InvalidOperationException("the csrf-token response carried no request token");
+
+        var header = QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryHeaderName;
+        client.DefaultRequestHeaders.Remove(header);
+        client.DefaultRequestHeaders.Add(header, token);
     }
 
     /// <summary>Creates a client for an anonymous caller.</summary>

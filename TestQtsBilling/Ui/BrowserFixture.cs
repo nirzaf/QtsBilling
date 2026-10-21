@@ -331,32 +331,84 @@ public sealed class BrowserFixture : IAsyncLifetime
             HandleCookies = false,
         });
 
-        var response = await client.PostAsJsonAsync(
-            "/api/v1/auth/login",
-            new Dictionary<string, string>
-            {
-                ["email"] = user.Email,
-                ["password"] = TestQtsBilling.Integration.FixtureUsers.Password,
-            }).ConfigureAwait(false);
+        // Signing in is a cookie mutation from task 09 onwards, and no cookie jar is attached to this client, so
+        // the anti-forgery pair is carried by hand: the proof is fetched, its cookie is replayed on the login, and
+        // both cookies are handed to the browser along with the session cookie the login issued.
+        var tokenResponse = await client.GetAsync(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryTokenEndpoint).ConfigureAwait(false);
+        tokenResponse.EnsureSuccessStatusCode();
 
+        using var payload = System.Text.Json.JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync().ConfigureAwait(false));
+        var proof = payload.RootElement.GetProperty("requestToken").GetString()
+            ?? throw new InvalidOperationException("the csrf-token response carried no request token.");
+
+        var antiforgeryCookies = ReadCookiePairs(tokenResponse);
+
+        using var login = new HttpRequestMessage(HttpMethod.Post, "/api/v1/auth/login")
+        {
+            Content = System.Net.Http.Json.JsonContent.Create(
+                new Dictionary<string, string>
+                {
+                    ["email"] = user.Email,
+                    ["password"] = TestQtsBilling.Integration.FixtureUsers.Password,
+                },
+                mediaType: null,
+                options: QtsBilling.Contracts.Serialization.ContractJson.Options),
+        };
+
+        login.Headers.Add(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryHeaderName, proof);
+
+        foreach (var pair in antiforgeryCookies)
+        {
+            login.Headers.Add("Cookie", $"{pair.Key}={pair.Value}");
+        }
+
+        var response = await client.SendAsync(login).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        if (!response.Headers.TryGetValues("Set-Cookie", out var setCookies))
+        var issued = antiforgeryCookies.Concat(ReadCookiePairs(response))
+            .GroupBy(pair => pair.Key, StringComparer.Ordinal)
+            .Select(group => group.Last())
+            .ToList();
+
+        if (issued.Count == 0)
         {
             throw new InvalidOperationException("the host answered the login without a session cookie.");
         }
 
-        return [.. setCookies
-            .Select(raw => raw.Split(';')[0].Split('=', 2))
-            .Where(pair => pair.Length == 2)
+        return [.. issued
             .Select(pair => new Microsoft.Playwright.Cookie
             {
-                Name = pair[0],
-                Value = pair[1],
+                Name = pair.Key,
+                Value = pair.Value,
                 Url = Origin,
                 HttpOnly = true,
                 SameSite = SameSiteAttribute.Strict,
             })];
+    }
+
+    /// <summary>
+    /// Cookies a response issued, as name/value pairs. Attributes are dropped because the browser receives them
+    /// from the Playwright cookie model instead.
+    /// </summary>
+    private static List<KeyValuePair<string, string>> ReadCookiePairs(HttpResponseMessage response)
+    {
+        var pairs = new List<KeyValuePair<string, string>>();
+
+        if (!response.Headers.TryGetValues("Set-Cookie", out var values))
+        {
+            return pairs;
+        }
+
+        foreach (var raw in values)
+        {
+            var assignment = raw.Split(';')[0].Split('=', 2);
+            if (assignment.Length == 2 && !string.IsNullOrWhiteSpace(assignment[0]))
+            {
+                pairs.Add(new KeyValuePair<string, string>(assignment[0].Trim(), assignment[1].Trim()));
+            }
+        }
+
+        return pairs;
     }
 }
 #endif

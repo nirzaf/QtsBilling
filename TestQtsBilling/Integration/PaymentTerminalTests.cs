@@ -146,12 +146,16 @@ public sealed class PaymentTerminalTests : IClassFixture<PostgresApiFixture>
     private async Task<HttpClient> CreateAuthenticatedClientAsync(WebApplicationFactory<Program> factory, FixtureUser user)
     {
         var client = factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
         var response = await client.PostAsJsonAsync("/api/v1/auth/login", new Dictionary<string, string>
         {
             ["email"] = user.Email,
             ["password"] = FixtureUsers.Password,
         });
         response.EnsureSuccessStatusCode();
+
+        // Renew the proof for the session the login just established, as the browser client does.
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
         return client;
     }
 

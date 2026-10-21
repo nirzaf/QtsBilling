@@ -14,8 +14,12 @@ using QtsWebApp.Client.Services;
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
 
 // Every browser call goes through the authenticated server API (QB-15): no database driver, connection
-// string or server secret is ever part of the WebAssembly bundle.
-builder.Services.AddScoped(_ => new HttpClient { BaseAddress = new Uri(builder.HostEnvironment.BaseAddress) });
+// string or server secret is ever part of the WebAssembly bundle. The handler attaches this session's
+// anti-forgery proof to state-changing calls, which the server requires from task 09 onwards.
+builder.Services.AddScoped(_ => new HttpClient(new AntiforgeryHandler { InnerHandler = new HttpClientHandler() })
+{
+    BaseAddress = new Uri(builder.HostEnvironment.BaseAddress),
+});
 builder.Services.AddScoped<ICustomerApiClient, CustomerApiClient>();
 builder.Services.AddScoped<IAccountApiClient, AccountApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();

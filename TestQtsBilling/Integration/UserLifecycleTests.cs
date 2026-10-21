@@ -145,10 +145,15 @@ public sealed class UserLifecycleTests : IClassFixture<PostgresApiFixture>
         {
             AllowAutoRedirect = false,
         });
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
 
         var signIn = await client.PostAsJsonAsync("/api/v1/auth/login",
             new Dictionary<string, string> { ["email"] = created.User.Email, ["password"] = FixtureUsers.Password });
         Assert.True(signIn.IsSuccessStatusCode, $"the new cashier could not sign in: {(int)signIn.StatusCode} {await signIn.Content.ReadAsStringAsync()}");
+
+        // The proof the login needed belongs to the anonymous session; the cashier's own mutations need the
+        // renewed one, exactly as the browser client does after signing in (task 09).
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
 
         var allowed = await client.PostAsJsonAsync("/api/v1/customers", new SaveCustomerRequest("Pre-disable customer", null, null, null));
         Assert.True(allowed.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created,
@@ -224,6 +229,7 @@ public sealed class UserLifecycleTests : IClassFixture<PostgresApiFixture>
         {
             AllowAutoRedirect = false,
         });
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
 
         var response = await client.PostAsJsonAsync("/api/v1/auth/login",
             new Dictionary<string, string> { ["email"] = email, ["password"] = password });

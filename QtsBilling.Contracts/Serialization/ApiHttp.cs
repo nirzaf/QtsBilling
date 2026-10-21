@@ -10,6 +10,33 @@ namespace QtsBilling.Contracts.Serialization;
 /// </summary>
 public static class ApiHttp
 {
+    /// <summary>
+    /// Header carrying the anti-forgery proof of a cookie session (specification task 09). It travels only in a
+    /// header, never in a query string, and a native bearer-only client neither fetches nor sends it.
+    /// </summary>
+    public const string AntiforgeryHeaderName = "X-QTS-CSRF";
+
+    /// <summary>Same-origin GET that hands a cookie client its own proof; the response is never cacheable.</summary>
+    public const string AntiforgeryTokenEndpoint = "/api/v1/auth/csrf-token";
+
+    /// <summary>Verbs that can change server state, so a cookie client has to prove the request was its own.</summary>
+    public static bool IsUnsafe(HttpMethod method)
+        => !HttpMethod.Get.Equals(method) && !HttpMethod.Head.Equals(method) && !HttpMethod.Options.Equals(method);
+
+    /// <summary>
+    /// Attaches the session's proof to a mutating request. Safe methods are left untouched so a token never
+    /// appears in a cacheable GET, and an existing value is never overwritten.
+    /// </summary>
+    public static void AttachAntiforgeryToken(HttpRequestMessage request, string? token)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        if (!string.IsNullOrWhiteSpace(token) && IsUnsafe(request.Method) && !request.Headers.Contains(AntiforgeryHeaderName))
+        {
+            request.Headers.TryAddWithoutValidation(AntiforgeryHeaderName, token);
+        }
+    }
+
     public static async Task ThrowIfFailedAsync(HttpResponseMessage response, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(response);

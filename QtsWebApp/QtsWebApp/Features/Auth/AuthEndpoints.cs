@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using System.Text.Json;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -31,6 +32,10 @@ public static class AuthEndpoints
         group.MapPost("/logout", LogoutAsync).RequireAuthorization();
         group.MapPost("/password-reset/request", RequestPasswordResetAsync).AllowAnonymous().RequireRateLimiting("auth-strict");
         group.MapPost("/password-reset/complete", CompletePasswordResetAsync).AllowAnonymous().RequireRateLimiting("auth-strict");
+
+        // The anti-forgery proof for this browser's own session. Reachable anonymously because signing in is
+        // itself a mutation; the response is never cacheable and the value travels only in a header.
+        group.MapGet("/csrf-token", IssueCsrfTokenAsync).AllowAnonymous();
 
         return app;
     }
@@ -156,6 +161,11 @@ public static class AuthEndpoints
 
         return Results.Ok(await BuildSessionAsync(user, db, cancellationToken).ConfigureAwait(false));
     }
+
+    private static Task<IResult> IssueCsrfTokenAsync(
+        HttpContext http,
+        IAntiforgery antiforgery)
+        => LocalSecurityPolicy.IssueAntiforgeryTokenAsync(http, antiforgery);
 
     private static async Task<IResult> RequestPasswordResetAsync(
         RequestPasswordResetRequest request,

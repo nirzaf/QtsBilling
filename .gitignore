@@ -398,3 +398,4 @@ appsettings.*.local.json
 
 # Local scratch space: page captures and publish output used for manual verification
 /tmp/
+/out/

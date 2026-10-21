@@ -232,6 +232,11 @@ public sealed class BusinessAuthorizationTests : IClassFixture<PostgresApiFixtur
     public async Task Login_is_rate_limited_per_normalized_email_and_ip()
     {
         var client = _fixture.CreateAnonymousClient();
+
+        // Signing in is a cookie mutation, so the harness carries the same anti-forgery proof a browser does
+        // (task 09). The rate limiter is what this case is about, not the proof.
+        await PostgresApiFixture.AttachAntiforgeryAsync(client);
+
         var email = $"rate-limit-{Guid.NewGuid():N}@fixture.test";
         var wrong = $"Invalid-{Guid.NewGuid():N}";
         for (var attempt = 0; attempt < 10; attempt++)

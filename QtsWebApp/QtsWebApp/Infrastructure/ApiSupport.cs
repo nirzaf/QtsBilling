@@ -282,10 +282,12 @@ public sealed class CorrelationIdMiddleware(RequestDelegate next)
 public sealed class LocalApiHandler : DelegatingHandler
 {
     private readonly IHttpContextAccessor _httpContextAccessor;
+    private readonly Microsoft.AspNetCore.Antiforgery.IAntiforgery _antiforgery;
 
-    public LocalApiHandler(IHttpContextAccessor httpContextAccessor)
+    public LocalApiHandler(IHttpContextAccessor httpContextAccessor, Microsoft.AspNetCore.Antiforgery.IAntiforgery antiforgery)
     {
         _httpContextAccessor = httpContextAccessor;
+        _antiforgery = antiforgery;
     }
 
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
@@ -300,6 +302,14 @@ public sealed class LocalApiHandler : DelegatingHandler
             if (context.Request.Headers.Cookie.Count > 0)
             {
                 request.Headers.TryAddWithoutValidation("Cookie", context.Request.Headers.Cookie.ToArray());
+
+                // The in-process call carries the user's cookie, so it must carry that session's anti-forgery
+                // proof too. Prerender is same-origin by construction and never a cross-site form post.
+                if (QtsBilling.Contracts.Serialization.ApiHttp.IsUnsafe(request.Method))
+                {
+                    var tokens = _antiforgery.GetAndStoreTokens(context);
+                    request.Headers.TryAddWithoutValidation(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryHeaderName, tokens.RequestToken);
+                }
             }
         }
 

@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.AspNetCore.WebUtilities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
+using QtsBilling.Contracts.Customers;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using Xunit;
@@ -126,6 +127,35 @@ public sealed class NativeAuthorizationTests : IClassFixture<PostgresApiFixture>
     }
 
     [Fact]
+    public async Task T09_02_a_native_bearer_mutation_carries_no_cookie_token()
+    {
+        // The native client's access token is the whole authority. A bearer mutation must therefore succeed with
+        // no anti-forgery proof at all, and must never be handed a browser session's token (specification task 09).
+        var session = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
+        var verifier = CreateVerifier();
+        var code = await AuthorizeAsync(session, verifier);
+        var tokens = await ExchangeAsync(session, code, verifier);
+
+        var bearer = _fixture.CreateAnonymousClient();
+        bearer.DefaultRequestHeaders.Authorization = new("Bearer", tokens.GetProperty("access_token").GetString());
+
+        Assert.False(bearer.DefaultRequestHeaders.Contains(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryHeaderName));
+
+        var created = await bearer.PostAsJsonAsync("/api/v1/customers", new SaveCustomerRequest("Native bearer customer", null, null, null));
+        var createdBody = await created.Content.ReadAsStringAsync();
+        Assert.True(created.StatusCode is HttpStatusCode.OK or HttpStatusCode.Created,
+            $"a bearer-only mutation was refused: {(int)created.StatusCode} {createdBody}");
+
+        // The same principal's cookie session still needs the proof: the exemption belongs to the bearer request,
+        // not to the user (asserted in full by LocalSecurityPolicyTests).
+        var unproved = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
+        unproved.DefaultRequestHeaders.Remove(QtsBilling.Contracts.Serialization.ApiHttp.AntiforgeryHeaderName);
+
+        var refused = await unproved.PostAsJsonAsync("/api/v1/customers", new SaveCustomerRequest("Forged cookie mutation", null, null, null));
+        Assert.Equal(HttpStatusCode.BadRequest, refused.StatusCode);
+    }
+
+    [Fact]
     public async Task T22_04_the_access_token_loses_authority_when_the_membership_is_revoked()
     {
         var email = $"native-{Guid.NewGuid():N}@qtsbilling.local";
@@ -162,6 +192,7 @@ public sealed class NativeAuthorizationTests : IClassFixture<PostgresApiFixture>
         }
 
         var session = _fixture.Factory.CreateClient(new WebApplicationFactoryClientOptions { AllowAutoRedirect = false });
+        await PostgresApiFixture.AttachAntiforgeryAsync(session);
         var login = await session.PostAsJsonAsync("/api/v1/auth/login", new Dictionary<string, string>
         {
             ["email"] = email,
