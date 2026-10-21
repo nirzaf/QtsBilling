@@ -282,11 +282,19 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
     [Fact]
     public async Task T20_06_reconciliation_of_real_import_is_exact_and_reproducible()
     {
-        var (builder, package) = await ValidPackageAsync();
+        // Use the otherwise-unused second fixture business so this whole-business reconciliation is
+        // not contaminated by the opening imports exercised by the other tests in this class.
+        var businessId = _fixture.BusinessB.BusinessId;
+        var (builder, package) = await ValidPackageAsync(businessId);
         using var _ = builder;
-        await PrepareLocationAsync(builder);
+        await PrepareLocationAsync(builder, businessId);
 
-        var first = await ApplyAsync(package);
+        var importOptions = new NativeImportOptions
+        {
+            TargetBusinessId = businessId,
+            UserId = _fixture.Users.OwnerB.UserId,
+        };
+        var first = await ApplyAsync(package, importOptions);
         Assert.True(first.Committed, first.Failure);
         Assert.Single(first.Openings);
 
@@ -309,7 +317,7 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
             Assert.All(resource.Targets, target =>
             {
                 Assert.True(target.Exists);
-                Assert.Equal(_fixture.BusinessA.BusinessId, target.BusinessId);
+                Assert.Equal(businessId, target.BusinessId);
             });
         });
         Assert.All(firstBody.Aggregates, aggregate =>
@@ -337,7 +345,7 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
 
         // A repeated import reuses the same immutable targets; the exact same canonical report is
         // reproduced without rewriting a journal, a balance, an open item or a source link.
-        var second = await ApplyAsync(package);
+        var second = await ApplyAsync(package, importOptions);
         Assert.True(second.Committed, second.Failure);
         Assert.Equal(0, second.ImportedRecords);
 
@@ -359,29 +367,32 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
         public override DateTimeOffset GetUtcNow() => now;
     }
 
-    private async Task<(NativeTestPackage Builder, ValidatedPackage Package)> ValidPackageAsync()
+    private async Task<(NativeTestPackage Builder, ValidatedPackage Package)> ValidPackageAsync(
+        Guid? businessId = null)
     {
         var builder = NativeTestPackage.Valid();
-        builder.BusinessId = _fixture.BusinessA.BusinessId;
+        builder.BusinessId = businessId ?? _fixture.BusinessA.BusinessId;
         builder.Build();
         var validation = await new NativePackageReader().ValidateAsync(builder.Root, NativeTestData.Trust());
         Assert.True(validation.IsValid);
         return (builder, validation.Package!);
     }
 
-    private async Task PrepareLocationAsync(NativeTestPackage builder)
+    private async Task PrepareLocationAsync(NativeTestPackage builder, Guid? businessId = null)
     {
+        var targetBusinessId = businessId ?? _fixture.BusinessA.BusinessId;
+
         await _fixture.WithFreshContextAsync(async db =>
         {
             var exists = await db.BusinessLocations.AnyAsync(location =>
-                location.BusinessId == _fixture.BusinessA.BusinessId
+                location.BusinessId == targetBusinessId
                 && location.Code == builder.LocationCode);
 
             if (!exists)
             {
                 db.BusinessLocations.Add(new BusinessLocation
                 {
-                    BusinessId = _fixture.BusinessA.BusinessId,
+                    BusinessId = targetBusinessId,
                     Name = $"Native {builder.Prefix}",
                     Code = builder.LocationCode,
                     IsActive = true,
