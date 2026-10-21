@@ -24,9 +24,10 @@ public sealed class DeviceCustomerApiClient : ICustomerApiClient
         string? search = null,
         string? cursor = null,
         int pageSize = 25,
+        bool? includeInactive = null,
         CancellationToken cancellationToken = default)
     {
-        var page = await GuardAsync(() => _inner.GetCustomersAsync(search, cursor, pageSize, cancellationToken));
+        var page = await GuardAsync(() => _inner.GetCustomersAsync(search, cursor, pageSize, includeInactive, cancellationToken));
         await _apiLog.WriteAsync($"   customers items={page.Items.Count}", cancellationToken);
         return page;
     }

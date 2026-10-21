@@ -11,10 +11,16 @@ namespace QtsBilling.Contracts.Clients;
 /// </summary>
 public interface ICustomerApiClient
 {
+    /// <summary>
+    /// One page of this business's customers. <paramref name="includeInactive"/> is what keeps a deactivated party
+    /// reachable for the history it belongs to: the default answer hides them, because they may not be chosen for
+    /// anything new (specification task 15, recipe step 3).
+    /// </summary>
     Task<PagedResult<CustomerDto>> GetCustomersAsync(
         string? search = null,
         string? cursor = null,
         int pageSize = 25,
+        bool? includeInactive = null,
         CancellationToken cancellationToken = default);
 
     Task<CustomerDto> CreateCustomerAsync(SaveCustomerRequest request, CancellationToken cancellationToken = default);
@@ -44,6 +50,7 @@ public sealed class CustomerApiClient : ICustomerApiClient
         string? search = null,
         string? cursor = null,
         int pageSize = 25,
+        bool? includeInactive = null,
         CancellationToken cancellationToken = default)
     {
         var query = $"?pageSize={pageSize}";
@@ -55,6 +62,11 @@ public sealed class CustomerApiClient : ICustomerApiClient
         if (!string.IsNullOrWhiteSpace(cursor))
         {
             query += $"&cursor={Uri.EscapeDataString(cursor)}";
+        }
+
+        if (includeInactive == true)
+        {
+            query += "&includeInactive=true";
         }
 
         using var response = await _http.GetAsync(RouteBase + query, cancellationToken).ConfigureAwait(false);

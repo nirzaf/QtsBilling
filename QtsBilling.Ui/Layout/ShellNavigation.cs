@@ -63,8 +63,7 @@ public static class ShellNavigation
             "Arrives with task 22."),
 
         // Purchasing: suppliers, what is owed to them, and what arrived.
-        new("Suppliers", "suppliers", Icons.Material.Filled.LocalShipping, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
-            "Arrives with task 15."),
+        new("Suppliers", "suppliers", Icons.Material.Filled.LocalShipping, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
         new("Purchase orders", "purchasing/orders", Icons.Material.Filled.Description, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
             "Arrives with task 26."),
         new("Receiving", "purchasing/receiving", Icons.Material.Filled.Inventory, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,

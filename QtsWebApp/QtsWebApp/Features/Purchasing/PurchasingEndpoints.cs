@@ -181,6 +181,7 @@ public static class PurchasingEndpoints
         ClaimsPrincipal principal,
         BillingDbContext db,
         Guid id,
+        HttpRequest httpRequest,
         SaveSupplierRequest request,
         CancellationToken cancellationToken)
     {
@@ -198,6 +199,15 @@ public static class PurchasingEndpoints
             return NotFoundSupplier();
         }
 
+        // The same rule the customer workbench applies: an editor that read the record must send the version it
+        // saw, so two people correcting one supplier cannot quietly overwrite each other (task 15, T15.03).
+        if (httpRequest.Headers.TryGetValue("If-Match", out var ifMatch)
+            && long.TryParse(ifMatch.ToString(), out var expectedVersion)
+            && expectedVersion != supplier.Version)
+        {
+            return SupplierConcurrencyConflict(supplier.Version);
+        }
+
         var errors = ValidateSupplier(request);
 
         if (errors.Count > 0)
@@ -210,7 +220,14 @@ public static class PurchasingEndpoints
         supplier.Phone = string.IsNullOrWhiteSpace(request.Phone) ? null : request.Phone.Trim();
         supplier.Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim();
 
-        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (DbUpdateConcurrencyException)
+        {
+            return SupplierConcurrencyConflict(supplier.Version);
+        }
 
         return Results.Ok(ToSupplierDto(supplier));
     }
@@ -282,6 +299,14 @@ public static class PurchasingEndpoints
             StatusCodes.Status404NotFound,
             ApiErrorCodes.NotFound,
             "The supplier does not exist in this business.");
+
+    /// <summary>A lost edit race says so, and names the version that won, so the screen can re-read and re-apply.</summary>
+    private static IResult SupplierConcurrencyConflict(long storedVersion)
+        => ApiResults.Problem(
+            StatusCodes.Status409Conflict,
+            ApiErrorCodes.OptimisticConcurrencyFailure,
+            "Someone changed this supplier first.",
+            $"The stored version is {storedVersion}. Reload the supplier and repeat the correction you still intend.");
 
     // ---------------------------------------------------------------- purchase orders
 

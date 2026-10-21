@@ -21,6 +21,7 @@ using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Invoices;
 using QtsBilling.Contracts.Pos;
+using QtsBilling.Contracts.Purchasing;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Layout;
 using QtsBilling.Ui.Pages;
@@ -73,11 +74,12 @@ var route = typeof(Customers).GetCustomAttributes(typeof(RouteAttribute), inheri
 Check("customer page carries its own route", route == "/customers", route ?? "missing");
 
 // 3. Render the component with stubbed feature interfaces (the platform-injection point).
+var stubCustomers = new StubCustomerApiClient();
 var services = new ServiceCollection();
 services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
 services.AddSingleton<IJSRuntime>(new StubJsRuntime());
 services.AddMudServices();
-services.AddSingleton<ICustomerApiClient, StubCustomerApiClient>();
+services.AddSingleton<ICustomerApiClient>(stubCustomers);
 services.AddSingleton<IAccountApiClient>(new StubAccountApiClient());
 services.AddSingleton<NavigationManager, StubNavigationManager>();
 
@@ -96,8 +98,15 @@ Check("component renders the search field", html.Contains("Search customers", St
 Check("component renders the add action", html.Contains("Add Customer", StringComparison.Ordinal));
 Check("component renders the refresh action", html.Contains("Refresh", StringComparison.Ordinal));
 File.WriteAllText(Path.Combine(Path.GetTempPath(), "qb16-render.html"), html);
-Check("component renders an empty state", html.Contains("No customers yet", StringComparison.Ordinal));
-Check("component renders table headers", html.Contains(">Name<", StringComparison.Ordinal) && html.Contains(">Email<", StringComparison.Ordinal));
+
+// The task 15 workbench rules, proven where they are visible: a prerender asks the server for nothing, states the
+// loading answer instead of inventing a table, keeps the out-of-service view reachable, and says deactivation is
+// not deletion.
+Check("the customer workbench reads nothing during the prerender", stubCustomers.ListCalls == 0, $"reads: {stubCustomers.ListCalls}");
+Check("the customer workbench states its loading answer rather than an empty file", html.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the customer workbench offers the out-of-service view for history", html.Contains("Include out of service", StringComparison.Ordinal));
+Check("the customer workbench says a deactivated party keeps its history",
+    html.Contains("keeps every invoice and sale that names them", StringComparison.Ordinal));
 Check("no database or connection string leaks into the markup", !html.Contains("Password" + "=", StringComparison.OrdinalIgnoreCase) && !html.Contains("Npgsql", StringComparison.OrdinalIgnoreCase));
 
 // 4. The browser uses the same shared POS page through the online checkout contract.
@@ -424,6 +433,119 @@ Check("a new cashier is offered no discount allowance", AdministrationRules.Defa
 Check("a refusal names the authority that is missing",
     AdministrationRules.MissingReason("Adding a person", Permissions.UsersManage).Contains(Permissions.UsersManage, StringComparison.Ordinal));
 
+// 10. The party workbench (specification task 15): suppliers join customers in the shared library, and the paged
+//     list state that both screens now use is proven directly - bounded pages, a superseded load that cannot paint,
+//     and four different answers for four different failures.
+var stubSuppliers = new StubSupplierApiClient();
+var partyServices = new ServiceCollection();
+partyServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+partyServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+partyServices.AddMudServices();
+partyServices.AddSingleton<NavigationManager, StubNavigationManager>();
+partyServices.AddSingleton<ISupplierApiClient>(stubSuppliers);
+partyServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([Permissions.PurchasingManage]));
+
+await using var partyProvider = partyServices.BuildServiceProvider();
+await using var partyRenderer = new HtmlRenderer(partyProvider, partyProvider.GetRequiredService<ILoggerFactory>());
+
+var suppliersHtml = await partyRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await partyRenderer.RenderComponentAsync<Suppliers>(ParameterView.Empty);
+    return output.ToHtmlString();
+});
+
+Check("the supplier workbench is a shared page with its own route",
+    typeof(Suppliers).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>().Any(a => a.Template.Trim('/') == "suppliers"),
+    typeof(Suppliers).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>().Select(a => a.Template).FirstOrDefault() ?? "missing");
+Check("the supplier workbench renders its heading and actions",
+    suppliersHtml.Contains("Suppliers", StringComparison.Ordinal)
+        && suppliersHtml.Contains("Search suppliers", StringComparison.Ordinal)
+        && suppliersHtml.Contains("Add supplier", StringComparison.Ordinal));
+Check("the supplier workbench reads nothing during the prerender", stubSuppliers.Reads.Count == 0, $"reads: {stubSuppliers.Reads.Count}");
+Check("the supplier workbench says a retired supplier keeps its history",
+    suppliersHtml.Contains("keeps every purchase order, receipt and bill that names it", StringComparison.Ordinal));
+Check("the supplier workbench does not offer fields the contract cannot carry",
+    suppliersHtml.Contains("does not carry those fields yet", StringComparison.Ordinal));
+
+// The paged state itself, tested where it lives rather than through a browser.
+var asked = new List<(string? Search, string? Cursor)>();
+var repaints = 0;
+var paged = new PagedListState<string>(
+    async (search, cursor, pageSize, token) =>
+    {
+        await Task.Yield();
+        asked.Add((search, cursor));
+        token.ThrowIfCancellationRequested();
+
+        return new PagedRows<string>(
+            cursor is null ? ["first page row"] : ["second page row"],
+            cursor is null ? "cursor-two" : null);
+    },
+    () => repaints++);
+
+await paged.ReloadAsync();
+Check("a first page renders rows, not a spinner", paged.State == QtsBilling.Ui.Layout.ShellStateKind.Content && paged.Rows.Count == 1,
+    $"{paged.State}, rows {paged.Rows.Count}");
+
+await paged.NextPageAsync();
+Check("the next page is asked for with the server's cursor", paged.CanGoPrevious
+    && asked.Any(entry => entry.Cursor == "cursor-two")
+    && paged.Rows[0] == "second page row", string.Join("|", asked.Select(entry => entry.Cursor ?? "first")));
+
+await paged.SearchAsync("acme");
+Check("a new search term restarts at the first page", asked[^1] == ("acme", null) && paged.CanGoPrevious == false);
+
+var empty = new PagedListState<string>((_, _, _, _) => Task.FromResult(new PagedRows<string>([], null)), () => repaints++);
+await empty.SearchAsync("nothing");
+Check("no match is its own answer, and says the search ran everywhere", empty.State == QtsBilling.Ui.Layout.ShellStateKind.Empty
+    && empty.Message is { Length: > 0 } && empty.Message.Contains("the server", StringComparison.OrdinalIgnoreCase), empty.Message);
+
+var refused = new PagedListState<string>(
+    (_, _, _, _) => Task.FromException<PagedRows<string>>(new ApiException(403, "FORBIDDEN", "purchasing.manage is required.")),
+    () => repaints++);
+await refused.ReloadAsync();
+Check("a refusal stays a refusal, not an empty list", refused.State == QtsBilling.Ui.Layout.ShellStateKind.Forbidden
+    && refused.Message == "purchasing.manage is required.");
+
+var ended = new PagedListState<string>(
+    (_, _, _, _) => Task.FromException<PagedRows<string>>(new ApiException(401, "UNAUTHENTICATED", "Sign in again.")),
+    () => repaints++);
+await ended.ReloadAsync();
+Check("an ended session offers the way back, not a blank dashboard", ended.State == QtsBilling.Ui.Layout.ShellStateKind.Unauthenticated);
+
+var raced = new PagedListState<string>(
+    (search, cursor, _, _) => cursor is null
+        ? Task.FromResult(new PagedRows<string>(["row one"], "cursor-two"))
+        : Task.FromException<PagedRows<string>>(new ApiException(409, "CONCURRENCY_CONFLICT", "the page moved.")),
+    () => repaints++);
+await raced.ReloadAsync();
+await raced.NextPageAsync();
+Check("a cursor the server no longer honours falls back to the first page and says so",
+    raced.State == QtsBilling.Ui.Layout.ShellStateKind.Conflict && raced.Rows[0] == "row one" && !raced.CanGoPrevious,
+    $"{raced.State}: {raced.Message}");
+
+// A load the operator superseded must not paint over the one that replaced it.
+var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+var stale = new PagedListState<string>(
+    async (search, _, _, token) =>
+    {
+        await release.Task.ConfigureAwait(false);
+        token.ThrowIfCancellationRequested();
+        return new PagedRows<string>([$"row for {search}"], null);
+    },
+    () => repaints++);
+
+var firstLoad = stale.SearchAsync("slow");
+var secondLoad = stale.SearchAsync("fast");
+release.SetResult();
+await secondLoad;
+await Task.WhenAny(firstLoad, Task.Delay(250));
+Check("an older search cannot repaint the list the operator replaced", stale.Rows.Count == 1 && stale.Rows[0] == "row for fast",
+    string.Join(",", stale.Rows));
+
+await paged.DisposeAsync();
+await stale.DisposeAsync();
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -474,12 +596,20 @@ static InvoiceDetailDto InvoiceSample(Guid id, InvoiceState status, InvoiceRecog
 
 internal sealed class StubCustomerApiClient : ICustomerApiClient
 {
+    /// <summary>How often the screen asked for a page, so a prerender that reads is visible as a failure.</summary>
+    public int ListCalls { get; private set; }
+
     public Task<PagedResult<CustomerDto>> GetCustomersAsync(
         string? search = null,
         string? cursor = null,
         int pageSize = 25,
+        bool? includeInactive = null,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(PagedResult<CustomerDto>.Empty(pageSize));
+    {
+        ListCalls++;
+
+        return Task.FromResult(PagedResult<CustomerDto>.Empty(pageSize));
+    }
 
     public Task<CustomerDto> CreateCustomerAsync(SaveCustomerRequest request, CancellationToken cancellationToken = default)
         => Task.FromResult(Sample(request.Name));

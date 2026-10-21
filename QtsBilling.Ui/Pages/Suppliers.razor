@@ -1,0 +1,196 @@
+@page "/suppliers"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Identity
+@using QtsBilling.Contracts.Purchasing
+
+<PageTitle>Suppliers - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Suppliers</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The companies this business buys from. Search and paging run on the server, so a supplier filed last
+            year is one keystroke away rather than a page number to guess.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" Disabled="@(_busy || _list.IsBusy)">
+            Refresh
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="BeginCreate"
+                   StartIcon="@Icons.Material.Filled.Add" Disabled="@(!_canManage || _busy)">
+            Add supplier
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    The two rules an operator needs before touching these records: a supplier is retired rather than erased, and
+    what the supplier is owed lives on the payables screen that task 27 ships - not invented here.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    Taking a supplier out of service keeps every purchase order, receipt and bill that names it; a retired supplier
+    simply cannot be chosen for anything new. Its open balance is shown on the payables screen when that ships
+    (task 27), and purchase orders arrive with task 26. No payment terms or credit limit are offered here, because
+    the supplier contract does not carry those fields yet - they arrive with the work that will honour them rather
+    than being stored where nothing reads them.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<MudPaper Class="pa-3 mb-3" Outlined="true">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="5">
+            <MudTextField @bind-Value="_searchText" Label="Search suppliers"
+                          HelperText="By supplier name. Runs on the server across the whole file."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          IconSize="Size.Medium" Immediate="true" DebounceInterval="350"
+                          OnDebounceIntervalElapsed="SearchChanged"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="4" md="4">
+            <MudSwitch T="bool" @bind-Value="_includeInactive" @bind-Value:after="IncludeInactiveChanged"
+                       Label="Include out of service" Color="Color.Primary" Class="pt-2" />
+        </MudItem>
+        <MudItem xs="12" sm="2" md="3">
+            <MudText Typo="Typo.caption" Align="Align.Right" Class="pb-2">@_list.Rows.Count supplier(s) on this page</MudText>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<ShellStates Kind="_list.State" Body="_list.Message" RetryCallback="ReloadAsync">
+    <MudTable Items="@_list.Rows" Loading="@(_list.IsBusy || _busy)" Dense="true" Hover="true" Striped="true" Bordered="true"
+              Breakpoint="Breakpoint.Sm" aria-label="Suppliers">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>Email</MudTh>
+            <MudTh>Phone</MudTh>
+            <MudTh>Address</MudTh>
+            <MudTh>State</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">
+                @if (context.IsEditing)
+                {
+                    <MudTextField @bind-Value="context.Name" Label="Name" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                }
+                else
+                {
+                    @context.Name
+                }
+                @if (context.ConflictNote is not null)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Warning" role="alert">@context.ConflictNote</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="Email">
+                @if (context.IsEditing)
+                {
+                    <MudTextField @bind-Value="context.Email" Label="Email" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                }
+                else if (!string.IsNullOrWhiteSpace(context.Email))
+                {
+                    <MudLink Href="@($"mailto:{context.Email}")">@context.Email</MudLink>
+                }
+            </MudTd>
+            <MudTd DataLabel="Phone">
+                @if (context.IsEditing)
+                {
+                    <MudTextField @bind-Value="context.Phone" Label="Phone" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                }
+                else if (!string.IsNullOrWhiteSpace(context.Phone))
+                {
+                    <MudChip T="string" Color="Color.Primary" Size="Size.Small">@context.Phone</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Address">
+                @if (context.IsEditing)
+                {
+                    <MudTextField @bind-Value="context.Address" Label="Address" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Class="text-truncate">@context.Address</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="State">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(context.Dto.IsActive ? Color.Success : Color.Default)">
+                    @(context.Dto.IsActive ? "Active" : "Out of service")
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Secondary" Size="Size.Small"
+                               OnClick="@(() => ToggleEdit(context))" StartIcon="@Icons.Material.Filled.Edit"
+                               Disabled="@(!_canManage || _busy)">
+                        @(context.IsEditing ? "Save" : "Edit")
+                    </MudButton>
+                    @if (context.Dto.IsActive)
+                    {
+                        <MudButton Variant="Variant.Text" Color="Color.Error" Size="Size.Small"
+                                   OnClick="@(() => DeactivateConfirmation(context))" StartIcon="@Icons.Material.Filled.Block"
+                                   Disabled="@(!_canManage || _busy)">
+                            Take out of service
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">
+                @if (string.IsNullOrWhiteSpace(_searchText))
+                {
+                    @("No supplier is on file yet. Add the one you buy from most, or include out-of-service records to see history.")
+                }
+                else
+                {
+                    @($"Nothing matches \"{_searchText}\" in this business. The search covers the whole supplier file, not only this page.")
+                }
+            </MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-3">
+        <MudButton Variant="Variant.Outlined" OnClick="PreviousAsync" Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="NextAsync" Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+    </MudStack>
+
+    @if (_creating)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">Add a supplier</MudText>
+            <MudGrid Spacing="2" Class="mt-2">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_newName" Label="Name" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_newEmail" Label="Email" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_newPhone" Label="Phone" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_newAddress" Label="Address" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                Only the fields the supplier contract carries are asked for. Terms and a credit limit belong with the
+                payables work (task 27), not here.
+            </MudText>
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                           Disabled="@(_busy || string.IsNullOrWhiteSpace(_newName))">
+                    Save supplier
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelCreate">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>
