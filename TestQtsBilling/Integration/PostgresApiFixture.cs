@@ -148,6 +148,21 @@ public sealed class PostgresApiFixture : IAsyncLifetime
         await action(db).ConfigureAwait(false);
     }
 
+    /// <summary>
+    /// Runs a test-only schema action as the migration owner. The API host itself connects as the DML-only
+    /// runtime role (finding F10), so a test that injects DDL — a fault trigger, a probe object — must not
+    /// borrow the application context: it would pass only when both connections are accidentally the same.
+    /// </summary>
+    public async Task WithSchemaOwnerContextAsync(Func<BillingDbContext, Task> action)
+    {
+        await using var scope = Factory.Services.CreateAsyncScope();
+        var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
+        db.ChangeTracker.Clear();
+        db.Database.SetConnectionString(ConnectionString);
+
+        await action(db).ConfigureAwait(false);
+    }
+
     // ------------------------------------------------------------------ the safety rules
 
     /// <summary>

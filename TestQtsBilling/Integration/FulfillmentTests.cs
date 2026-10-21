@@ -173,7 +173,8 @@ public sealed class FulfillmentTests : IClassFixture<PostgresApiFixture>
         var variantId = await CreateStockVariantAsync(client);
         var order = await CreateConfirmedOrderAsync(client, variantId, 1m);
         var reservation = await ReserveAsync(client, order, "t42-reserve-rollback-" + Guid.NewGuid().ToString("N"));
-        await _fixture.WithFreshContextAsync(db => db.Database.ExecuteSqlRawAsync("""
+        // The fault trigger is schema work: it runs as the migration owner, never as the app's runtime role.
+        await _fixture.WithSchemaOwnerContextAsync(db => db.Database.ExecuteSqlRawAsync("""
             CREATE FUNCTION qts_test_fail_delivery_insert() RETURNS trigger AS $$
             BEGIN
                 RAISE EXCEPTION 'injected delivery write failure' USING ERRCODE = 'check_violation';
@@ -190,7 +191,7 @@ public sealed class FulfillmentTests : IClassFixture<PostgresApiFixture>
         }
         finally
         {
-            await _fixture.WithFreshContextAsync(db => db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS trg_test_fail_delivery_insert ON sales_order_deliveries; DROP FUNCTION IF EXISTS qts_test_fail_delivery_insert();"));
+            await _fixture.WithSchemaOwnerContextAsync(db => db.Database.ExecuteSqlRawAsync("DROP TRIGGER IF EXISTS trg_test_fail_delivery_insert ON sales_order_deliveries; DROP FUNCTION IF EXISTS qts_test_fail_delivery_insert();"));
         }
 
         await _fixture.WithFreshContextAsync(async db =>
