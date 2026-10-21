@@ -10,6 +10,7 @@ using Microsoft.AspNetCore.Components.Web;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
+using MudBlazor;
 using MudBlazor.Services;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Clients;
@@ -19,6 +20,7 @@ using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Invoices;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
+using QtsBilling.Ui.Layout;
 using QtsBilling.Ui.Pages;
 using QtsBilling.Ui.Pages.Invoices;
 using QtsBilling.Ui.Smoke;
@@ -177,6 +179,128 @@ Check("an unrelated role cannot read invoices", deniedHtml.Contains("cannot view
 //    cookie, the same rule the customer page follows), so its rows and filters are proven in the browser
 //    fixture at Task 45 rather than faked here.
 
+// 7. The shell itself (specification task 13, T13.01/T13.03): the shared navigation renders the same catalogue for
+//    every host, filtered by what the session may actually do, and a screen that is not built yet is announced with
+//    its reason instead of being offered as a link that leads nowhere.
+async Task<string> RenderShell(string[]? permissions, bool deviceHost)
+{
+    var shellServices = new ServiceCollection();
+    shellServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+    shellServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+    shellServices.AddMudServices();
+
+    var accounts = new StubAccountApiClient(permissions);
+    shellServices.AddSingleton<IAccountApiClient>(accounts);
+    shellServices.AddSingleton<INavContributor>(deviceHost
+        ? new StubContributor([new NavItem("Point of sale", "pos", Icons.Material.Filled.PointOfSale)])
+        : new StubContributor([]));
+    shellServices.AddSingleton<NavigationManager, StubNavigationManager>();
+
+    var session = await accounts.GetSessionAsync();
+
+    await using var shellProvider = shellServices.BuildServiceProvider();
+    await using var shellRenderer = new HtmlRenderer(shellProvider, shellProvider.GetRequiredService<ILoggerFactory>());
+
+    return await shellRenderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var output = await shellRenderer.RenderComponentAsync<NavMenu>(
+            ParameterView.FromDictionary(new Dictionary<string, object?> { ["Session"] = session }));
+        return output.ToHtmlString();
+    });
+}
+
+var ownerHtml = await RenderShell([.. Permissions.All], deviceHost: false);
+Check("shell groups the modules an owner can reach", ownerHtml.Contains("Administration", StringComparison.Ordinal)
+    && ownerHtml.Contains("Users and handover tickets", StringComparison.Ordinal)
+    && ownerHtml.Contains("Purchasing", StringComparison.Ordinal));
+Check("browser point of sale says why it is not a browser screen", ownerHtml.Contains("does not hold a drawer", StringComparison.Ordinal));
+Check("a planned screen names the task that ships it", ownerHtml.Contains("Arrives with task", StringComparison.Ordinal));
+
+var deviceHtml = await RenderShell([.. Permissions.All], deviceHost: true);
+Check("the terminal's own point of sale is a real link", deviceHtml.Contains("href=\"pos\"", StringComparison.Ordinal)
+    && !deviceHtml.Contains("does not hold a drawer", StringComparison.Ordinal));
+
+var cashierHtml = await RenderShell([Permissions.SalesPost, Permissions.CustomersRead, Permissions.InvoicesIssue], deviceHost: false);
+Check("a cashier sees trading and not administration", cashierHtml.Contains("Customers", StringComparison.Ordinal)
+    && !cashierHtml.Contains("Users and handover tickets", StringComparison.Ordinal)
+    && !cashierHtml.Contains("Business and branches", StringComparison.Ordinal));
+
+var viewerHtml = await RenderShell([Permissions.CustomersRead], deviceHost: false);
+Check("a viewer is not offered invoicing or the catalogue", !viewerHtml.Contains("Invoices", StringComparison.Ordinal)
+    && !viewerHtml.Contains("Products and variants", StringComparison.Ordinal)
+    && viewerHtml.Contains("Customers", StringComparison.Ordinal));
+
+// No navigation entry may point at a page that does not exist: usable rows carry a real address, planned rows
+// carry none. This is the dead-link rule the task's definition of done depends on.
+var addresses = System.Text.RegularExpressions.Regex.Matches(ownerHtml, "href=\"([^\"]*)\"")
+    .Select(match => match.Groups[1].Value)
+    .Where(value => value.Length > 0 && value != "#" && !value.StartsWith("_framework", StringComparison.OrdinalIgnoreCase))
+    .Distinct(StringComparer.OrdinalIgnoreCase)
+    .ToArray();
+var known = addresses.Where(address => address is "/" or "customers" or "invoices" or "login" || ShellNavigation.Knows(address.TrimStart('/'))).ToArray();
+Check("every navigation address is a shipped page or a known route", known.Length == addresses.Length,
+    string.Join(", ", addresses.Except(known, StringComparer.OrdinalIgnoreCase)));
+
+// 8. The shared state panels (T13.03): each state says something different, an ended session offers the way back,
+//    an unconfirmed outcome never claims success, and an offline terminal does not look like an empty business.
+async Task<string> RenderState(QtsBilling.Ui.Layout.ShellStateKind kind, bool withRetry)
+{
+    var stateServices = new ServiceCollection();
+    stateServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+    stateServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+    stateServices.AddMudServices();
+    stateServices.AddSingleton<NavigationManager, StubNavigationManager>();
+
+    await using var stateProvider = stateServices.BuildServiceProvider();
+    await using var stateRenderer = new HtmlRenderer(stateProvider, stateProvider.GetRequiredService<ILoggerFactory>());
+
+    return await stateRenderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var parameters = new Dictionary<string, object?> { ["Kind"] = kind };
+        if (withRetry)
+        {
+            parameters["RetryCallback"] = new Func<Task>(() => Task.CompletedTask);
+        }
+
+        var output = await stateRenderer.RenderComponentAsync<QtsBilling.Ui.Components.ShellStates>(
+            ParameterView.FromDictionary(parameters));
+        return output.ToHtmlString();
+    });
+}
+
+var stateHeadings = new HashSet<string>(StringComparer.Ordinal);
+
+foreach (var kind in new[]
+{
+    QtsBilling.Ui.Layout.ShellStateKind.Loading,
+    QtsBilling.Ui.Layout.ShellStateKind.Empty,
+    QtsBilling.Ui.Layout.ShellStateKind.Unauthenticated,
+    QtsBilling.Ui.Layout.ShellStateKind.Forbidden,
+    QtsBilling.Ui.Layout.ShellStateKind.Conflict,
+    QtsBilling.Ui.Layout.ShellStateKind.Offline,
+    QtsBilling.Ui.Layout.ShellStateKind.UnknownOutcome,
+    QtsBilling.Ui.Layout.ShellStateKind.Failure,
+})
+{
+    var stateHtml = await RenderState(kind, withRetry: kind != QtsBilling.Ui.Layout.ShellStateKind.Unauthenticated);
+    var heading = System.Text.RegularExpressions.Regex.Match(stateHtml, "<p class=\"mud-typography mud-typography-subtitle1[^>]*>([^<]+)<");
+    var text = heading.Success ? heading.Groups[1].Value.Trim() : string.Empty;
+
+    Check($"state {kind} renders its own sentence", text.Length > 0 && stateHeadings.Add(text), text);
+    Check($"state {kind} never claims a success", !stateHtml.Contains("completed successfully", StringComparison.OrdinalIgnoreCase));
+}
+
+var expiredHtml = await RenderState(QtsBilling.Ui.Layout.ShellStateKind.Unauthenticated, withRetry: false);
+Check("an ended session offers the way back", expiredHtml.Contains("Sign in again", StringComparison.Ordinal)
+    && expiredHtml.Contains("href=\"login\"", StringComparison.Ordinal));
+
+var conflictHtml = await RenderState(QtsBilling.Ui.Layout.ShellStateKind.Conflict, withRetry: true);
+Check("a lost race offers a reload, not a blind repeat", conflictHtml.Contains("Try again", StringComparison.Ordinal)
+    && conflictHtml.Contains("Nothing was saved over the other edit", StringComparison.Ordinal));
+
+var unknownHtml2 = await RenderState(QtsBilling.Ui.Layout.ShellStateKind.UnknownOutcome, withRetry: true);
+Check("an unconfirmed outcome tells the operator to check first", unknownHtml2.Contains("never captured twice", StringComparison.Ordinal));
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -275,6 +399,8 @@ internal sealed class StubAccountApiClient : IAccountApiClient
         _permissions = permissions ?? [.. Permissions.All];
     }
 
+    public Guid BusinessId { get; } = Guid.CreateVersion7();
+
     public Task<SessionDto> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke does not sign in.");
 
@@ -283,13 +409,24 @@ internal sealed class StubAccountApiClient : IAccountApiClient
             Guid.CreateVersion7(),
             "owner@example.test",
             "Smoke Owner",
-            Guid.CreateVersion7(),
+            BusinessId,
             "Smoke Business",
             ["Owner"],
             [.. _permissions],
-            PasswordResetRequired: false));
+            PasswordResetRequired: false)
+        {
+            // A second company makes the shell's context switch reachable in the rendered markup.
+            AvailableBusinesses =
+            [
+                new BusinessSummaryDto(BusinessId, "Smoke Business", "Owner"),
+                new BusinessSummaryDto(Guid.CreateVersion7(), "Smoke Storage", "Manager"),
+            ],
+        });
 
     public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<SessionDto> SwitchBusinessAsync(Guid businessId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke does not switch business; it renders the confirmation.");
 
     public Task<PasswordResetTicketDto?> RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default)
         => Task.FromResult<PasswordResetTicketDto?>(null);
@@ -299,6 +436,12 @@ internal sealed class StubAccountApiClient : IAccountApiClient
 
     public Task CompleteSetupTicketAsync(QtsBilling.Contracts.Administration.CompleteSetupTicketRequest request, CancellationToken cancellationToken = default)
         => Task.CompletedTask;
+}
+
+/// <summary>A host's navigation contribution: the desktop terminal ships the point of sale, the browser ships nothing.</summary>
+internal sealed class StubContributor(IReadOnlyList<NavItem> items) : INavContributor
+{
+    public IReadOnlyList<NavItem> Items { get; } = items;
 }
 
 internal sealed class StubNavigationManager : NavigationManager

@@ -1,7 +1,220 @@
 ﻿@page "/"
+@inject IAccountApiClient Accounts
+@inject IBusinessSetupApiClient Business
 
-<PageTitle>Home</PageTitle>
+@*
+    The browser landing page (specification task 13). It answers three questions an operator has on a fresh
+    instance - which company am I looking at, is it ready to trade, and where do I go next - and it refuses to
+    impersonate a dashboard: no financial totals are invented here, because those numbers arrive with the report
+    surface in task 33 and must come from a report rather than from a count of rows.
+*@
 
-<h1>Hello, world!</h1>
+<PageTitle>QTS Billing</PageTitle>
 
-Welcome to your new app.
+<MudText Typo="Typo.h4" Class="mb-1">QTS Billing</MudText>
+<MudText Typo="Typo.body1" Class="mb-4">
+    Self-hosted billing for one business: @_businessLabel
+</MudText>
+
+@if (_loading)
+{
+    <ShellStates Kind="ShellStateKind.Loading"/>
+}
+else if (_session is null)
+{
+    <ShellStates Kind="ShellStateKind.Unauthenticated"/>
+}
+else
+{
+    <MudGrid Class="mt-2">
+        <MudItem xs="12" md="6">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Current context</MudText>
+                    <MudSimpleTable Dense="true" Class="mt-2">
+                        <tbody>
+                            <tr><td>Business</td><td>@_session.BusinessName</td></tr>
+                            <tr><td>Your role</td><td>@(_session.Roles.Count > 0 ? _session.Roles[0] : "no active membership")</td></tr>
+                            <tr><td>Branches you may trade in</td><td>@BranchCountLabel(_session)</td></tr>
+                            <tr><td>Companies you belong to</td><td>@_session.AvailableBusinesses.Count</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                    @if (_session.AvailableBusinesses.Count > 1)
+                    {
+                        <MudText Typo="Typo.caption" Class="mt-2">
+                            Use <strong>Switch company</strong> in the bar above. The change is confirmed before it happens.
+                        </MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12" md="6">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Is this business ready to post?</MudText>
+
+                    @if (_setupState == SetupState.Loading)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2">Checking the setup state…</MudText>
+                    }
+                    else if (_setupState == SetupState.Forbidden)
+                    {
+                        <MudText Typo="Typo.body2" Class="mt-2">
+                            Only an owner can read the setup state. Ask one to confirm the chart of accounts,
+                            the control accounts and an open accounting period.
+                        </MudText>
+                        @if (_setupFailure is not null)
+                        {
+                            <MudText Typo="Typo.caption" Class="mt-1">The server said: @_setupFailure</MudText>
+                        }
+                    }
+                    else if (_setupState == SetupState.Loaded && _setup is not null)
+                    {
+                        @if (_setup.Setup.IsReadyToPost)
+                        {
+                            <MudChip T="string" Color="Color.Success" Size="Size.Small" Class="mt-2">Ready to post</MudChip>
+                        }
+                        else
+                        {
+                            <MudChip T="string" Color="Color.Warning" Size="Size.Small" Class="mt-2">Not ready yet</MudChip>
+                            <MudList T="string" Dense="true" Class="mt-2">
+                                @foreach (var reason in _setup.Setup.BlockingReasons)
+                                {
+                                    <MudListItem Icon="@Icons.Material.Filled.ErrorOutline">@reason</MudListItem>
+                                }
+                            </MudList>
+                            <MudText Typo="Typo.body2" Class="mt-1">
+                                The blocking reasons come from the same server check that refuses a posting, so this
+                                list cannot disagree with the ledger.
+                            </MudText>
+                        }
+
+                        <MudText Typo="Typo.body2" Class="mt-2">
+                            Branches: <strong>@_setup.Locations.Count(row => row.IsActive)</strong> active of @_setup.Locations.Count.
+                            Fiscal year starts in month @_setup.FiscalYearStartMonth; invoice numbers are issued as
+                            @_setup.Numbering?.InvoicePrefix plus @_setup.Numbering?.InvoicePadding digits.
+                        </MudText>
+                    }
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+
+        <MudItem xs="12">
+            <MudCard>
+                <MudCardContent>
+                    <MudText Typo="Typo.h6">Where to go</MudText>
+                    <MudStack Row="true" Wrap="Wrap.Wrap" Spacing="2" Class="mt-3">
+                        @foreach (var route in ShellNavigation.Usable(_session))
+                        {
+                            <MudButton Href="@route.Href"
+                                       Variant="Variant.Filled"
+                                       Color="Color.Primary"
+                                       StartIcon="@route.Icon">
+                                @route.Title
+                            </MudButton>
+                        }
+                    </MudStack>
+
+                    @if (Planned(_session).Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle2" Class="mt-4">Not built yet, listed so nothing is hidden</MudText>
+                        <MudList T="string" Dense="true">
+                            @foreach (var route in Planned(_session))
+                            {
+                                <MudListItem Icon="@route.Icon">
+                                    @route.Title
+                                    <MudText Typo="Typo.caption" Class="ml-2">
+                                        @ShellNavigation.DisabledReason(route)
+                                        @if (route.Availability == ShellAvailability.DeviceOnly)
+                                        {
+                                            <text> The browser posts through the same contract but holds no drawer.</text>
+                                        }
+                                    </MudText>
+                                </MudListItem>
+                            }
+                        </MudList>
+                    }
+
+                    <MudAlert Severity="Severity.Info" Class="mt-4" Variant="Variant.Outlined">
+                        Turnover, receivable and stock totals are not shown here on purpose: they come from the
+                        reporting surface (task 33), which ties out against the posted ledger instead of counting rows.
+                    </MudAlert>
+                </MudCardContent>
+            </MudCard>
+        </MudItem>
+    </MudGrid>
+}
+
+@code {
+    private enum SetupState { Hidden, Loading, Loaded, Forbidden }
+
+    private bool _loading = true;
+    private SessionDto? _session;
+    private BusinessSettingsDto? _setup;
+    private SetupState _setupState = SetupState.Hidden;
+    private string? _setupFailure;
+    private string _businessLabel = "a self-hosted instance";
+
+    // Nothing is fetched during initialisation: a prerender runs on the server, where this component has no
+    // session cookie of its own, so the reads belong to the first interactive render - the same rule the
+    // customer and invoice pages follow (specification task 13, recipe step 2).
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (!firstRender)
+        {
+            return;
+        }
+
+        try
+        {
+            _session = await Accounts.GetSessionAsync();
+        }
+        catch (ApiException)
+        {
+            _session = null;
+        }
+
+        _loading = false;
+
+        if (_session?.BusinessName is { Length: > 0 } name)
+        {
+            _businessLabel = name;
+        }
+
+        // The setup state is an owner privilege; without it the page says so instead of showing a blank card.
+        if (_session is not null && _session.Permissions.Contains(Permissions.BusinessSettingsManage, StringComparer.Ordinal))
+        {
+            _setupState = SetupState.Loading;
+            StateHasChanged();
+
+            try
+            {
+                _setup = await Business.GetBusinessSettingsAsync();
+                _setupState = SetupState.Loaded;
+            }
+            catch (ApiException exception)
+            {
+                // Any refusal is still "this number is not mine to show": the card explains itself rather than
+                // leaving an empty box the operator has to interpret.
+                _setupState = SetupState.Forbidden;
+                _setupFailure = exception.Message;
+            }
+        }
+
+        StateHasChanged();
+    }
+
+    private static string BranchCountLabel(SessionDto session)
+        => session.AllowedLocationIds.Count switch
+        {
+            0 => "none yet",
+            1 => "one",
+            var count => count.ToString(System.Globalization.CultureInfo.InvariantCulture),
+        };
+
+    private static IReadOnlyList<ShellRoute> Planned(SessionDto session)
+        => ShellNavigation.Visible(session)
+            .Where(route => !ShellNavigation.IsNavigable(route))
+            .ToArray();
+}

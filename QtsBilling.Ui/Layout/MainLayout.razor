@@ -2,6 +2,13 @@
 @inject IAccountApiClient Accounts
 @inject NavigationManager Navigation
 
+@*
+    The shared shell (specification task 13). Two things are always visible while a session is open: who is
+    signed in, and which business their work belongs to - because a financial record without its company is
+    ambiguous. Changing that context is a deliberate, confirmed action, is refused while a command is still in
+    flight, and never touches a terminal's queued cash.
+*@
+
 <MudThemeProvider/>
 <MudDialogProvider/>
 <MudSnackbarProvider/>
@@ -9,31 +16,97 @@
 
 <MudLayout>
     <MudAppBar>
-        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" OnClick="@ToggleDrawer"/>
+        <MudIconButton Icon="@Icons.Material.Filled.Menu" Color="Color.Inherit" Edge="Edge.Start" aria-label="Toggle navigation" OnClick="@ToggleDrawer"/>
         <MudText Typo="Typo.h5" Class="ml-3">QTS Billing</MudText>
         <MudSpacer/>
-        @if (_signedIn)
+
+        @if (_loading)
         {
-            <MudText Typo="Typo.body2" Class="mr-3">@_displayName</MudText>
+            <MudText Typo="Typo.body2" Class="mr-3">Checking the session…</MudText>
+        }
+        else if (_session is not null)
+        {
+            <MudTooltip Text="@($"Branch scope: {BranchScopeLabel(_session)}")">
+                <MudChip T="string" Size="Size.Small" Color="Color.Default" Class="mr-2">@_session.BusinessName</MudChip>
+            </MudTooltip>
+
+            @if (_session.AvailableBusinesses.Count > 1)
+            {
+                <MudButton Color="Color.Inherit"
+                           Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.SwapHoriz"
+                           OnClick="RequestSwitchAsync">
+                    Switch company
+                </MudButton>
+            }
+
+            <MudText Typo="Typo.body2" Class="ml-3 mr-2">@($"{_session.DisplayName} · {RoleLabel(_session)}")</MudText>
             <MudButton Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Logout" OnClick="SignOutAsync">Sign out</MudButton>
+        }
+        else
+        {
+            <MudButton Color="Color.Inherit" StartIcon="@Icons.Material.Filled.Login" Href="login">Sign in</MudButton>
         }
     </MudAppBar>
 
     <MudDrawer @bind-Open="@_drawerOpen">
-        <NavMenu/>
+        <NavMenu Session="_session"/>
     </MudDrawer>
 
     <MudMainContent>
         <MudContainer MaxWidth="MaxWidth.Large" Class="my-4 pt-4">
+            @if (_switch is not null)
+            {
+                <MudPaper Class="pa-4 mb-4" Outlined="true" Elevation="2">
+                    <MudText Typo="Typo.body1">
+                        Change the current company from <strong>@_session?.BusinessName</strong> to <strong>@_switch.BusinessName</strong>?
+                    </MudText>
+                    <MudText Typo="Typo.body2" Class="mt-1">
+                        Only new screens follow the change. A sale that is still being posted keeps the company it started in,
+                        and money a terminal has not sent yet stays where it is.
+                    </MudText>
+                    @if (_switchBlocked is not null)
+                    {
+                        <MudAlert Severity="Severity.Warning" Class="mt-3">@_switchBlocked</MudAlert>
+                    }
+                    <MudStack Row="true" Class="mt-3" Spacing="2">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="Color.Primary"
+                                   Disabled="@(_switchBlocked is not null || _switching)"
+                                   OnClick="ConfirmSwitchAsync">
+                            @_switching ? "Changing…" : "Yes, change company"
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" Color="Color.Default" Disabled="@_switching" OnClick="CancelSwitch">
+                            Keep working here
+                        </MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+
+            @if (!_loading && _session is null)
+            {
+                <MudAlert Severity="Severity.Info" Class="mb-4" Variant="Variant.Outlined">
+                    Nothing is lost: sign in again to continue where you left off.
+                </MudAlert>
+            }
+
             @Body
         </MudContainer>
     </MudMainContent>
 </MudLayout>
 
 @code {
+    private readonly QtsBilling.Ui.Layout.BusinessSwitchGuard _guard = new();
+
     private bool _drawerOpen = true;
-    private bool _signedIn;
-    private string? _displayName;
+    private bool _loading = true;
+    private bool _switching;
+    private SessionDto? _session;
+    private SwitchTarget? _switch;
+    private string? _switchBlocked;
+
+    /// <summary>The company the operator has been asked to move to, and the only thing the confirmation names.</summary>
+    private sealed record SwitchTarget(Guid BusinessId, string BusinessName);
 
     private void ToggleDrawer() => _drawerOpen = !_drawerOpen;
 
@@ -44,25 +117,101 @@
             return;
         }
 
+        await RefreshSessionAsync();
+    }
+
+    private async Task RefreshSessionAsync()
+    {
         try
         {
-            var session = await Accounts.GetSessionAsync();
-            _signedIn = session is not null;
-            _displayName = session?.BusinessName is { Length: > 0 } business
-                ? $"{session.DisplayName} · {business}"
-                : session?.DisplayName;
-            StateHasChanged();
+            _session = await Accounts.GetSessionAsync();
         }
-        catch (Exception exception) when (exception is QtsBilling.Contracts.Abstractions.ApiException)
+        catch (ApiException)
         {
-            _signedIn = false;
+            // A session that has ended is not an error to report: the shell shows the sign-in affordance.
+            _session = null;
+        }
+
+        _loading = false;
+        StateHasChanged();
+    }
+
+    private static string RoleLabel(SessionDto session)
+        => session.Roles.Count > 0 ? session.Roles[0] : "no active membership";
+
+    private static string BranchScopeLabel(SessionDto session)
+        => session.AllowedLocationIds.Count switch
+        {
+            0 => "no active branch",
+            1 => "one branch",
+            var count => $"{count} branches",
+        };
+
+    private Task RequestSwitchAsync()
+    {
+        if (_session is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        // The operator is asked to name the target; nothing changes on a click alone.
+        var target = _session.AvailableBusinesses
+            .FirstOrDefault(business => business.BusinessId != _session.BusinessId);
+
+        if (target is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        _switchBlocked = _guard.BlockedReason;
+        _switch = new SwitchTarget(target.BusinessId, target.BusinessName);
+        StateHasChanged();
+        return Task.CompletedTask;
+    }
+
+    private void CancelSwitch()
+    {
+        _switch = null;
+        _switchBlocked = null;
+        StateHasChanged();
+    }
+
+    private async Task ConfirmSwitchAsync()
+    {
+        if (_switch is null || !_guard.TryRequestSwitch(out _switchBlocked))
+        {
+            StateHasChanged();
+            return;
+        }
+
+        _switching = true;
+
+        try
+        {
+            _session = await Accounts.SwitchBusinessAsync(_switch.BusinessId);
+            _switch = null;
+            Navigation.NavigateTo("/");
+        }
+        catch (ApiException exception)
+        {
+            // The server keeps the final say on membership: its refusal is shown, not swallowed.
+            _switchBlocked = exception.Message;
+        }
+        finally
+        {
+            _switching = false;
+            StateHasChanged();
         }
     }
 
     private async Task SignOutAsync()
     {
         await Accounts.LogoutAsync();
-        _signedIn = false;
+        _session = null;
+        _switch = null;
         Navigation.NavigateTo("login");
     }
+
+    /// <summary>A screen calls this while a command is in flight so the shell cannot change scope mid-posting.</summary>
+    public IDisposable BeginCommand(string label) => _guard.Begin(label);
 }

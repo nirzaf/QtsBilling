@@ -315,6 +315,11 @@ builder.Services.AddHttpClient<ICustomerApiClient, CustomerApiClient>(client => 
 builder.Services.AddHttpClient<IAccountApiClient, AccountApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The owner-facing setup surface, used by the shared landing page for the same readiness answer the posting
+// path gives (specification task 13).
+builder.Services.AddHttpClient<QtsBilling.Contracts.Administration.IBusinessSetupApiClient, QtsBilling.Contracts.Administration.BusinessSetupApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

@@ -254,7 +254,11 @@ public sealed class LocalAutonomyDryRunTests(PostgresApiFixture fixture) : IClas
 
         // 5. Nothing on the served page tells a browser to fetch a public host.
         using var shell = _listener.CreateClient();
-        var page = await shell.GetStringAsync("/");
+        var pageResponse = await shell.GetAsync("/");
+        var page = await pageResponse.Content.ReadAsStringAsync();
+        Assert.True(pageResponse.IsSuccessStatusCode,
+            $"the landing page did not render on the running host: {(int)pageResponse.StatusCode}\n{_listener.Dump()}");
+
         var external = ExternalHosts(page);
         Assert.True(external.Count == 0, $"the served document references public hosts: {string.Join(", ", external)}");
     }

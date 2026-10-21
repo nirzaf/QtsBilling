@@ -34,6 +34,15 @@ public sealed class DeviceAccountApiClient : IAccountApiClient
         return _authenticator.AuthenticateAsync(cancellationToken);
     }
 
+    /// <summary>
+    /// A terminal is enrolled against one business and one branch, and the money it holds belongs to that scope.
+    /// Looking at another company is therefore not a device action: it would leave queued cash and stored
+    /// operations owned by a business the operator is no longer viewing (specification task 13).
+    /// </summary>
+    public Task<SessionDto> SwitchBusinessAsync(Guid businessId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException(
+            "This terminal is enrolled against one business. Enrol a separate terminal to trade for another company.");
+
     public async Task<SessionDto?> GetSessionAsync(CancellationToken cancellationToken = default)
     {
         try

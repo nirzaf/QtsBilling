@@ -1,0 +1,119 @@
+@namespace QtsBilling.Ui.Components
+
+@*
+    The shell's shared answer to "nothing is on screen right now" (specification task 13, case T13.03). Every
+    state says what happened and what the operator can do about it: an expired session is never shown as an empty
+    list, a refused permission is never shown as a success, and an unknown outcome is never shown as a failure
+    that would invite a second attempt. The role and the label exist for a screen reader and for keyboard use.
+*@
+
+@if (Kind == ShellStateKind.Content)
+{
+    @ChildContent
+}
+else
+{
+    <div role="@RoleAttribute" aria-live="@LiveAttribute" class="pa-4" data-qts-state="@Kind.ToString().ToLowerInvariant()">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2">
+            <MudIcon Icon="@Icon" Size="Size.Small" Color="@Tone" aria-hidden="true"/>
+            <MudText Typo="Typo.subtitle1">@Heading</MudText>
+        </MudStack>
+
+        @if (BodyText is not null)
+        {
+            <MudText Typo="Typo.body2" Class="mt-2">@BodyText</MudText>
+        }
+
+        @if (Kind == ShellStateKind.Unauthenticated)
+        {
+            <MudButton Href="login"
+                       Variant="Variant.Filled"
+                       Color="Color.Primary"
+                       Class="mt-3"
+                       StartIcon="@Icons.Material.Filled.Login">
+                Sign in again
+            </MudButton>
+        }
+        else if (RetryCallback is not null)
+        {
+            <MudButton Variant="Variant.Outlined"
+                       Color="Color.Primary"
+                       Class="mt-3"
+                       StartIcon="@Icons.Material.Filled.Refresh"
+                       OnClick="RetryAsync">
+                @RetryLabel
+            </MudButton>
+        }
+    </div>
+}
+
+@code {
+    /// <summary>Which honest state the panel presents.</summary>
+    [Parameter] public ShellStateKind Kind { get; set; } = ShellStateKind.Loading;
+
+    /// <summary>Optional replacement for the built-in sentence, for a screen with a more specific cause.</summary>
+    [Parameter] public string? Body { get; set; }
+
+    /// <summary>Present when <see cref="Kind"/> is <see cref="ShellStateKind.Content"/>.</summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>The action offered for a retryable state; null means there is nothing the operator can do yet.</summary>
+    [Parameter] public Func<Task>? RetryCallback { get; set; }
+
+    [Parameter] public string RetryLabel { get; set; } = "Try again";
+
+    private string Heading => Kind switch
+    {
+        ShellStateKind.Loading => "Loading…",
+        ShellStateKind.Empty => "Nothing here yet",
+        ShellStateKind.Unauthenticated => "Your session has ended",
+        ShellStateKind.Forbidden => "This account is not allowed to see that",
+        ShellStateKind.Conflict => "Someone changed this first",
+        ShellStateKind.Offline => "Working without the server",
+        ShellStateKind.UnknownOutcome => "The server did not say whether that arrived",
+        ShellStateKind.Failure => "That did not work",
+        _ => string.Empty,
+    };
+
+    private string? BodyOrDefault => string.IsNullOrWhiteSpace(Body) ? null : Body;
+
+    private string? BodyText => BodyOrDefault ?? Kind switch
+    {
+        ShellStateKind.Loading => null,
+        ShellStateKind.Empty => null,
+        ShellStateKind.Unauthenticated => "Nothing was lost. Sign in again to continue where you left off.",
+        ShellStateKind.Forbidden => "Ask an owner to review the role for this business. The list above stays empty until then.",
+        ShellStateKind.Conflict => "Reload the record and re-enter the change. Nothing was saved over the other edit.",
+        ShellStateKind.Offline => "Drafts and queued sales stay on this terminal and reach the server when the connection returns.",
+        ShellStateKind.UnknownOutcome => "Check the record before trying again, so a sale is never captured twice.",
+        ShellStateKind.Failure => "The problem is described above; nothing partial was left behind.",
+        _ => null,
+    };
+
+    private string Icon => Kind switch
+    {
+        ShellStateKind.Loading => Icons.Material.Filled.HourglassEmpty,
+        ShellStateKind.Empty => Icons.Material.Filled.Inbox,
+        ShellStateKind.Unauthenticated => Icons.Material.Filled.LockClock,
+        ShellStateKind.Forbidden => Icons.Material.Filled.Block,
+        ShellStateKind.Conflict => Icons.Material.Filled.SyncProblem,
+        ShellStateKind.Offline => Icons.Material.Filled.CloudOff,
+        ShellStateKind.UnknownOutcome => Icons.Material.Filled.HelpOutline,
+        ShellStateKind.Failure => Icons.Material.Filled.ErrorOutline,
+        _ => Icons.Material.Filled.CheckCircle,
+    };
+
+    private Color Tone => Kind switch
+    {
+        ShellStateKind.Failure or ShellStateKind.UnknownOutcome => Color.Error,
+        ShellStateKind.Forbidden or ShellStateKind.Conflict or ShellStateKind.Offline => Color.Warning,
+        _ => Color.Default,
+    };
+
+    // A live region announces a state that arrives after the operator acted; the loading panel must not shout.
+    private string LiveAttribute => Kind == ShellStateKind.Loading ? "off" : "polite";
+
+    private string RoleAttribute => Kind == ShellStateKind.Loading ? "status" : "group";
+
+    private Task RetryAsync() => RetryCallback is null ? Task.CompletedTask : RetryCallback();
+}

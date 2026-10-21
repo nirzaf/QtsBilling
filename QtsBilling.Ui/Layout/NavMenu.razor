@@ -1,11 +1,73 @@
 ﻿@inject IEnumerable<QtsBilling.Ui.Layout.INavContributor> Contributors
 
-<MudNavMenu>
-    <MudNavLink Href="" Match="NavLinkMatch.All" Icon="@Icons.Material.Filled.Home">Home</MudNavLink>
-    <MudNavLink Href="customers" Icon="@Icons.Material.Filled.People">Customers</MudNavLink>
-    <MudNavLink Href="invoices" Icon="@Icons.Material.Filled.ReceiptLong">Invoices</MudNavLink>
-    @foreach (var item in Contributors.SelectMany(contributor => contributor.Items))
+@*
+    The shared navigation (specification task 13). It shows one entry per module the signed-in session may use,
+    grouped the way the business thinks, and it never offers a dead link: a module whose screen is not built yet
+    stays visible with the reason it is disabled, because a self-hosted operator has to be able to see what the
+    instance does not do yet. A host contributes its own entries to say "this screen is real here" - the desktop
+    terminal ships the point of sale, the browser does not.
+*@
+
+<MudNavMenu aria-label="Main navigation">
+    @foreach (var group in ShellNavigation.GroupOrder)
     {
-        <MudNavLink Href="@item.Href" Icon="@item.Icon">@item.Title</MudNavLink>
+        var entries = Rows(group).ToArray();
+
+        if (entries.Length == 0)
+        {
+            continue;
+        }
+
+        <MudNavGroup Title="@group" Expanded="true" Class="mb-1">
+            @foreach (var row in entries)
+            {
+                @if (row.Navigable)
+                {
+                    <MudNavLink Href="@row.Href" Icon="@row.Icon" Match="@(row.Href == "/" ? NavLinkMatch.All : NavLinkMatch.Prefix)">@row.Title</MudNavLink>
+                }
+                else
+                {
+                    @* A row the operator cannot use is not a link at all: rendering it as a list entry with its
+                       reason keeps a screen reader and a keyboard user from meeting a control that does nothing. *@
+                    <div class="mud-nav-item qts-nav-disabled" aria-disabled="true" data-qts-unavailable="@row.Href">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Class="pa-3">
+                            <MudIcon Icon="@row.Icon" Size="Size.Small"/>
+                            <MudText Typo="Typo.body2">@row.Title</MudText>
+                        </MudStack>
+                        <MudText Typo="Typo.caption" Class="px-3 pb-3 d-block">@row.Reason</MudText>
+                    </div>
+                }
+            }
+        </MudNavGroup>
     }
 </MudNavMenu>
+
+@code {
+    /// <summary>The signed-in session, handed down by the layout: the menu is the same list for every surface.</summary>
+    [Parameter] public SessionDto? Session { get; set; }
+
+    private sealed record NavRow(string Title, string Href, string Icon, bool Navigable, string? Reason);
+
+    private IEnumerable<NavRow> Rows(string group)
+    {
+        var contributed = Contributors.SelectMany(contributor => contributor.Items).ToArray();
+
+        foreach (var route in ShellNavigation.Visible(Session, group))
+        {
+            // A host that ships the screen makes the entry live; the catalogue alone would call it planned. The
+            // match is by address, so the desktop terminal's own point-of-sale entry upgrades the catalogue row
+            // instead of appearing twice.
+            var shippedByHost = contributed.Any(item => string.Equals(item.Href, route.Href, StringComparison.OrdinalIgnoreCase));
+
+            yield return new NavRow(route.Title, route.Href, route.Icon,
+                shippedByHost || ShellNavigation.IsNavigable(route),
+                shippedByHost ? null : ShellNavigation.DisabledReason(route));
+        }
+
+        // Anything a host adds that the catalogue does not know still appears, in its own group.
+        foreach (var item in contributed.Where(item => !ShellNavigation.Knows(item.Href) && item.Group == group))
+        {
+            yield return new NavRow(item.Title, item.Href, item.Icon, true, null);
+        }
+    }
+}

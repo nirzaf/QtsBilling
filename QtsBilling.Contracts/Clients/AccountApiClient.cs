@@ -17,6 +17,13 @@ public interface IAccountApiClient
 
     Task LogoutAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Moves the browser session to another business the same user is an active member of. The server decides
+    /// whether the target is allowed and re-issues the membership scope; nothing about an in-flight command or a
+    /// device's stored cash changes because a person looked at a different company (specification task 13).
+    /// </summary>
+    Task<SessionDto> SwitchBusinessAsync(Guid businessId, CancellationToken cancellationToken = default);
+
     /// <summary>Always succeeds without revealing whether the account exists (202 Accepted).</summary>
     Task<PasswordResetTicketDto?> RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default);
 
@@ -69,6 +76,16 @@ public sealed class AccountApiClient : IAccountApiClient
     {
         using var response = await _http.PostAsync($"{RouteBase}/logout", content: null, cancellationToken).ConfigureAwait(false);
         await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SessionDto> SwitchBusinessAsync(Guid businessId, CancellationToken cancellationToken = default)
+    {
+        using var response = await _http
+            .PostAsJsonAsync($"{RouteBase}/switch-business", new SwitchBusinessRequest(businessId), ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        return await ApiHttp.ReadRequiredAsync<SessionDto>(response, cancellationToken).ConfigureAwait(false);
     }
 
     public async Task<PasswordResetTicketDto?> RequestPasswordResetAsync(string email, CancellationToken cancellationToken = default)

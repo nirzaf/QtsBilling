@@ -2,6 +2,7 @@ using Blazored.LocalStorage;
 using Microsoft.AspNetCore.Components.WebAssembly.Hosting;
 using MudBlazor.Services;
 using QtsBilling.Contracts.Catalog;
+using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Banking;
@@ -22,6 +23,7 @@ builder.Services.AddScoped(_ => new HttpClient(new AntiforgeryHandler { InnerHan
 });
 builder.Services.AddScoped<ICustomerApiClient, CustomerApiClient>();
 builder.Services.AddScoped<IAccountApiClient, AccountApiClient>();
+builder.Services.AddScoped<IBusinessSetupApiClient, BusinessSetupApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();
 builder.Services.AddScoped<IInventoryApiClient, InventoryApiClient>();
 builder.Services.AddScoped<IBankingApiClient, BankingApiClient>();
