@@ -47,20 +47,16 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
         await PrepareLocationAsync(builder);
 
         var first = await ApplyAsync(package);
-        if (!first.Committed)
-        {
-            throw new InvalidOperationException(
-                $"{first.Failure}|{string.Join(",", first.Quarantined.Select(item => $"{item.Resource}/{item.Reason}/{item.Field}"))}");
-        }
+        Assert.True(
+            first.Committed,
+            $"{first.Failure}|{string.Join(",", first.Quarantined.Select(item => $"{item.Resource}/{item.Reason}/{item.Field}"))}");
         Assert.Single(first.Openings);
 
         var before = await SnapshotAsync(builder, first.Openings[0].JournalEntryId);
         var second = await ApplyAsync(package);
-        if (!second.Committed)
-        {
-            throw new InvalidOperationException(
-                $"{second.Failure}|{string.Join(",", second.Quarantined.Select(item => $"{item.Resource}/{item.Reason}/{item.Field}"))}");
-        }
+        Assert.True(
+            second.Committed,
+            $"{second.Failure}|{string.Join(",", second.Quarantined.Select(item => $"{item.Resource}/{item.Reason}/{item.Field}"))}");
         Assert.Equal(0, second.ImportedRecords);
         Assert.True(second.ReusedRecords > 0);
         var after = await SnapshotAsync(builder, first.Openings[0].JournalEntryId);
@@ -281,6 +277,86 @@ public sealed class NativeImportWriterTests : IClassFixture<PostgresApiFixture>
         Assert.False(result.Committed);
         Assert.Contains(result.Quarantined, rejection => rejection.Reason == "CONTROL_TOTAL_MISMATCH");
         await AssertNoImportAsync(builder);
+    }
+
+    [Fact]
+    public async Task T20_06_reconciliation_of_real_import_is_exact_and_reproducible()
+    {
+        var (builder, package) = await ValidPackageAsync();
+        using var _ = builder;
+        await PrepareLocationAsync(builder);
+
+        var first = await ApplyAsync(package);
+        Assert.True(first.Committed, first.Failure);
+        Assert.Single(first.Openings);
+
+        var clock = new FixedTimeProvider(DateTimeOffset.Parse("2026-10-21T12:00:00+00:00"));
+        var firstBody = await _fixture.WithFreshContextAsync(db =>
+            new NativeReconciliationBuilder(clock).BuildAsync(
+                db,
+                package,
+                first,
+                toolSha256: ReconciliationTestData.Hash("tool")));
+
+        Assert.True(firstBody.ImportCommitted);
+        Assert.Empty(firstBody.Exceptions);
+        Assert.All(firstBody.Resources, resource =>
+        {
+            Assert.Equal(resource.SourceCount, resource.AcceptedCount + resource.QuarantinedCount);
+            Assert.Equal(resource.AcceptedCount, resource.PersistedCount);
+            Assert.Equal(0, resource.UnexpectedCount);
+            Assert.Equal(resource.ExpectedIdentitySha256, resource.ActualIdentitySha256);
+            Assert.All(resource.Targets, target =>
+            {
+                Assert.True(target.Exists);
+                Assert.Equal(_fixture.BusinessA.BusinessId, target.BusinessId);
+            });
+        });
+        Assert.All(firstBody.Aggregates, aggregate =>
+            Assert.Equal(aggregate.ExpectedValue, aggregate.ActualValue));
+        Assert.All(firstBody.Parties, party =>
+            Assert.Equal(party.ExpectedAmount, party.ActualAmount));
+        Assert.All(firstBody.Ledger, line =>
+        {
+            Assert.Equal(line.ExpectedDebit, line.ActualDebit);
+            Assert.Equal(line.ExpectedCredit, line.ActualCredit);
+        });
+        Assert.All(firstBody.Controls, control =>
+            Assert.Equal(control.DetailAmount, control.LedgerAmount));
+
+        var signed = ReconciliationSigner.Sign(
+            firstBody,
+            ReconciliationTestData.ReportKeyId,
+            ReconciliationTestData.ReportKey);
+        var verified = ReconciliationVerifier.Verify(
+            signed,
+            ReconciliationTestData.ReportTrust());
+        Assert.True(verified.Authenticated);
+        Assert.True(verified.Passed);
+        Assert.True(verified.CanAdmitProduction);
+
+        // A repeated import reuses the same immutable targets; the exact same canonical report is
+        // reproduced without rewriting a journal, a balance, an open item or a source link.
+        var second = await ApplyAsync(package);
+        Assert.True(second.Committed, second.Failure);
+        Assert.Equal(0, second.ImportedRecords);
+
+        var secondBody = await _fixture.WithFreshContextAsync(db =>
+            new NativeReconciliationBuilder(clock).BuildAsync(
+                db,
+                package,
+                second,
+                toolSha256: ReconciliationTestData.Hash("tool")));
+
+        Assert.Empty(secondBody.Exceptions);
+        Assert.Equal(firstBody.CanonicalBytes(), secondBody.CanonicalBytes());
+        Assert.Equal(signed.BodySha256, Convert.ToHexString(
+            System.Security.Cryptography.SHA256.HashData(secondBody.CanonicalBytes())).ToLowerInvariant());
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     private async Task<(NativeTestPackage Builder, ValidatedPackage Package)> ValidPackageAsync()
