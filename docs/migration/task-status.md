@@ -101,3 +101,19 @@ dotnet test QtsBilling.Persistence.Sqlite.Tests → device-local SQLite store te
 
 PostgreSQL-backed flows were verified live against the Docker PostgreSQL 18.6 instance during
 QB-03…QB-19; an automated integration + CI harness lands with QB-26.
+
+## Completion programme ledger — self-hosted SMB specification
+
+Numbering below is local to `docs/QtsBilling_Atomic_Implementation_Spec.md` and does **not** renumber the
+historical QB table above. Session baseline: HEAD `003b8e6`, origin `fab0029`. Verification host: Windows with
+PostgreSQL 18.6 in the `qtsbilling-pg` container published on `localhost:5433`, using distinct `qts_migrator`
+(DDL + CREATEDB) and `qts_app` (DML-only) roles provisioned by `scripts/provision-postgres-roles.ps1`.
+
+| Spec task | Status | Command that actually ran | Result | Remaining gap or owner input |
+|---|---|---|---|---|
+| T01 invoice model, migration and invariant parity | DONE against the current tree | `dotnet test TestQtsBilling -c Release --filter "ModelParityTests or MigrationUpgradeTests"` (7 cases) and `dotnet ef migrations has-pending-model-changes` | 7/7 pass; EF reports no model delta against the last migration | the repaired host-run CI jobs are proven only by the next GitHub Actions run |
+| T01 CI prerequisite (finding F10) | applied in source, Actions NOT RUN | `ci.yml` and `release.yml`: the provision/verify steps now pass `-HostName localhost` to reach the port-mapped service, matching the `Host=localhost` test connections | both workflows edited; `AdminPassword` is already required only in Psql mode | Actions result; automated invocation contract lands with T44 |
+| T02 invoice editor and list regressions | DONE; browser journeys NOT RUN | `dotnet test … --filter InvoiceEditorTests` (5 cases); `dotnet run --project QtsBilling.Ui.Smoke -c Release` | 5/5 host-activation and dependency-policy tests pass; the smoke renders 20 checks with 0 failures, covering draft issue, the reader branch, an issued read-only document, a pre-recognition refusal, and one percent/fraction conversion | the Playwright journeys compile only with `-p:QtsBrowserTests=true` and require the preloaded browser kit (T11, T45): recorded BLOCKED instead of a silent skip |
+| T03 recognition, original-tax credits, configured control accounts | DONE (verified) | `dotnet test … --filter "InvoiceRecognitionTests, PartialCreditNoteTests, FulfillmentTests"` | pass with a genuinely distinct DML-only runtime role; partial credits read the persisted line tax mode and the final credit takes the exact residual; `LedgerWriter` resolves every posting from `BusinessAccountingSettings` account ids | finance confirmation of a real business's control-account mapping stays an owner input |
+| T04 tenant, location and device authorization | DONE (verified) | `dotnet test … --filter "LocationScopeTests, BusinessAuthorizationTests"` | pass; the change feed resolves `customers.read` from the membership held now (`SyncChangeEndpoints.cs:68`), not from issued claims | none in this slice |
+| fixture privilege defect found by T01's distinct roles | FIXED | full `dotnet test TestQtsBilling -c Release` | before: 204 pass / 1 fail — `FulfillmentTests.T42_05` injected a DDL trigger through the app's DML-only runtime connection and was refused with `42501 permission denied for schema public`; after routing schema fault injection through `WithSchemaOwnerContextAsync`: the whole fulfillment/recognition/authorization set passes 20/20 | T44 keeps the distinct-role requirement so this cannot regress |
