@@ -64,6 +64,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<DeviceRegistration> DeviceRegistrations => Set<DeviceRegistration>();
 
+    public DbSet<DeviceReassignmentClearance> DeviceReassignmentClearances => Set<DeviceReassignmentClearance>();
+
     public DbSet<Customer> Customers => Set<Customer>();
 
     public DbSet<Supplier> Suppliers => Set<Supplier>();

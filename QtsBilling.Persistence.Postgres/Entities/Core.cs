@@ -122,11 +122,44 @@ public sealed class DeviceRegistration : TenantEntity
 
     public DeviceStatus Status { get; set; } = DeviceStatus.Active;
 
+    /// <summary>Schema version the terminal last reported, so an owner can see who still needs an update.</summary>
+    public int SchemaVersion { get; set; }
+
     public DateTimeOffset EnrolledAtUtc { get; set; }
 
     public DateTimeOffset? LastSeenAtUtc { get; set; }
 
     public DateTimeOffset? RevokedAtUtc { get; set; }
+
+    /// <summary>Set when the terminal was retired after its money and operations were reconciled. The row is kept.</summary>
+    public DateTimeOffset? RetiredAtUtc { get; set; }
+}
+
+/// <summary>
+/// The explicit custody resolution a reassignment demands (specification task 08). A terminal with
+/// device-held provisional cash or unreconciled operations may not simply be pointed at another location:
+/// a manager must first record what is still outstanding, and that record is single-use.
+/// </summary>
+public sealed class DeviceReassignmentClearance : TenantEntity
+{
+    public Guid DeviceId { get; set; }
+
+    /// <summary>Provisional cash the manager confirms is still held by the terminal. Mandatory, never defaulted.</summary>
+    public decimal AcknowledgedProvisionalCash { get; set; }
+
+    public int AcknowledgedOperations { get; set; }
+
+    public string Reason { get; set; } = string.Empty;
+
+    public Guid ClearedByUserId { get; set; }
+
+    public DateTimeOffset OccurredAtUtc { get; set; }
+
+    public DateTimeOffset ExpiresAtUtc { get; set; }
+
+    public DateTimeOffset? ConsumedAtUtc { get; set; }
+
+    public Guid? ConsumedByReassignmentDeviceId { get; set; }
 }
 
 /// <summary>

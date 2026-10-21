@@ -1255,7 +1255,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnName("id");
 
                     b.Property<bool>("AllLocations")
-                        .ValueGeneratedOnAdd()
                         .HasColumnType("boolean")
                         .HasDefaultValue(true)
                         .HasColumnName("all_locations");
@@ -1279,7 +1278,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnName("is_active");
 
                     b.Property<decimal>("MaxDiscountRate")
-                        .ValueGeneratedOnAdd()
                         .HasPrecision(9, 6)
                         .HasColumnType("numeric(9,6)")
                         .HasDefaultValue(1.000000m)
@@ -2040,6 +2038,89 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.ToTable("device_enrolment_challenges", (string)null);
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceReassignmentClearance", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<int>("AcknowledgedOperations")
+                        .HasColumnType("integer")
+                        .HasColumnName("acknowledged_operations");
+
+                    b.Property<decimal>("AcknowledgedProvisionalCash")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("acknowledged_provisional_cash");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<Guid>("ClearedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cleared_by_user_id");
+
+                    b.Property<DateTimeOffset?>("ConsumedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("consumed_at_utc");
+
+                    b.Property<Guid?>("ConsumedByReassignmentDeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("consumed_by_reassignment_device_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<Guid>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("ExpiresAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("expires_at_utc");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("reason");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "BusinessId");
+
+                    b.HasIndex("ClearedByUserId");
+
+                    b.HasIndex("DeviceId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "DeviceId", "ConsumedAtUtc");
+
+                    b.ToTable("device_reassignment_clearances", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_device_clearances_cash_non_negative", "acknowledged_provisional_cash >= 0");
+
+                            t.HasCheckConstraint("ck_device_clearances_operations_non_negative", "acknowledged_operations >= 0");
+
+                            t.HasCheckConstraint("ck_device_clearances_reason", "char_length(reason) BETWEEN 1 AND 500");
+                        });
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceRegistration", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2084,9 +2165,17 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("character varying(32)")
                         .HasColumnName("platform");
 
+                    b.Property<DateTimeOffset?>("RetiredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("retired_at_utc");
+
                     b.Property<DateTimeOffset?>("RevokedAtUtc")
                         .HasColumnType("timestamptz")
                         .HasColumnName("revoked_at_utc");
+
+                    b.Property<int>("SchemaVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("schema_version");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -7986,6 +8075,28 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.BusinessLocation", null)
                         .WithMany()
                         .HasForeignKey("LocationId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceReassignmentClearance", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ClearedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.DeviceRegistration", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();

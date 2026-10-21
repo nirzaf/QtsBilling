@@ -270,6 +270,7 @@ public static class BusinessEndpoints
         }
 
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        string? zone = null;
         var name = request.Name?.Trim() ?? string.Empty;
         if (name.Length is 0 or > MaxNameLength)
         {
@@ -287,7 +288,7 @@ public static class BusinessEndpoints
             errors[nameof(request.Address)] = [$"A branch address is at most {MaxAddressLength} characters."];
         }
 
-        if (!IsValidTimeZone(request.TimeZone, out var timeZoneError, out var zone))
+        if (request.TimeZone is { Length: > 0 } && !IsValidTimeZone(request.TimeZone, out var timeZoneError, out zone))
         {
             errors[nameof(request.TimeZone)] = [timeZoneError!];
         }
@@ -303,6 +304,7 @@ public static class BusinessEndpoints
             Name = name,
             Code = string.IsNullOrWhiteSpace(code) ? null : code,
             Address = string.IsNullOrWhiteSpace(request.Address) ? null : request.Address.Trim(),
+            // A branch may inherit the business time zone; only an explicit value has to resolve.
             TimeZone = zone,
             IsActive = true,
             Version = 1,
@@ -361,6 +363,7 @@ public static class BusinessEndpoints
         }
 
         var errors = new Dictionary<string, string[]>(StringComparer.Ordinal);
+        string? zone = null;
         var name = request.Name?.Trim() ?? string.Empty;
         if (name.Length is 0 or > MaxNameLength)
         {
@@ -377,7 +380,7 @@ public static class BusinessEndpoints
             errors[nameof(request.Address)] = [$"A branch address is at most {MaxAddressLength} characters."];
         }
 
-        if (!IsValidTimeZone(request.TimeZone, out var timeZoneError, out var zone))
+        if (request.TimeZone is { Length: > 0 } && !IsValidTimeZone(request.TimeZone, out var timeZoneError, out zone))
         {
             errors[nameof(request.TimeZone)] = [timeZoneError!];
         }

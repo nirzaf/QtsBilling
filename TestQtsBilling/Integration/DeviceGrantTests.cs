@@ -134,13 +134,15 @@ public sealed class DeviceGrantTests : IClassFixture<PostgresApiFixture>
         var deviceId = await EnrolAsync(client, _fixture.BusinessA.LocationId, "Till revoked");
         var registerSessionId = await OpenSessionAsync(_fixture.Users.OwnerA.UserId, _fixture.BusinessA.BusinessId, _fixture.BusinessA.LocationId);
 
-        await using (var scope = _fixture.Factory.Services.CreateAsyncScope())
-        {
-            var db = scope.ServiceProvider.GetRequiredService<BillingDbContext>();
-            var device = await db.DeviceRegistrations.SingleAsync(row => row.Id == deviceId);
-            device.Status = DeviceStatus.Revoked;
-            await db.SaveChangesAsync();
-        }
+        // Revocation goes through the lifecycle command, not a direct edit: the same path an owner uses.
+        var deviceVersion = await _fixture.WithFreshContextAsync(db => db.DeviceRegistrations.AsNoTracking()
+            .Where(row => row.Id == deviceId)
+            .Select(row => row.Version)
+            .SingleAsync());
+
+        var revoked = await client.PostAsJsonAsync($"/api/v1/devices/{deviceId}/revoke",
+            new QtsBilling.Contracts.Sync.RevokeDeviceRequest(deviceVersion, "terminal stolen"));
+        Assert.Equal(HttpStatusCode.OK, revoked.StatusCode);
 
         var response = await client.PostAsJsonAsync(
             $"/api/v1/devices/{deviceId}/offline-grant",

@@ -161,6 +161,25 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.BusinessId, e.Name }).IsUnique();
         });
 
+        modelBuilder.Entity<DeviceReassignmentClearance>(b =>
+        {
+            b.ToTable("device_reassignment_clearances", table =>
+            {
+                table.HasCheckConstraint("ck_device_clearances_cash_non_negative", "acknowledged_provisional_cash >= 0");
+                table.HasCheckConstraint("ck_device_clearances_operations_non_negative", "acknowledged_operations >= 0");
+                table.HasCheckConstraint("ck_device_clearances_reason", "char_length(reason) BETWEEN 1 AND 500");
+            });
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.HasOne<DeviceRegistration>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DeviceId, e.BusinessId })
+                .HasPrincipalKey(device => new { device.Id, device.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ClearedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.DeviceId, e.ConsumedAtUtc });
+        });
+
         modelBuilder.Entity<SetupTicket>(b =>
         {
             b.ToTable("setup_tickets", table =>

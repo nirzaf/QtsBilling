@@ -3,10 +3,13 @@ using System.Security.Cryptography;
 using System.Text;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Microsoft.EntityFrameworkCore;
+using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Identity;
+using QtsBilling.Contracts.Sync;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Infrastructure;
+using SyncOutcome = QtsBilling.Persistence.Postgres.SyncOutcome;
 
 namespace QtsWebApp.Features.Devices;
 
@@ -28,6 +31,12 @@ public static class DeviceEndpoints
 
         group.MapPost("/enrolment-challenges", CreateEnrolmentChallengeAsync).RequireAuthorization(Permissions.DevicesManage);
         group.MapPost("/", EnrolAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapGet("/", ListDevicesAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapGet("/{deviceId:guid}", GetDeviceAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapPost("/{deviceId:guid}/revoke", RevokeDeviceAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapPost("/{deviceId:guid}/reassignment-clearance", IssueClearanceAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapPost("/{deviceId:guid}/reassign", ReassignDeviceAsync).RequireAuthorization(Permissions.DevicesManage);
+        group.MapPost("/{deviceId:guid}/retire", RetireDeviceAsync).RequireAuthorization(Permissions.DevicesManage);
         group.MapPost("/{deviceId:guid}/offline-grant", IssueOfflineGrantAsync)
             .RequireAuthorization(Permissions.SalesPost);
         group.MapGet("/offline-grant-key", GetGrantKey);
@@ -97,6 +106,8 @@ public static class DeviceEndpoints
                 LocationId = request.LocationId,
                 Name = request.Name.Trim(),
                 Platform = request.Platform.Trim(),
+                AppVersion = string.IsNullOrWhiteSpace(request.AppVersion) ? null : request.AppVersion.Trim(),
+                SchemaVersion = request.SchemaVersion ?? 0,
                 Status = DeviceStatus.Active,
                 EnrolledAtUtc = now,
             };
@@ -253,11 +264,457 @@ public static class DeviceEndpoints
 
         var grant = keys.Sign(ticket);
 
+        // A grant request is contact: the owner list has to show when the terminal last spoke before anybody
+        // revokes or retires it. The app and schema version travel with the enrolment request.
+        device.LastSeenAtUtc = issuedAt;
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
         return Results.Ok(new OfflineGrant.OfflineGrantIssueResponse(grant, keys.KeyId, keys.PublicKey, expiresAt));
     }
 
     private static IResult GetGrantKey(OfflineGrantKeyRing keys)
         => Results.Ok(new OfflineGrantKeyResponse(keys.KeyId, keys.PublicKey));
+
+    // ------------------------------------------------------------------ lifecycle (specification task 08)
+
+    private static async Task<IResult> ListDevicesAsync(
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var devices = await db.DeviceRegistrations.AsNoTracking()
+            .Where(device => device.BusinessId == businessId)
+            .OrderBy(device => device.Name)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return Results.Ok(await ProjectAsync(db, businessId, devices, cancellationToken).ConfigureAwait(false));
+    }
+
+    private static async Task<IResult> GetDeviceAsync(
+        Guid deviceId,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var device = await db.DeviceRegistrations.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.BusinessId == businessId && row.Id == deviceId, cancellationToken)
+            .ConfigureAwait(false);
+
+        return device is null
+            ? NotFoundDevice()
+            : Results.Ok((await ProjectAsync(db, businessId, [device], cancellationToken).ConfigureAwait(false))[0]);
+    }
+
+    /// <summary>
+    /// Adds what an operator needs to see before touching a terminal: where it belongs, when it last spoke,
+    /// how much it still holds on record, and how many of its operations await review. The provisional cash
+    /// figure is the most recent manager acknowledgement for that device, because the server cannot count
+    /// money that has not been pushed yet (specification D07).
+    /// </summary>
+    private static async Task<List<DeviceInfoDto>> ProjectAsync(
+        BillingDbContext db,
+        Guid businessId,
+        IReadOnlyList<DeviceRegistration> devices,
+        CancellationToken cancellationToken)
+    {
+        var ids = devices.Select(device => device.Id).ToArray();
+
+        var locations = await db.BusinessLocations.AsNoTracking()
+            .Where(location => location.BusinessId == businessId)
+            .Select(location => new { location.Id, location.Name })
+            .ToDictionaryAsync(row => row.Id, row => row.Name, cancellationToken)
+            .ConfigureAwait(false);
+
+        var received = await db.ProcessedOperations.AsNoTracking()
+            .Where(op => op.BusinessId == businessId && ids.Contains(op.DeviceId))
+            .GroupBy(op => op.DeviceId)
+            .Select(group => new { DeviceId = group.Key, Total = group.Count(), Review = group.Count(op => op.Outcome == SyncOutcome.NeedsReview) })
+            .ToDictionaryAsync(row => row.DeviceId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var acknowledgements = await db.DeviceReassignmentClearances.AsNoTracking()
+            .Where(clearance => clearance.BusinessId == businessId && ids.Contains(clearance.DeviceId))
+            .OrderByDescending(clearance => clearance.OccurredAtUtc)
+            .Select(clearance => new { clearance.DeviceId, clearance.AcknowledgedProvisionalCash })
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        return [.. devices.Select(device =>
+        {
+            received.TryGetValue(device.Id, out var counts);
+            var acknowledged = acknowledgements
+                .Where(clearance => clearance.DeviceId == device.Id)
+                .Select(clearance => (decimal?)clearance.AcknowledgedProvisionalCash)
+                .FirstOrDefault();
+
+            return new DeviceInfoDto(
+                device.Id,
+                device.Name,
+                device.Platform,
+                device.Status.ToString(),
+                device.LocationId,
+                device.LocationId is { } locationId && locations.TryGetValue(locationId, out var locationName) ? locationName : null,
+                device.AppVersion,
+                device.SchemaVersion,
+                device.EnrolledAtUtc,
+                device.LastSeenAtUtc,
+                device.RevokedAtUtc,
+                device.RetiredAtUtc,
+                null,
+                counts?.Total ?? 0,
+                counts?.Review ?? 0,
+                acknowledged ?? 0m);
+        })];
+    }
+
+    private static async Task<IResult> RevokeDeviceAsync(
+        Guid deviceId,
+        RevokeDeviceRequest request,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var reason = request.Reason?.Trim() ?? string.Empty;
+        if (reason.Length is 0 or > 500)
+        {
+            return Invalid("a revocation reason of 1-500 characters is required");
+        }
+
+        var device = await LoadDeviceAsync(db, businessId, deviceId, cancellationToken).ConfigureAwait(false);
+        if (device is null)
+        {
+            return NotFoundDevice();
+        }
+
+        if (request.ExpectedVersion != device.Version)
+        {
+            return StaleVersion(device.Version);
+        }
+
+        if (device.Status == DeviceStatus.Revoked)
+        {
+            // Revoking twice is not an event; the first one already carries the reason.
+            return Results.Ok(new { status = device.Status.ToString(), device.RevokedAtUtc });
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        device.Status = DeviceStatus.Revoked;
+        device.RevokedAtUtc = now;
+
+        db.AuditEvents.Add(DeviceAudit(businessId, userId, device.Id, "revoked", now, http.TraceIdentifier, new { reason }));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Nothing stored is discarded: the terminal's receipts stay readable so its provisional cash can
+        // still be reconciled, and its own queue survives for recovery (specification D07).
+        return Results.Ok(new DeviceLifecycleResponse(device.Id, device.Status.ToString(), device.RevokedAtUtc, device.Version));
+    }
+
+    private static async Task<IResult> IssueClearanceAsync(
+        Guid deviceId,
+        IssueReassignmentClearanceRequest request,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var reason = request.Reason?.Trim() ?? string.Empty;
+        if (reason.Length is 0 or > 500)
+        {
+            return Invalid("state what was reconciled or what the terminal still holds (1-500 characters)");
+        }
+
+        if (request.AcknowledgedProvisionalCash < 0m || request.AcknowledgedOperations < 0)
+        {
+            return Invalid("the acknowledged amount and operation count cannot be negative");
+        }
+
+        var device = await LoadDeviceAsync(db, businessId, deviceId, cancellationToken).ConfigureAwait(false);
+        if (device is null)
+        {
+            return NotFoundDevice();
+        }
+
+        if (request.ExpectedVersion != device.Version)
+        {
+            return StaleVersion(device.Version);
+        }
+
+        var review = await db.ProcessedOperations.CountAsync(op => op.BusinessId == businessId
+            && op.DeviceId == deviceId
+            && op.Outcome == SyncOutcome.NeedsReview, cancellationToken).ConfigureAwait(false);
+
+        if (request.AcknowledgedOperations < review)
+        {
+            return Results.Problem(
+                title: $"This terminal has {review} operation(s) awaiting review.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?>
+                {
+                    ["code"] = ApiErrorCodes.ApprovalRequired,
+                    ["detail"] = "Acknowledge at least the outstanding operations; an acknowledgement cannot understate what the server can see.",
+                });
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        var clearance = new DeviceReassignmentClearance
+        {
+            BusinessId = businessId,
+            DeviceId = deviceId,
+            AcknowledgedProvisionalCash = request.AcknowledgedProvisionalCash,
+            AcknowledgedOperations = request.AcknowledgedOperations,
+            Reason = reason,
+            ClearedByUserId = userId,
+            OccurredAtUtc = now,
+            ExpiresAtUtc = now.AddHours(24),
+            Version = 1,
+        };
+
+        db.DeviceReassignmentClearances.Add(clearance);
+        db.AuditEvents.Add(DeviceAudit(businessId, userId, deviceId, "reassignment_cleared", now, http.TraceIdentifier, new
+        {
+            clearanceId = clearance.Id,
+            cash = clearance.AcknowledgedProvisionalCash,
+            operations = clearance.AcknowledgedOperations,
+            reason,
+        }));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return Results.Created($"/api/v1/devices/{deviceId}/reassignment-clearance", new DeviceReassignmentClearanceDto(
+            clearance.Id,
+            clearance.DeviceId,
+            clearance.AcknowledgedProvisionalCash,
+            clearance.AcknowledgedOperations,
+            clearance.OccurredAtUtc,
+            clearance.ExpiresAtUtc));
+    }
+
+    private static async Task<IResult> ReassignDeviceAsync(
+        Guid deviceId,
+        ReassignDeviceRequest request,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var reason = request.Reason?.Trim() ?? string.Empty;
+        if (reason.Length is 0 or > 500)
+        {
+            return Invalid("a reassignment reason of 1-500 characters is required");
+        }
+
+        var device = await LoadDeviceAsync(db, businessId, deviceId, cancellationToken).ConfigureAwait(false);
+        if (device is null)
+        {
+            return NotFoundDevice();
+        }
+
+        if (request.ExpectedVersion != device.Version)
+        {
+            return StaleVersion(device.Version);
+        }
+
+        if (device.Status != DeviceStatus.Active || device.RetiredAtUtc is not null)
+        {
+            return Results.Problem(
+                title: "Only an active terminal can be reassigned.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.Conflict });
+        }
+
+        var target = await db.BusinessLocations.AsNoTracking()
+            .SingleOrDefaultAsync(location => location.BusinessId == businessId && location.Id == request.LocationId && location.IsActive, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (target is null)
+        {
+            return Invalid("choose an active branch of this business");
+        }
+
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, request.LocationId, cancellationToken).ConfigureAwait(false))
+        {
+            return TypedErrors.Forbidden();
+        }
+
+        var review = await db.ProcessedOperations.CountAsync(op => op.BusinessId == businessId
+            && op.DeviceId == deviceId
+            && op.Outcome == SyncOutcome.NeedsReview, cancellationToken).ConfigureAwait(false);
+
+        var now = DateTimeOffset.UtcNow;
+
+        // A clearance is mandatory whenever the terminal still owes money or has operations outstanding, and it
+        // is spent atomically so one acknowledgement cannot authorise two moves.
+        if (review > 0 || device.LocationId is not null)
+        {
+            var consumed = await db.DeviceReassignmentClearances
+                .Where(clearance => clearance.Id == request.ClearanceId
+                    && clearance.BusinessId == businessId
+                    && clearance.DeviceId == deviceId
+                    && clearance.ConsumedAtUtc == null
+                    && clearance.ExpiresAtUtc > now
+                    && clearance.AcknowledgedOperations >= review)
+                .ExecuteUpdateAsync(setters => setters
+                    .SetProperty(clearance => clearance.ConsumedAtUtc, now)
+                    .SetProperty(clearance => clearance.ConsumedByReassignmentDeviceId, deviceId)
+                    .SetProperty(clearance => clearance.Version, clearance => clearance.Version + 1)
+                    .SetProperty(clearance => clearance.UpdatedAtUtc, now))
+                .ConfigureAwait(false);
+
+            if (consumed != 1)
+            {
+                return Results.Problem(
+                    title: "The reassignment needs a current custody resolution for this terminal.",
+                    detail: review > 0
+                        ? $"A manager must acknowledge at least {review} outstanding operation(s) and any provisional cash before the terminal can move."
+                        : "Record a reassignment clearance first; it must be unconsumed and unexpired.",
+                    statusCode: StatusCodes.Status409Conflict,
+                    extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.ApprovalRequired });
+            }
+        }
+
+        var previous = device.LocationId;
+        device.LocationId = request.LocationId;
+
+        db.AuditEvents.Add(DeviceAudit(businessId, userId, deviceId, "reassigned", now, http.TraceIdentifier, new
+        {
+            fromLocationId = previous,
+            toLocationId = request.LocationId,
+            clearanceId = request.ClearanceId,
+            reason,
+        }));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // Stored operations keep the location they were captured under: reassigning a terminal never
+        // reinterprets history (specification D06/D07).
+        return Results.Ok(new DeviceLifecycleResponse(device.Id, device.Status.ToString(), device.RevokedAtUtc, device.Version));
+    }
+
+    private static async Task<IResult> RetireDeviceAsync(
+        Guid deviceId,
+        RetireDeviceRequest request,
+        HttpContext http,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!http.User.TryGetBusinessId(out var businessId) || !TryGetUserId(http, out var userId))
+        {
+            return TypedErrors.Unauthenticated();
+        }
+
+        var reason = request.Reason?.Trim() ?? string.Empty;
+        if (reason.Length is 0 or > 500)
+        {
+            return Invalid("a retirement reason of 1-500 characters is required");
+        }
+
+        var device = await LoadDeviceAsync(db, businessId, deviceId, cancellationToken).ConfigureAwait(false);
+        if (device is null)
+        {
+            return NotFoundDevice();
+        }
+
+        if (request.ExpectedVersion != device.Version)
+        {
+            return StaleVersion(device.Version);
+        }
+
+        if (device.RetiredAtUtc is not null)
+        {
+            return Results.Ok(new DeviceLifecycleResponse(device.Id, device.Status.ToString(), device.RevokedAtUtc, device.Version));
+        }
+
+        var outstanding = await db.ProcessedOperations.CountAsync(op => op.BusinessId == businessId
+            && op.DeviceId == deviceId
+            && op.Outcome == SyncOutcome.NeedsReview, cancellationToken).ConfigureAwait(false);
+
+        if (outstanding > 0)
+        {
+            return Results.Problem(
+                title: $"{outstanding} operation(s) on this terminal still await review.",
+                detail: "Retirement waits for reconciliation; a terminal is never retired to make outstanding money disappear.",
+                statusCode: StatusCodes.Status409Conflict,
+                extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.ApprovalRequired });
+        }
+
+        var now = DateTimeOffset.UtcNow;
+        device.RetiredAtUtc = now;
+        device.Status = DeviceStatus.Revoked;
+        device.RevokedAtUtc ??= now;
+
+        db.AuditEvents.Add(DeviceAudit(businessId, userId, deviceId, "retired", now, http.TraceIdentifier, new { reason }));
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        // The identity and its records are retained. Wiping the terminal's local key and data is a separate,
+        // approved on-device action after export, and is proven natively at task 38 - not a side effect of this call.
+        return Results.Ok(new DeviceLifecycleResponse(device.Id, device.Status.ToString(), device.RevokedAtUtc, device.Version));
+    }
+
+    private static async Task<DeviceRegistration?> LoadDeviceAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid deviceId,
+        CancellationToken cancellationToken)
+        => await db.DeviceRegistrations
+            .SingleOrDefaultAsync(device => device.BusinessId == businessId && device.Id == deviceId, cancellationToken)
+            .ConfigureAwait(false);
+
+    private static AuditEvent DeviceAudit(
+        Guid businessId,
+        Guid userId,
+        Guid deviceId,
+        string action,
+        DateTimeOffset now,
+        string correlationId,
+        object summary)
+        => new()
+        {
+            BusinessId = businessId,
+            UserId = userId,
+            DeviceId = deviceId,
+            EntityType = "device_registration",
+            EntityId = deviceId,
+            Action = action,
+            OccurredAtUtc = now,
+            CorrelationId = correlationId,
+            Summary = System.Text.Json.JsonSerializer.Serialize(summary),
+        };
+
+    private static IResult NotFoundDevice() => Results.Problem(
+        title: "This device is not registered in the current business.",
+        statusCode: StatusCodes.Status404NotFound,
+        extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.NotFound });
+
+    private static IResult StaleVersion(long storedVersion) => Results.Problem(
+        title: "Someone changed this device record first.",
+        detail: $"The stored version is {storedVersion}. Reload the device list and repeat the change you still intend.",
+        statusCode: StatusCodes.Status409Conflict,
+        extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.OptimisticConcurrencyFailure });
+
+    public sealed record DeviceLifecycleResponse(Guid DeviceId, string Status, DateTimeOffset? RevokedAtUtc, long Version);
 
     private static IResult Invalid(string detail)
         => Results.BadRequest(new { code = "invalid_request", detail });
@@ -288,7 +745,7 @@ public static class DeviceEndpoints
 
     public sealed record CreateEnrolmentChallengeResponse(string EnrolmentCode, Guid LocationId, DateTimeOffset ExpiresAtUtc);
 
-    public sealed record EnrolDeviceRequest(string Name, string Platform, Guid LocationId, string EnrolmentCode);
+    public sealed record EnrolDeviceRequest(string Name, string Platform, Guid LocationId, string EnrolmentCode, string? AppVersion = null, int? SchemaVersion = null);
 
     public sealed record DeviceEnrolmentResponse(Guid DeviceId, DateTimeOffset EnrolledAtUtc);
 
