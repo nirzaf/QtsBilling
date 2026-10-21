@@ -973,6 +973,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at_utc");
 
+                    b.Property<int>("FiscalYearStartMonth")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1)
+                        .HasColumnName("fiscal_year_start_month");
+
                     b.Property<bool>("IsActive")
                         .HasColumnType("boolean")
                         .HasColumnName("is_active");
@@ -1008,7 +1014,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.HasIndex("Name")
                         .IsUnique();
 
-                    b.ToTable("businesses", (string)null);
+                    b.ToTable("businesses", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_businesses_fiscal_year_start_month", "fiscal_year_start_month BETWEEN 1 AND 12");
+                        });
                 });
 
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.BusinessAccountingSettings", b =>
@@ -1073,6 +1082,20 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.Property<Guid>("InventoryShrinkageAccountId")
                         .HasColumnType("uuid")
                         .HasColumnName("inventory_shrinkage_account_id");
+
+                    b.Property<int>("InvoicePadding")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(5)
+                        .HasColumnName("invoice_padding");
+
+                    b.Property<string>("InvoicePrefix")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(12)
+                        .HasColumnType("character varying(12)")
+                        .HasDefaultValue("INV-")
+                        .HasColumnName("invoice_prefix");
 
                     b.Property<Guid>("OutputTaxPayableAccountId")
                         .HasColumnType("uuid")
@@ -1158,6 +1181,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.ToTable("business_accounting_settings", null, t =>
                         {
+                            t.HasCheckConstraint("ck_business_accounting_settings_padding", "invoice_padding BETWEEN 3 AND 12");
+
+                            t.HasCheckConstraint("ck_business_accounting_settings_prefix", "char_length(invoice_prefix) BETWEEN 1 AND 12");
+
                             t.HasCheckConstraint("ck_business_accounting_settings_scale", "settlement_scale IN (0, 2, 3, 4)");
                         });
                 });

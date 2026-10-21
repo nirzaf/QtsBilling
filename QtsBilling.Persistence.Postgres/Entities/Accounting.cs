@@ -34,6 +34,14 @@ public sealed class BusinessAccountingSettings : TenantEntity
 {
     public int SettlementScale { get; set; } = 2;
 
+    /// <summary>
+    /// Document-numbering defaults the owner chose. A new fiscal-year series seeds from these rather than
+    /// from a code constant, because a saved mapping must not be overridden by a default (specification D05/T06).
+    /// </summary>
+    public string InvoicePrefix { get; set; } = "INV-";
+
+    public int InvoicePadding { get; set; } = 5;
+
     public Guid CashAccountId { get; set; }
     public Guid BankClearingAccountId { get; set; }
     public Guid AccountsReceivableAccountId { get; set; }

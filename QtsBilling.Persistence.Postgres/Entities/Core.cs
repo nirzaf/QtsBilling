@@ -17,6 +17,13 @@ public sealed class Business : Entity, IVersioned
     /// <summary>IANA time zone id used for business-day boundaries and reporting.</summary>
     public string TimeZone { get; set; } = "Asia/Qatar";
 
+    /// <summary>
+    /// First month of the fiscal year (1 = January). It is financial identity, not a display preference:
+    /// once periods, journals or posted documents exist it may only change through a separately designed
+    /// effective-date transition (specification task 06).
+    /// </summary>
+    public int FiscalYearStartMonth { get; set; } = 1;
+
     public AccountingMethod AccountingMethod { get; set; } = AccountingMethod.Fifo;
 
     public bool IsActive { get; set; } = true;

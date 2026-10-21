@@ -170,10 +170,20 @@ internal static class LedgerWriter
         int fiscalYear,
         CancellationToken cancellationToken)
     {
+        // A brand-new series seeds from the numbering the owner saved, not from the caller's constant: a
+        // stored mapping must never be overridden by a default (specification D05, task 06). Only the invoice
+        // series is owner-configured; journal and credit-note numbers keep their own seeded presentation,
+        // so one column can never rename a different document kind.
         await db.Database.ExecuteSqlAsync(
             $"""
             INSERT INTO invoice_sequences (id, business_id, name, prefix, fiscal_year, next_number, padding, version, created_at_utc, updated_at_utc)
-            VALUES ({Guid.CreateVersion7()}, {businessId}, {name}, {prefix}, {fiscalYear}, 1, 5, 1, now(), now())
+            SELECT {Guid.CreateVersion7()}, {businessId}, {name},
+                   COALESCE(CASE WHEN {name} = 'invoice' THEN settings.invoice_prefix END, {prefix}),
+                   {fiscalYear}, 1,
+                   COALESCE(CASE WHEN {name} = 'invoice' THEN settings.invoice_padding END, 5),
+                   1, now(), now()
+            FROM (SELECT 1) seed
+            LEFT JOIN business_accounting_settings AS settings ON settings.business_id = {businessId}
             ON CONFLICT (business_id, name, fiscal_year) DO NOTHING
             """,
             cancellationToken).ConfigureAwait(false);

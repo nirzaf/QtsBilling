@@ -306,10 +306,16 @@ public partial class BillingDbContext
         modelBuilder.Entity<BusinessAccountingSettings>(b =>
         {
             b.ToTable("business_accounting_settings", table =>
-                table.HasCheckConstraint("ck_business_accounting_settings_scale", "settlement_scale IN (0, 2, 3, 4)"));
+            {
+                table.HasCheckConstraint("ck_business_accounting_settings_scale", "settlement_scale IN (0, 2, 3, 4)");
+                table.HasCheckConstraint("ck_business_accounting_settings_prefix", "char_length(invoice_prefix) BETWEEN 1 AND 12");
+                table.HasCheckConstraint("ck_business_accounting_settings_padding", "invoice_padding BETWEEN 3 AND 12");
+            });
             RequireTenantKey(b);
             HasBusinessFk(b);
             b.Property(e => e.SettlementScale).HasDefaultValue(2);
+            b.Property(e => e.InvoicePrefix).HasMaxLength(12).HasDefaultValue("INV-").IsRequired();
+            b.Property(e => e.InvoicePadding).HasDefaultValue(5);
             b.HasIndex(e => e.BusinessId).IsUnique();
             ConfigureSettingsAccount(b, e => new { e.CashAccountId, e.BusinessId });
             ConfigureSettingsAccount(b, e => new { e.BankClearingAccountId, e.BusinessId });

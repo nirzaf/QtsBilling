@@ -1,7 +1,9 @@
 using Microsoft.AspNetCore.Hosting;
+using System.Reflection;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.DependencyInjection;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -21,11 +23,22 @@ namespace TestQtsBilling.Integration;
 /// </remarks>
 public sealed class LocalBootstrapTests : IClassFixture<PostgresApiFixture>
 {
-    /// <summary>The head migration: the database is migrated to it and nothing else.</summary>
-    private const string HeadMigration = "20261021000140_AddLocalBootstrapState";
+    /// <summary>
+    /// Migration ids in applied order, read from the migrations assembly. The head is never hard-coded here:
+    /// pinning an id would make every later migration fail this suite for a reason that has nothing to do with
+    /// the bootstrap, and the point of the check is exactly "the database is at the head".
+    /// </summary>
+    private static readonly string[] OrderedMigrations = [.. typeof(BillingDbContext).Assembly
+        .GetTypes()
+        .Where(type => type.IsSubclassOf(typeof(Migration)))
+        .Select(type => type.GetCustomAttribute<MigrationAttribute>()!.Id)
+        .OrderBy(id => id, StringComparer.Ordinal)];
 
-    /// <summary>The migration before the bootstrap state was added; a database here is not ready to initialise.</summary>
-    private const string PreviousHeadMigration = "20261020233420_CompleteInvoiceRecognitionSnapshots";
+    /// <summary>The head migration: the database is migrated to it and nothing else.</summary>
+    private static string HeadMigration => OrderedMigrations[^1];
+
+    /// <summary>The migration before the head; a database here is not ready to initialise.</summary>
+    private static string PreviousHeadMigration => OrderedMigrations[^2];
 
     private const string OwnerPassword = "Bootstrap!Passw0rd2026";
 

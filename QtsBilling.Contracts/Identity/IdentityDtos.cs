@@ -64,6 +64,13 @@ public static class Permissions
     public const string DevicesManage = "devices.manage";
     public const string UsersManage = "users.manage";
 
+    /// <summary>
+    /// Owning the business identity itself: trading name, time zone, fiscal calendar, numbering and branch
+    /// setup. Narrowly named rather than reusing the Owner role, because a business owner is not an
+    /// instance-wide administrator and a manager must not be able to move a fiscal boundary (specification D04/D13).
+    /// </summary>
+    public const string BusinessSettingsManage = "business.settings.manage";
+
     /// <summary>Reading the structured audit feed; granted narrowly (Owner) per D-43.</summary>
     public const string AuditView = "audit.view";
 
@@ -78,6 +85,7 @@ public static class Permissions
         InvoicesIssue, InvoicesManage,
         PurchasingManage, ExpensesManage, TaxesManage, DiscountsManage,
         ReportsView, DevicesManage, UsersManage,
+        BusinessSettingsManage,
         AuditView,
     ];
 }

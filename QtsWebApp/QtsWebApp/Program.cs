@@ -19,6 +19,7 @@ using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
 using QtsWebApp.Components;
 using QtsWebApp.Features.Auth;
+using QtsWebApp.Features.Administration;
 using QtsWebApp.Features.Banking;
 using QtsWebApp.Features.Accounting;
 using QtsWebApp.Features.Audit;
@@ -381,6 +382,7 @@ app.MapStaticAssets();
 
 app.MapAuthEndpoints();
 app.MapNativeAuthorizationEndpoints();
+app.MapBusinessAdministrationEndpoints();
 app.MapDeviceEndpoints();
 app.MapCustomerEndpoints();
 app.MapProductEndpoints();

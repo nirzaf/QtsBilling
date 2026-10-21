@@ -56,6 +56,10 @@ public partial class BillingDbContext
             b.Property(e => e.LegalName).HasMaxLength(300);
             b.Property(e => e.BaseCurrency).HasMaxLength(3).IsRequired();
             b.Property(e => e.TimeZone).HasMaxLength(64).IsRequired();
+            b.Property(e => e.FiscalYearStartMonth).HasDefaultValue(1);
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_businesses_fiscal_year_start_month",
+                "fiscal_year_start_month BETWEEN 1 AND 12"));
             b.HasIndex(e => e.Name).IsUnique();
         });
 
