@@ -29,12 +29,17 @@ public static class SyncProjections
             DateTimeOffset.UtcNow,
             cancellationToken);
 
-    /// <summary>The product with its sellable variants (the price snapshot the device caches).</summary>
+    /// <summary>
+    /// The product with its sellable variants (the price snapshot the device caches). An archive is a tombstone,
+    /// so a terminal drops the cached record instead of continuing to offer a product the master has retired
+    /// (specification task 17, recipe step 4 - the same rule a deactivated customer follows).
+    /// </summary>
     public static async Task ProductAsync(
         BillingDbContext db,
         Guid businessId,
         Product product,
         IReadOnlyList<ProductVariant> variants,
+        bool tombstone = false,
         CancellationToken cancellationToken = default)
     {
         // The device needs the tax rate itself (not only its id) to cache a sellable price snapshot.
@@ -51,8 +56,8 @@ public static class SyncProjections
             businessId,
             "product",
             product.Id,
-            SyncChangeKind.Upsert,
-            SyncChangeWriter.Projection(new
+            tombstone ? SyncChangeKind.Tombstone : SyncChangeKind.Upsert,
+            tombstone ? null : SyncChangeWriter.Projection(new
             {
                 id = product.Id,
                 name = product.Name,

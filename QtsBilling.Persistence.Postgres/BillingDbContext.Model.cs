@@ -372,6 +372,14 @@ public partial class BillingDbContext
                 .HasPrincipalKey(p => new { p.Id, p.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.ProductId, e.Name }).IsUnique();
+
+            // A variant SKU is a business's own key, the same rule a product SKU follows. The application checks it
+            // first and this index decides the race, so two simultaneous creates of the same SKU cannot both land
+            // (specification task 17, T17.01).
+            b.HasIndex(e => new { e.BusinessId, e.Sku })
+                .IsUnique()
+                .HasFilter("\"sku\" IS NOT NULL");
+
             b.HasIndex(e => new { e.BusinessId, e.Barcode })
                 .IsUnique()
                 .HasFilter("\"barcode\" IS NOT NULL");

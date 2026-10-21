@@ -55,8 +55,10 @@ public sealed record ProductVariantDto(
 public sealed record ProductDetailDto(ProductDto Product, IReadOnlyList<ProductVariantDto> Variants);
 
 /// <summary>
-/// Creates a product together with its default variant (a simple product always has exactly one variant,
-/// so transaction lines can reference a concrete variant — spec §3.2/§3.5).
+/// Creates a product together with its default variant (a simple product always has exactly one variant, so
+/// transaction lines can reference a concrete variant - spec §3.2/§3.5). The brand, group and tax references are
+/// optional here but validated against this business when sent, and the unit is chosen because a quantity is
+/// meaningless without it. Stock is never a field of this request: a catalogue record cannot state a quantity.
 /// </summary>
 public sealed record SaveProductRequest(
     string Name,
@@ -66,11 +68,67 @@ public sealed record SaveProductRequest(
     bool TrackStock,
     string? VariantName,
     decimal SellingPrice,
-    decimal? PurchasePrice);
+    decimal? PurchasePrice,
+    Guid? BrandId = null,
+    Guid? ProductGroupId = null,
+    Guid? TaxRateId = null,
+    string? TaxType = null);
 
-public sealed record UpdateProductRequest(string Name, string? Sku, Guid? CategoryId, bool IsActive);
+/// <summary>
+/// Corrects a product's description and references. The version is the one the caller read, so a stale form is
+/// refused instead of overwriting somebody else's change, and activation is deliberately absent: going out of
+/// service is its own operation, with a reason (<see cref="ArchiveProductRequest"/>). A unit may only be changed
+/// while nothing has moved, because a movement's quantity is already expressed in the old unit.
+/// </summary>
+public sealed record UpdateProductRequest(
+    string Name,
+    string? Sku,
+    Guid? CategoryId,
+    Guid? UnitId,
+    Guid? BrandId,
+    Guid? ProductGroupId,
+    Guid? TaxRateId,
+    string? TaxType,
+    long ExpectedVersion);
 
-public sealed record UpdateVariantRequest(string Name, string? Sku, string? Barcode, decimal SellingPrice, decimal? PurchasePrice, bool IsActive);
+/// <summary>
+/// Corrects one variant. <paramref name="ExpectedProductVersion"/> is the product version the caller read: the
+/// variant list travels with the product, so one number guards the whole record against a concurrent edit.
+/// Active status is not a field here either - see <see cref="ArchiveVariantRequest"/>.
+/// </summary>
+public sealed record UpdateVariantRequest(
+    string Name,
+    string? Sku,
+    string? Barcode,
+    decimal SellingPrice,
+    decimal? PurchasePrice,
+    long ExpectedProductVersion);
+
+/// <summary>Adds a further variant to an existing product. It is never the default: the default is the variant the product was created with, or one an operator promoted explicitly.</summary>
+public sealed record CreateProductVariantRequest(
+    string Name,
+    string? Sku,
+    string? Barcode,
+    decimal SellingPrice,
+    decimal? PurchasePrice,
+    long ExpectedProductVersion);
+
+/// <summary>
+/// Takes a product out of service. The reason is mandatory because selection is being withdrawn from the counter,
+/// and the version because a catalogue edit must not land over somebody else's. Nothing is deleted: posted lines
+/// keep their snapshot and the record stays reachable for history.
+/// </summary>
+public sealed record ArchiveProductRequest(long ExpectedVersion, string Reason);
+
+/// <summary>Brings a product back. Its variants keep whatever state they were left in, so the response shows how many are sellable.</summary>
+public sealed record RestoreProductRequest(long ExpectedVersion, string Reason);
+
+/// <summary>
+/// Takes one variant out of service. Archiving the default must name the active sibling that replaces it, because
+/// a product with a default nobody can sell is a broken catalogue, and choosing silently would be the server
+/// inventing a price (specification task 17, recipe step 1: exactly one active default where required).
+/// </summary>
+public sealed record ArchiveVariantRequest(long ExpectedProductVersion, string Reason, Guid? NewDefaultVariantId = null);
 
 /// <summary>Shared wire shape for the business-scoped units, categories, brands and product groups.</summary>
 public sealed record MasterDataDto(

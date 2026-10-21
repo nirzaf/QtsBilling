@@ -4286,6 +4286,10 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("BusinessId", "ProductId");
 
+                    b.HasIndex("BusinessId", "Sku")
+                        .IsUnique()
+                        .HasFilter("\"sku\" IS NOT NULL");
+
                     b.HasIndex("ProductId", "BusinessId");
 
                     b.HasIndex("ProductId", "Name")
