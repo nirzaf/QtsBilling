@@ -1,439 +1,796 @@
 <#
 .SYNOPSIS
-    The production admission and the cutover of QtsBilling (specification task 21).
+    Fail-closed production admission and explicit cutover for QtsBilling (specification task 21).
 
 .DESCRIPTION
-    The script has two modes, and they are strictly separated by what they are allowed to touch.
+    The script has two strictly separated modes.
 
       -Mode Admission  (READ-ONLY)
-          Only reads. It creates no backup, it starts no application host, it sends no password-reset
-          and no login request, and it writes nothing to the database. It verifies the environment
-          binding, the schema state, the reconciliation evidence, the identity and device state, the
-          integrity ties and the latest existing backup (its manifest and its hash). It needs no
-          codeword, because it changes nothing.
+          Reads the signed approval manifest, the target database, the schema head, the signed native
+          package and reconciliation evidence, the approved device fleet, the backup drill and the G7
+          approval. It creates no backup, starts no host, sends no identity request and writes no row.
+          It needs no codeword because it changes nothing.
 
       -Mode Execute    (the approved write)
-          Performs the cutover: the codeword, a fresh backup, the host, the final frozen import, the
-          signed reconciliation, the identity reset, the smoke and the final integrity verification.
-          It requires the business owner's codeword, which is read from the environment
-          (QTS_CUTOVER_CODEWORD) and compared in constant time - the caller can never accept its own
-          codeword.
+          Re-verifies the same manifest immediately before any write, then checks ONE caller-supplied
+          codeword against the SHA-256 in that signed manifest. The expected value is never a second
+          caller-supplied environment value. It creates a fresh backup, starts the host, applies the
+          frozen native package, signs and verifies the reconciliation, resets the owner identity,
+          runs the smoke and repeats the integrity ties.
 
-    Both modes FAIL CLOSED: the run stops at the first failed gate. A failed backup, a failed health
-    check or a failed schema check stops the run before the import, never after it.
+    Every gate stops the run at the first failure. External commands are checked for exit code and
+    relevant stderr. A missing, skipped or unknown check is a failure, never a warning. The script
+    never enrols a device, never rolls back to a retired system and never deletes posted facts.
 
-    Everything is bound to ONE environment. The database, the backup, the migration state, the command
-    line tool and the HTTP target must all name the same database; a target that does not match is a
-    failed gate, never a warning. A skipped import is a failed gate, not a pass, and the device is
-    never enrolled automatically: an enrolment is an approval, not a side effect of a script.
+    The manifest is one JSON document:
+        { "schema": "qts-production-approval-v2",
+          "body": { environment, server, database, businessIds, approvedDeviceIds, releaseSha,
+                    migrationHead, nativePackageSha256, reconciliationReportSha256,
+                    approvedExceptions, backupDrillSha256, g7ApprovalSha256,
+                    codewordSha256, issuedAtUtc, expiresAtUtc },
+          "approval": { "algorithm": "HMAC-SHA256", "keyId": "...", "signature": "..." } }
 
-    The script never deletes anything and never rolls back to the legacy system: a failed gate means
-    stop and fix forward.
+    The HMAC key and key id are read from QTS_CUTOVER_APPROVAL_KEY (hex) and
+    QTS_CUTOVER_APPROVAL_KEY_ID. The codeword is read from QTS_CUTOVER_CODEWORD only in Execute.
+    Neither secret is written to the checklist or to a log.
 
 .EXAMPLE
-    # the read-only admission (writes nothing)
-    pwsh -File scripts/qb30-cutover.ps1 -Mode Admission -ApprovedDevices <ids>
+    pwsh -File scripts/qb30-cutover.ps1 -Mode Admission -ApprovalManifest <signed.json> `
+        -Package <dir> -Report <signed-report.json> -Approvals <owner-approvals.json> `
+        -BackupDrill <drill.json> -G7Approval <g7.json> -OwnerEmail <owner@example> `
+        -Container qtsbilling-pg -BaseUrl http://localhost:5188
 
-    # the approved cutover (the codeword comes from the environment)
-    $env:QTS_CUTOVER_CODEWORD = "<the owner's codeword>"
-    $env:QTS_CUTOVER_PRESENTED_CODEWORD = "<the owner's codeword>"
-    pwsh -File scripts/qb30-cutover.ps11 -Mode Execute -Snapshot <dir> -Rows <dir>
+.EXAMPLE
+    $env:QTS_CUTOVER_CODEWORD = '<the owner-designated confirmation>'
+    pwsh -File scripts/qb30-cutover.ps1 -Mode Execute ...same evidence...
 #>
 [CmdletBinding()]
 param(
     [ValidateSet("Admission", "Execute")]
     [string]$Mode = "Admission",
-    [string]$Container = "qtsbilling-pg",
-    [string]$BaseUrl = "http://localhost:5188",
-    [string]$Snapshot = "",
-    [string]$Rows = "",
-    [string]$Mapping = "docs/migration/mapping.sample.json",
-    [string]$ApprovedDevices = "",
-    [string[]]$ReconciliationExceptions = @(),
+    [string]$ApprovalManifest = "",
+    [string]$Package = "",
+    [string]$Report = "",
+    [string]$Approvals = "",
+    [string]$BackupDrill = "",
+    [string]$G7Approval = "",
+    [string]$Container = "",
+    [string]$BaseUrl = "",
     [string]$OutDir = "backups",
     [ValidateSet("Docker", "Psql")]
     [string]$SqlMode = "Docker",
-    [string]$OwnerEmail = "owner@qtsbilling.local"
+    [string]$OwnerEmail = "",
+    [switch]$LibraryOnly
 )
 
-$ErrorActionPreference = "Continue"
-$repoRoot = Split-Path -Parent $PSScriptRoot
-Push-Location $repoRoot
+$ErrorActionPreference = "Stop"
+$script:RepoRoot = Split-Path -Parent $PSScriptRoot
 
-$approvedExceptions = @($ReconciliationExceptions -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ })
-$checklist = New-Object System.Collections.Generic.List[object]
-$serverProcess = $null
-$resolvedOut = if ([System.IO.Path]::IsPathRooted($OutDir)) { $OutDir } else { Join-Path $repoRoot $OutDir }
+function Write-CutoverLine([string]$Text) {
+    Write-Host $Text
+}
 
-function Add-Gate([string]$Gate, [bool]$Passed, [string]$Detail) {
+function Add-Gate([string]$Gate, [bool]$Passed, [string]$Detail = "") {
     $script:checklist.Add([pscustomobject]@{ Gate = $Gate; Passed = $Passed; Detail = $Detail })
-    Write-Host ("{0,-62} {1}" -f $Gate, $(if ($Passed) { "PASS" } else { "FAIL" }))
-    if ($Detail) { Write-Host "    $Detail" }
-}
+    Write-Host ("{0,-72} {1}" -f $Gate, $(if ($Passed) { "PASS" } else { "FAIL" }))
 
-function Invoke-Sql([string]$query) {
-    if ($SqlMode -eq "Psql") {
-        $result = & psql $connection -t -A -c $query 2>&1
+    if ($Detail) {
+        Write-Host "    $Detail"
     }
-    else {
-        $result = docker exec $Container psql -U $User -d $Database -t -A -c $query 2>&1
+}
+
+function Assert-Gate([string]$Gate, [bool]$Passed, [string]$Detail = "") {
+    Add-Gate $Gate $Passed $Detail
+
+    if (-not $Passed) {
+        throw "GATE_FAILED: $Gate"
+    }
+}
+
+function Add-Mutation([string]$Name) {
+    if ($null -ne $script:mutations) {
+        $script:mutations.Add($Name)
+    }
+}
+
+function Show-Checklist([string]$Title) {
+    Write-Host ""
+    Write-Host "== $Title =="
+
+    foreach ($item in $script:checklist) {
+        Write-Host ("  [{0}] {1}" -f $(if ($item.Passed) { "x" } else { " " }), $item.Gate)
+    }
+}
+
+function Test-ConstantTimeEquals([string]$Left, [string]$Right) {
+    if ($null -eq $Left -or $null -eq $Right) {
+        return $false
     }
 
-    return ($result | Where-Object { $_ -and $_ -notmatch "^\s*$" } | Select-Object -First 1)
-}
+    $difference = [Math]::Abs($Left.Length - $Right.Length)
 
-function Get-Scalar([string]$url, $cookieJar) {
-    $response = Invoke-WebRequest -Uri $url -WebSession $cookieJar -TimeoutSec 30 -UseBasicParsing
-    return $response.Content
-}
-
-# A comparison that does not stop at the first difference: the length of the codeword must not leak.
-function Test-ConstantTimeEquals([string]$left, [string]$right) {
-    if ($null -eq $left -or $null -eq $right) { return $false }
-
-    $difference = [System.Math]::Abs($left.Length - $right.Length)
-
-    for ($index = 0; $index -lt [System.Math]::Max($left.Length, $right.Length); $index++) {
-        $leftChar = if ($index -lt $left.Length) { [int][char]$left[$index] } else { 0 }
-        $rightChar = if ($index -lt $right.Length) { [int][char]$right[$index] } else { 0 }
+    for ($index = 0; $index -lt [Math]::Max($Left.Length, $Right.Length); $index++) {
+        $leftChar = if ($index -lt $Left.Length) { [int][char]$Left[$index] } else { 0 }
+        $rightChar = if ($index -lt $Right.Length) { [int][char]$Right[$index] } else { 0 }
         $difference = $difference -bor ($leftChar -bxor $rightChar)
     }
 
     return $difference -eq 0
 }
 
-function Show-Checklist([string]$Title) {
-    Write-Host ""
-    Write-Host "== $Title =="
-    foreach ($item in $script:checklist) {
-        Write-Host ("  [{0}] {1}" -f $(if ($item.Passed) { "x" } else { " " }), $item.Gate)
+function Get-Sha256Hex([string]$Text) {
+    $bytes = [Text.Encoding]::UTF8.GetBytes($Text)
+    $hash = [Security.Cryptography.SHA256]::HashData($bytes)
+    return [Convert]::ToHexString($hash).ToLowerInvariant()
+}
+
+function Get-FileSha256Hex([string]$Path) {
+    return (Get-FileHash -Path $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+
+function Get-HmacHex([string]$Text, [string]$KeyHex) {
+    $key = [Convert]::FromHexString($KeyHex)
+    $hmac = [Security.Cryptography.HMACSHA256]::new($key)
+
+    try {
+        $hash = $hmac.ComputeHash([Text.Encoding]::UTF8.GetBytes($Text))
+        return [Convert]::ToHexString($hash).ToLowerInvariant()
+    }
+    finally {
+        $hmac.Dispose()
     }
 }
 
-function Stop-Run([int]$ExitCode) {
+function Read-JsonFile([string]$Path) {
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -Path $Path -PathType Leaf)) {
+        throw "The evidence file '$Path' does not exist."
+    }
+
+    return Get-Content -Path $Path -Raw | ConvertFrom-Json
+}
+
+function Get-ApprovalCanonicalText($Body) {
+    $businessIds = @($Body.businessIds | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Sort-Object)
+    $deviceIds = @($Body.approvedDeviceIds | ForEach-Object { ([string]$_).Trim().ToLowerInvariant() } | Sort-Object)
+    $exceptions = @($Body.approvedExceptions | ForEach-Object { ([string]$_).Trim() } | Sort-Object)
+
+    return @(
+        "qts-production-approval-v2",
+        [string]$Body.environment,
+        [string]$Body.server,
+        [string]$Body.database,
+        ($businessIds -join ","),
+        ($deviceIds -join ","),
+        [string]$Body.releaseSha,
+        [string]$Body.migrationHead,
+        [string]$Body.nativePackageSha256,
+        [string]$Body.reconciliationReportSha256,
+        ($exceptions -join ","),
+        [string]$Body.backupDrillSha256,
+        [string]$Body.g7ApprovalSha256,
+        [string]$Body.codewordSha256,
+        (Format-CanonicalTimestamp $Body.issuedAtUtc),
+        (Format-CanonicalTimestamp $Body.expiresAtUtc)
+    ) -join "`n"
+}
+
+function Format-CanonicalTimestamp($Value) {
+    if ($Value -is [DateTimeOffset]) {
+        return $Value.ToUniversalTime().ToString("O")
+    }
+
+    if ($Value -is [DateTime]) {
+        return ([DateTimeOffset]$Value).ToUniversalTime().ToString("O")
+    }
+
+    $parsed = [DateTimeOffset]::MinValue
+
+    if ([DateTimeOffset]::TryParse([string]$Value, [ref]$parsed)) {
+        return $parsed.ToUniversalTime().ToString("O")
+    }
+
+    return [string]$Value
+}
+
+function Test-ApprovalManifest([pscustomobject]$Context) {
+    try {
+        $manifest = Read-JsonFile $Context.ApprovalManifest
+    }
+    catch {
+        return [pscustomobject]@{ Ok = $false; Detail = $_.Exception.Message; Body = $null; Manifest = $null }
+    }
+
+    if ([string]$manifest.schema -ne "qts-production-approval-v2") {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval manifest schema is not qts-production-approval-v2."; Body = $null; Manifest = $manifest }
+    }
+
+    $body = $manifest.body
+
+    if ($null -eq $body) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval manifest has no body."; Body = $null; Manifest = $manifest }
+    }
+
+    $keyId = $env:QTS_CUTOVER_APPROVAL_KEY_ID
+    $keyHex = $env:QTS_CUTOVER_APPROVAL_KEY
+
+    if ([string]::IsNullOrWhiteSpace($keyId) -or [string]::IsNullOrWhiteSpace($keyHex)) {
+        return [pscustomobject]@{ Ok = $false; Detail = "QTS_CUTOVER_APPROVAL_KEY_ID and QTS_CUTOVER_APPROVAL_KEY must be supplied by the protected owner process."; Body = $body; Manifest = $manifest }
+    }
+
+    if ($null -eq $manifest.approval -or ([string]$manifest.approval.algorithm) -ne "HMAC-SHA256" -or ([string]$manifest.approval.keyId) -ne $keyId) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval signature algorithm or key id is not trusted."; Body = $body; Manifest = $manifest }
+    }
+
+    try {
+        $canonical = Get-ApprovalCanonicalText $body
+        $expected = Get-HmacHex $canonical $keyHex
+    }
+    catch {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval key is not valid hexadecimal."; Body = $body; Manifest = $manifest }
+    }
+
+    if (-not (Test-ConstantTimeEquals ([string]$manifest.approval.signature).ToLowerInvariant() $expected)) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval manifest signature is invalid."; Body = $body; Manifest = $manifest }
+    }
+
+    if ([string]$body.environment -ne "production") {
+        return [pscustomobject]@{ Ok = $false; Detail = "The signed environment is '$($body.environment)', not production."; Body = $body; Manifest = $manifest }
+    }
+
+    if (-not [string]::Equals([string]$body.server, $Context.DatabaseHost, [StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval names server '$($body.server)' but the command targets '$($Context.DatabaseHost)'."; Body = $body; Manifest = $manifest }
+    }
+
+    if (-not [string]::Equals([string]$body.database, $Context.Database, [StringComparison]::OrdinalIgnoreCase)) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval names database '$($body.database)' but the command targets '$($Context.Database)'."; Body = $body; Manifest = $manifest }
+    }
+
+    $issued = [DateTimeOffset]::MinValue
+    $expires = [DateTimeOffset]::MinValue
+
+    if (-not [DateTimeOffset]::TryParse([string]$body.issuedAtUtc, [ref]$issued) -or -not [DateTimeOffset]::TryParse([string]$body.expiresAtUtc, [ref]$expires)) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval timestamps are not ISO-8601."; Body = $body; Manifest = $manifest }
+    }
+
+    $now = [DateTimeOffset]::UtcNow
+
+    if ($now -lt $issued -or $now -gt $expires) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval is not valid at the current time."; Body = $body; Manifest = $manifest }
+    }
+
+    foreach ($name in @("releaseSha", "migrationHead", "nativePackageSha256", "reconciliationReportSha256", "backupDrillSha256", "g7ApprovalSha256", "codewordSha256")) {
+        if ([string]::IsNullOrWhiteSpace([string]$body.$name)) {
+            return [pscustomobject]@{ Ok = $false; Detail = "The approval manifest is missing $name."; Body = $body; Manifest = $manifest }
+        }
+    }
+
+    foreach ($hashName in @("nativePackageSha256", "reconciliationReportSha256", "backupDrillSha256", "g7ApprovalSha256", "codewordSha256")) {
+        if ([string]$body.$hashName -notmatch "^[0-9a-fA-F]{64}$") {
+            return [pscustomobject]@{ Ok = $false; Detail = "$hashName is not a SHA-256 hex value."; Body = $body; Manifest = $manifest }
+        }
+    }
+
+    if (@($body.businessIds).Count -eq 0) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval names no business."; Body = $body; Manifest = $manifest }
+    }
+
+    if (@($body.approvedDeviceIds).Count -eq 0) {
+        return [pscustomobject]@{ Ok = $false; Detail = "The approval names no approved device; the script never enrols one."; Body = $body; Manifest = $manifest }
+    }
+
+    return [pscustomobject]@{ Ok = $true; Detail = "signed approval for $($body.server)/$($body.database), expires $($body.expiresAtUtc)"; Body = $body; Manifest = $manifest }
+}
+
+function Invoke-ExternalCommand {
+    param(
+        [string]$FilePath,
+        [string[]]$Arguments = @(),
+        [string]$WorkingDirectory = "",
+        [hashtable]$Environment = @{}
+    )
+
+    $startInfo = [Diagnostics.ProcessStartInfo]::new()
+    $startInfo.FileName = $FilePath
+    $startInfo.UseShellExecute = $false
+    $startInfo.RedirectStandardOutput = $true
+    $startInfo.RedirectStandardError = $true
+
+    if (-not [string]::IsNullOrWhiteSpace($WorkingDirectory)) {
+        $startInfo.WorkingDirectory = $WorkingDirectory
+    }
+
+    foreach ($argument in $Arguments) {
+        $startInfo.ArgumentList.Add([string]$argument)
+    }
+
+    foreach ($key in $Environment.Keys) {
+        $startInfo.Environment[$key] = [string]$Environment[$key]
+    }
+
+    try {
+        $process = [Diagnostics.Process]::Start($startInfo)
+    }
+    catch {
+        return [pscustomobject]@{ ExitCode = 127; StdOut = ""; StdErr = $_.Exception.Message }
+    }
+
+    $stdout = $process.StandardOutput.ReadToEnd()
+    $stderr = $process.StandardError.ReadToEnd()
+    $process.WaitForExit()
+
+    return [pscustomobject]@{
+        ExitCode = $process.ExitCode
+        StdOut = $stdout.Trim()
+        StdErr = $stderr.Trim()
+    }
+}
+
+function Invoke-SqlRows([string]$Query) {
+    $context = $script:Context
+
+    if ($context.SqlMode -eq "Psql") {
+        $environment = @{
+            PGHOST = $context.DatabaseHost
+            PGPORT = $context.Port
+            PGDATABASE = $context.Database
+            PGUSER = $context.User
+            PGPASSWORD = $context.Password
+        }
+        $result = Invoke-ExternalCommand -FilePath "psql" -Arguments @(
+            "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $Query
+        ) -Environment $environment
+    }
+    else {
+        if ([string]::IsNullOrWhiteSpace($context.Container)) {
+            throw "A PostgreSQL container must be named explicitly for -SqlMode Docker."
+        }
+
+        $arguments = @("exec", "-e", "PGPASSWORD", $context.Container, "psql", "-U", $context.User, "-d", $context.Database,
+            "-X", "-q", "-t", "-A", "-v", "ON_ERROR_STOP=1", "-c", $Query)
+        $result = Invoke-ExternalCommand -FilePath "docker" -Arguments $arguments -Environment @{ PGPASSWORD = $context.Password }
+    }
+
+    if ($result.ExitCode -ne 0) {
+        throw "The SQL command failed with exit code $($result.ExitCode): $($result.StdErr)"
+    }
+
+    if ($result.StdErr -match "(?i)\b(error|fatal)\b") {
+        throw "The SQL command reported an error: $($result.StdErr)"
+    }
+
+    return @($result.StdOut -split "`r?`n" | Where-Object { $_ -ne "" })
+}
+
+function Invoke-Sql([string]$Query) {
+    $rows = Invoke-SqlRows $Query
+    return ($rows | Select-Object -First 1)
+}
+
+function Invoke-CheckedDotnet([string[]]$Arguments, [string]$Label, [hashtable]$Environment = @{}) {
+    $result = Invoke-ExternalCommand -FilePath "dotnet" -Arguments $Arguments -WorkingDirectory $script:Context.RepoRoot -Environment $Environment
+    Assert-Gate "$Label (exit code)" ($result.ExitCode -eq 0) "exit $($result.ExitCode)"
+    Assert-Gate "$Label (stderr)" ($result.StdErr -notmatch "(?i)\b(error|fatal|unhandled|exception)\b") $(if ($result.StdErr) { $result.StdErr } else { "clean" })
+    return $result
+}
+
+function Invoke-Http([string]$Url) {
+    $response = Invoke-WebRequest -Uri $Url -TimeoutSec 10 -UseBasicParsing
+    return [pscustomobject]@{ StatusCode = [int]$response.StatusCode; Content = [string]$response.Content }
+}
+
+function Start-ApplicationHost([pscustomobject]$Context) {
+    Add-Mutation "host"
+    $env:ASPNETCORE_ENVIRONMENT = "Production"
+    $stdout = Join-Path $Context.ResolvedOut "cutover-server.log"
+    $stderr = Join-Path $Context.ResolvedOut "cutover-server.err"
+
+    $script:serverProcess = Start-Process -FilePath "dotnet" `
+        -ArgumentList "run --project QtsWebApp/QtsWebApp/QtsWebApp.csproj --no-launch-profile --urls $($Context.BaseUrl)" `
+        -WorkingDirectory $Context.RepoRoot `
+        -RedirectStandardOutput $stdout `
+        -RedirectStandardError $stderr `
+        -WindowStyle Hidden -PassThru
+
+    $healthy = $false
+
+    for ($attempt = 0; $attempt -lt 40; $attempt++) {
+        Start-Sleep -Seconds 1
+
+        try {
+            if ((Invoke-Http "$($Context.BaseUrl)/api/v1/health").StatusCode -eq 200) {
+                $healthy = $true
+                break
+            }
+        }
+        catch {
+        }
+    }
+
+    Assert-Gate "host: the API answers a healthy read" $healthy "$($Context.BaseUrl)/api/v1/health"
+}
+
+function Stop-ApplicationHost {
     if ($script:serverProcess) {
         Stop-Process -Id $script:serverProcess.Id -Force -ErrorAction SilentlyContinue
         $script:serverProcess = $null
     }
+}
 
-    $failed = @($script:checklist | Where-Object { -not $_.Passed })
-
-    if ($failed.Count -gt 0) {
-        Write-Host ""
-        foreach ($item in $failed) { Write-Host ("  FAIL {0}: {1}" -f $item.Gate, $item.Detail) }
+function Reset-OwnerIdentity([string]$OwnerId) {
+    if ($OwnerId -notmatch "^[0-9a-fA-F-]{36}$") {
+        throw "The owner identity is not a Guid."
     }
 
-    Pop-Location
-    exit $ExitCode
+    Add-Mutation "identity-reset"
+    Invoke-Sql "update users set password_reset_required = true, security_stamp = gen_random_uuid()::text, concurrency_stamp = gen_random_uuid()::text where id = '$OwnerId';" | Out-Null
 }
 
-# The fail-closed rule: after every gate, a failure stops the run before the next step.
-function Assert-NoFailedGate([string]$Phase) {
-    $failed = @($script:checklist | Where-Object { -not $_.Passed })
+function Get-RetiredProjectState {
+    $present = Test-Path (Join-Path $script:RepoRoot "QtsBilling.Migration")
+    $tracked = Invoke-ExternalCommand -FilePath "git" -Arguments @("ls-files") -WorkingDirectory $script:RepoRoot
+    $legacyCount = @(($tracked.StdOut -split "`r?`n") | Where-Object { $_ -match "^(QtsBilling|QtsServices)/" }).Count
 
-    if ($failed.Count -gt 0) {
-        Write-Host ""
-        Write-Host "$Phase stopped: $($failed.Count) gate(s) failed. The run does not continue."
-        Stop-Run 1
+    return [pscustomobject]@{
+        Present = [bool]$present
+        LegacyCount = $legacyCount
+        GitExitCode = $tracked.ExitCode
     }
 }
 
-Write-Host "== QtsBilling $Mode =="
-Write-Host ""
+function Invoke-IntegrityChecks([string]$Prefix) {
+    $ledgerDifference = Invoke-Sql "select coalesce(sum(l.debit_amount),0) - coalesce(sum(l.credit_amount),0) from journal_lines l join journal_entries e on e.id = l.journal_entry_id where e.status = 'Posted';"
+    Assert-Gate "$Prefix the posted ledger balances (debits = credits)" (([decimal]$ledgerDifference) -eq 0) "difference $ledgerDifference"
 
-# =========================================================================================
-# PHASE 1 - the read-only admission. Nothing in this phase writes: no backup is created, no
-# application host is started, no password-reset or login request is sent, and no row is written.
-# =========================================================================================
+    $stockTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.quantity_delta) as moved, b.on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.on_hand) t where t.moved <> t.on_hand;"
+    Assert-Gate "$Prefix the stock movements tie to the balances" ($stockTies -eq "0") "$stockTies mismatch(es)"
 
-# 1. the environment binding ------------------------------------------------------------
-$connection = $env:QTS_POSTGRES_CONNECTION
+    $valueTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.value_delta) as moved, b.value_on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.value_on_hand) t where t.moved <> t.value_on_hand;"
+    Assert-Gate "$Prefix the stock value ties to the balances" ($valueTies -eq "0") "$valueTies mismatch(es)"
 
-if ([string]::IsNullOrWhiteSpace($connection)) {
-    Add-Gate "environment: the database connection" $false "QTS_POSTGRES_CONNECTION is not set."
-    Stop-Run 1
+    $unowned = Invoke-Sql "select count(*) from (select id from sales where business_id is null union all select id from customers where business_id is null union all select id from journal_lines where business_id is null) x;"
+    Assert-Gate "$Prefix no unowned business rows" ($unowned -eq "0") "$unowned row(s) without a business"
+
+    $duplicateNumbers = Invoke-Sql "select count(*) from (select business_id, invoice_number from invoices where invoice_number is not null group by business_id, invoice_number having count(*) > 1) d;"
+    Assert-Gate "$Prefix the invoice numbers are unique per business" ($duplicateNumbers -eq "0") "$duplicateNumbers duplicate(s)"
+
+    $journalImbalance = Invoke-Sql "select count(*) from (select e.id from journal_entries e left join journal_lines l on l.journal_entry_id = e.id where e.status = 'Posted' group by e.id, e.total_debit, e.total_credit having e.total_debit <> e.total_credit or coalesce(sum(l.debit_amount),0) <> coalesce(sum(l.credit_amount),0)) x;"
+    Assert-Gate "$Prefix every posted journal entry is balanced" ($journalImbalance -eq "0") "$journalImbalance unbalanced entry(ies)"
+
+    $negativeOpen = Invoke-Sql "select count(*) from open_items where original_amount < 0;"
+    Assert-Gate "$Prefix no negative opening balance" ($negativeOpen -eq "0") "$negativeOpen negative open item(s)"
+
+    $retired = Get-RetiredProjectState
+    Assert-Gate "$Prefix the retired import project is absent" (-not $retired.Present) $(if ($retired.Present) { "present" } else { "absent" })
+    Assert-Gate "$Prefix no live dependency on the retired client or services" ($retired.GitExitCode -eq 0 -and $retired.LegacyCount -eq 0) "$($retired.LegacyCount) tracked retired project file(s)"
 }
 
-$Database = ([regex]::Match($connection, "(?i)(?:^|;)\s*Database\s*=\s*([^;]+)")).Groups[1].Value.Trim()
-$DatabaseHost = ([regex]::Match($connection, "(?i)(?:^|;)\s*Host\s*=\s*([^;]+)")).Groups[1].Value.Trim()
-$Port = ([regex]::Match($connection, "(?i)(?:^|;)\s*Port\s*=\s*([^;]+)")).Groups[1].Value.Trim()
-$User = ([regex]::Match($connection, "(?i)(?:^|;)\s*Username\s*=\s*([^;]+)")).Groups[1].Value.Trim()
+function New-CutoverContext {
+    param(
+        [string]$Mode_ = $Mode,
+        [string]$ApprovalManifest_ = $ApprovalManifest,
+        [string]$Package_ = $Package,
+        [string]$Report_ = $Report,
+        [string]$Approvals_ = $Approvals,
+        [string]$BackupDrill_ = $BackupDrill,
+        [string]$G7Approval_ = $G7Approval,
+        [string]$Container_ = $Container,
+        [string]$BaseUrl_ = $BaseUrl,
+        [string]$OutDir_ = $OutDir,
+        [string]$SqlMode_ = $SqlMode,
+        [string]$OwnerEmail_ = $OwnerEmail
+    )
 
-if ([string]::IsNullOrWhiteSpace($Database) -or [string]::IsNullOrWhiteSpace($DatabaseHost)) {
-    Add-Gate "environment: the database connection" $false "The connection string does not name a database and a host."
-    Stop-Run 1
-}
+    $connection = $env:QTS_POSTGRES_CONNECTION
+    $database = ""
+    $databaseHost = ""
+    $port = ""
+    $user = ""
+    $password = ""
 
-Add-Gate "environment: the target of this run" $true "$User@${DatabaseHost}:$Port/$Database"
-
-$servedDatabase = Invoke-Sql "select current_database();"
-
-if ($servedDatabase -ne $Database) {
-    Add-Gate "environment: the backup, the SQL and the CLI name the same database" $false "The target serves '$servedDatabase' but the connection names '$Database'."
-    Stop-Run 1
-}
-
-Add-Gate "environment: the backup, the SQL and the CLI name the same database" $true "target database: $servedDatabase"
-
-# 2. the reachability and the schema (reads only) ---------------------------------------
-$reachable = Invoke-Sql "select 1;"
-
-if ($reachable -ne "1") {
-    Add-Gate "database: the authoritative store is reachable" $false "The database did not answer a read."
-    Stop-Run 1
-}
-
-Add-Gate "database: the authoritative store is reachable" $true "$Database"
-
-$pending = dotnet ef migrations list --project QtsBilling.Persistence.Postgres --no-build 2>&1 | Out-String
-$pendingCount = ([regex]::Matches($pending, "\(Pending\)")).Count
-Add-Gate "schema: no pending PostgreSQL migration" ($pendingCount -eq 0) "$pendingCount pending"
-
-# 3. the reconciliation evidence (a file read) --------------------------------------------
-$reportPath = Join-Path $resolvedOut "cutover-reconciliation.json"
-
-if (Test-Path $reportPath) {
-    $report = Get-Content $reportPath -Raw | ConvertFrom-Json
-    $signed = $report.signature -and $report.signature -ne "unsigned" -and $report.signature.Length -eq 64
-    Add-Gate "reconciliation: the report is signed" $signed "hash $($report.reportSha256.Substring(0, 16))"
-
-    $unresolved = @($report.exceptions | Where-Object { $exception = $_; -not ($approvedExceptions | Where-Object { $exception -like "*$_*" }) })
-    Add-Gate "reconciliation: no unresolved exception" ($unresolved.Count -eq 0) "$($unresolved.Count) unresolved of $($report.exceptions.Count) exception(s)"
-}
-else {
-    Add-Gate "reconciliation: the report is signed" $false "No reconciliation report was found at $reportPath. An admission without signed reconciliation evidence is refused."
-}
-
-# 4. the identity and the device state (reads only) -----------------------------------------
-$activeUsers = Invoke-Sql "select count(*) from users u join business_memberships m on m.user_id = u.id where m.is_active and u.is_active;"
-
-Add-Gate "identities: the active memberships of this business" ($activeUsers -match "^\d+$" -and [int]$activeUsers -gt 0) "$activeUsers active membership(s)"
-
-# The device is never enrolled by this script: an enrolment is an approval. The script only verifies
-# that the approved devices are enrolled and active.
-$approved = @()
-if (-not [string]::IsNullOrWhiteSpace($ApprovedDevices)) {
-    $approved = $ApprovedDevices.Split(",") | ForEach-Object { $_.Trim() } | Where-Object { $_ }
-}
-
-if ($approved.Count -eq 0) {
-    Add-Gate "devices: the approved device fleet" $false "No approved device was named. The script never enrols a device by itself."
-}
-else {
-    $enrolled = 0
-    foreach ($device in $approved) {
-        $state = Invoke-Sql "select status from device_registrations where id = '$device';"
-        if ($state -eq "Active") { $enrolled++ }
+    if (-not [string]::IsNullOrWhiteSpace($connection)) {
+        $database = [regex]::Match($connection, "(?i)(?:^|;)\s*Database\s*=\s*([^;]+)").Groups[1].Value.Trim()
+        $databaseHost = [regex]::Match($connection, "(?i)(?:^|;)\s*Host\s*=\s*([^;]+)").Groups[1].Value.Trim()
+        $port = [regex]::Match($connection, "(?i)(?:^|;)\s*Port\s*=\s*([^;]+)").Groups[1].Value.Trim()
+        $user = [regex]::Match($connection, "(?i)(?:^|;)\s*Username\s*=\s*([^;]+)").Groups[1].Value.Trim()
+        $password = [regex]::Match($connection, "(?i)(?:^|;)\s*Password\s*=\s*([^;]+)").Groups[1].Value.Trim()
     }
 
-    Add-Gate "devices: the approved device fleet" ($enrolled -eq $approved.Count) "$enrolled of $($approved.Count) approved device(s) are enrolled and active"
+    $resolvedOut = if ([IO.Path]::IsPathRooted($OutDir_)) { $OutDir_ } else { Join-Path $script:RepoRoot $OutDir_ }
+
+    return [pscustomobject]@{
+        Mode = $Mode_
+        ApprovalManifest = $ApprovalManifest_
+        Package = $Package_
+        Report = $Report_
+        Approvals = $Approvals_
+        BackupDrill = $BackupDrill_
+        G7Approval = $G7Approval_
+        Container = $Container_
+        BaseUrl = $BaseUrl_
+        SqlMode = $SqlMode_
+        OwnerEmail = $OwnerEmail_
+        Connection = $connection
+        Database = $database
+        DatabaseHost = $databaseHost
+        Port = $port
+        User = $user
+        Password = $password
+        ResolvedOut = $resolvedOut
+        RepoRoot = $script:RepoRoot
+    }
 }
 
-# 5. the integrity verification (reads only) --------------------------------------------------
-$ledgerDifference = Invoke-Sql "select coalesce(sum(l.debit_amount),0) - coalesce(sum(l.credit_amount),0) from journal_lines l join journal_entries e on e.id = l.journal_entry_id where e.status = 'Posted';"
-Add-Gate "integrity: the posted ledger balances (debits = credits)" ([decimal]$ledgerDifference -eq 0) "difference $ledgerDifference"
+function Invoke-AdmissionPreflight {
+    param([pscustomobject]$Context)
 
-$stockTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.quantity_delta) as moved, b.on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.on_hand) t where t.moved <> t.on_hand;"
-Add-Gate "integrity: the stock movements tie to the balances" ($stockTies -eq "0") "$stockTies mismatch(es)"
+    $script:Context = $Context
+    $script:checklist = [Collections.Generic.List[object]]::new()
 
-$valueTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.value_delta) as moved, b.value_on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.value_on_hand) t where t.moved <> t.value_on_hand;"
-Add-Gate "integrity: the stock value ties to the balances" ($valueTies -eq "0") "$valueTies mismatch(es)"
+    Assert-Gate "environment: a reviewed approval manifest exists" (-not [string]::IsNullOrWhiteSpace($Context.ApprovalManifest) -and (Test-Path $Context.ApprovalManifest -PathType Leaf)) $(if ($Context.ApprovalManifest) { $Context.ApprovalManifest } else { "no manifest was named" })
+    $manifestCheck = Test-ApprovalManifest $Context
+    Assert-Gate "approval: the manifest is signed by the owner trust and binds this target" $manifestCheck.Ok $manifestCheck.Detail
+    $manifest = $manifestCheck.Manifest
+    $body = $manifestCheck.Body
 
-$crossTenant = Invoke-Sql "select count(*) from (select id from sales where business_id is null union all select id from customers where business_id is null union all select id from journal_lines where business_id is null) x;"
-Add-Gate "integrity: no unowned business rows" ($crossTenant -eq "0") "$crossTenant row(s) without a business"
+    Assert-Gate "environment: the database connection names a host, database and user" (-not [string]::IsNullOrWhiteSpace($Context.Database) -and -not [string]::IsNullOrWhiteSpace($Context.DatabaseHost) -and -not [string]::IsNullOrWhiteSpace($Context.User)) "$($Context.User)@$($Context.DatabaseHost):$($Context.Port)/$($Context.Database)"
+    Assert-Gate "environment: a production base URL is named explicitly" (-not [string]::IsNullOrWhiteSpace($Context.BaseUrl)) $Context.BaseUrl
+    Assert-Gate "environment: a PostgreSQL container is named explicitly for Docker SQL" ($Context.SqlMode -ne "Docker" -or -not [string]::IsNullOrWhiteSpace($Context.Container)) $Context.Container
 
-$duplicateNumbers = Invoke-Sql "select count(*) from (select business_id, invoice_number from invoices where invoice_number is not null group by business_id, invoice_number having count(*) > 1) d;"
-Add-Gate "integrity: the invoice numbers are unique per business" ($duplicateNumbers -eq "0") "$duplicateNumbers duplicate(s)"
+    $servedDatabase = Invoke-Sql "select current_database();"
+    Assert-Gate "environment: the connection and the served database are the same" ($servedDatabase -eq $Context.Database) "served '$servedDatabase', named '$($Context.Database)'"
+    Assert-Gate "database: the authoritative store is reachable" ((Invoke-Sql "select 1;") -eq "1") $Context.Database
 
-$paymentTie = Invoke-Sql "select coalesce(sum(s.total_amount),0) - coalesce((select sum(p.amount) from payments p join sales s2 on s2.id = p.sale_id where p.status = 'Confirmed'),0) from sales s where s.status = 'Posted';"
-Add-Gate "integrity: the posted sales equal the confirmed payments" ([decimal]$paymentTie -eq 0) "difference $paymentTie"
+    $release = Invoke-ExternalCommand -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $Context.RepoRoot
+    Assert-Gate "release: the reviewed commit is checked out" ($release.ExitCode -eq 0 -and [string]::Equals($release.StdOut.Trim(), [string]$body.releaseSha, [StringComparison]::OrdinalIgnoreCase)) "HEAD '$($release.StdOut.Trim())', approved '$($body.releaseSha)'"
 
-$legacyDependency = git ls-files | Select-String -Pattern "^QtsServices/|^QtsBilling/" | Measure-Object
-Add-Gate "cutover: no live dependency on the legacy client or services" ($legacyDependency.Count -eq 0) "$($legacyDependency.Count) tracked legacy project file(s)"
+    $migrationHead = Invoke-Sql 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId" desc limit 1;'
+    Assert-Gate "schema: the applied migration head is the approved head" ([string]::Equals($migrationHead, [string]$body.migrationHead, [StringComparison]::Ordinal)) "applied '$migrationHead', approved '$($body.migrationHead)'"
 
-# 6. the backup evidence (a read: the newest existing backup of THIS database) --------------------
-$backupFiles = @(Get-ChildItem -Path $resolvedOut -Filter "$Database-*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+    $pending = Invoke-ExternalCommand -FilePath "dotnet" -Arguments @("ef", "migrations", "list", "--project", "QtsBilling.Persistence.Postgres", "--no-build") -WorkingDirectory $Context.RepoRoot
+    $pendingCount = ([regex]::Matches($pending.StdOut, "\(Pending\)")).Count
+    Assert-Gate "schema: no pending PostgreSQL migration" ($pending.ExitCode -eq 0 -and $pendingCount -eq 0) "$pendingCount pending; exit $($pending.ExitCode)"
 
-if ($backupFiles.Count -eq 0) {
-    Add-Gate "backup: a verified backup of this database exists" $false "No backup of '$Database' was found in $resolvedOut. The admission does not create one; the approved execution does, before it touches anything."
-}
-else {
-    $newest = $backupFiles[0]
-    $manifestPath = "$($newest.FullName).json"
+    Assert-Gate "package: the signed package is named" (-not [string]::IsNullOrWhiteSpace($Context.Package) -and (Test-Path (Join-Path $Context.Package "manifest.json") -PathType Leaf)) $Context.Package
+    $packageHash = Get-FileSha256Hex (Join-Path $Context.Package "manifest.json")
+    Assert-Gate "package: the approved package hash matches" ([string]::Equals($packageHash, [string]$body.nativePackageSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $packageHash"
 
-    if (-not (Test-Path $manifestPath)) {
-        Add-Gate "backup: a verified backup of this database exists" $false "The manifest of '$($newest.Name)' is missing."
+    $packageManifest = Read-JsonFile (Join-Path $Context.Package "manifest.json")
+    Assert-Gate "package: the target business is approved" (@($body.businessIds) -contains ([string]$packageManifest.targetBusinessId)) "target $($packageManifest.targetBusinessId)"
+    $validate = Invoke-CheckedDotnet @("run", "--project", "QtsBilling.DataImport/QtsBilling.DataImport.csproj", "--", "validate", "--package", $Context.Package) "package: native validation"
+    Assert-Gate "package: the native validation returned no rejection" ($validate.StdOut -match '"isValid"\s*:\s*true' -or $validate.StdOut -match '"rejections"\s*:\s*\[\s*\]') "validated without a target write"
+
+    Assert-Gate "reconciliation: a signed report is named" (-not [string]::IsNullOrWhiteSpace($Context.Report) -and (Test-Path $Context.Report -PathType Leaf)) $Context.Report
+    $reportHash = Get-FileSha256Hex $Context.Report
+    Assert-Gate "reconciliation: the approved report hash matches" ([string]::Equals($reportHash, [string]$body.reconciliationReportSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $reportHash"
+    $report = Read-JsonFile $Context.Report
+    Assert-Gate "reconciliation: the report targets the approved business" (@($body.businessIds) -contains ([string]$report.body.targetBusinessId)) "target $($report.body.targetBusinessId)"
+    Assert-Gate "reconciliation: the report belongs to the approved import batch" (([string]$report.body.batchId) -eq ([string]$packageManifest.batchId)) "batch $($report.body.batchId)"
+    Assert-Gate "reconciliation: the report records a committed import" ($report.body.importCommitted -eq $true) "importCommitted $($report.body.importCommitted)"
+    $reportExceptions = @($report.body.exceptions)
+    $approvedExceptions = @($body.approvedExceptions)
+    $unapproved = @($reportExceptions | Where-Object { $approvedExceptions -notcontains ([string]$_.exceptionId) })
+    Assert-Gate "reconciliation: every exception is enumerated in the approval" ($unapproved.Count -eq 0) "$($unapproved.Count) unapproved exception(s) of $($reportExceptions.Count)"
+    $stale = @($approvedExceptions | Where-Object { @($reportExceptions | ForEach-Object { [string]$_.exceptionId }) -notcontains ([string]$_) })
+    Assert-Gate "reconciliation: the approval contains no stale exception" ($stale.Count -eq 0) "$($stale.Count) stale exception approval(s)"
+    $financial = @($reportExceptions | Where-Object { $_.financial -eq $true })
+    Assert-Gate "reconciliation: no financial exception is waivable" ($financial.Count -eq 0) "$($financial.Count) financial exception(s)"
+    $verifyArguments = @("run", "--project", "QtsBilling.DataImport/QtsBilling.DataImport.csproj", "--", "verify", "--report", $Context.Report)
+    if (-not [string]::IsNullOrWhiteSpace($Context.Approvals)) {
+        $verifyArguments += @("--approvals", $Context.Approvals)
+    }
+    $verify = Invoke-CheckedDotnet $verifyArguments "reconciliation: signed report verification"
+    Assert-Gate "reconciliation: the verifier admits the report" ($verify.StdOut -match '"canAdmitProduction"\s*:\s*true') "canAdmitProduction true"
+
+    Assert-Gate "backup drill: a signed drill is named" (-not [string]::IsNullOrWhiteSpace($Context.BackupDrill) -and (Test-Path $Context.BackupDrill -PathType Leaf)) $Context.BackupDrill
+    $drillHash = Get-FileSha256Hex $Context.BackupDrill
+    Assert-Gate "backup drill: the approved drill hash matches" ([string]::Equals($drillHash, [string]$body.backupDrillSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $drillHash"
+    $drill = Read-JsonFile $Context.BackupDrill
+    Assert-Gate "backup drill: the restore was verified against this database" ($drill.database -eq $Context.Database -and $drill.restoreVerified -eq $true) "database $($drill.database), restoreVerified $($drill.restoreVerified)"
+
+    Assert-Gate "G7: a delivery approval is named" (-not [string]::IsNullOrWhiteSpace($Context.G7Approval) -and (Test-Path $Context.G7Approval -PathType Leaf)) $Context.G7Approval
+    $g7Hash = Get-FileSha256Hex $Context.G7Approval
+    Assert-Gate "G7: the approved delivery hash matches" ([string]::Equals($g7Hash, [string]$body.g7ApprovalSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $g7Hash"
+    $g7 = Read-JsonFile $Context.G7Approval
+    Assert-Gate "G7: delivery is approved for this release and environment" ($g7.approved -eq $true -and $g7.environment -eq "production" -and [string]::Equals([string]$g7.releaseSha, [string]$body.releaseSha, [StringComparison]::OrdinalIgnoreCase)) "approved $($g7.approved), release $($g7.releaseSha)"
+
+    $activeUsers = Invoke-Sql "select count(*) from users u join business_memberships m on m.user_id = u.id where m.is_active and u.is_active;"
+    Assert-Gate "identities: the active memberships of this business" ($activeUsers -match "^\d+$" -and [int]$activeUsers -gt 0) "$activeUsers active membership(s)"
+
+    if ([string]::IsNullOrWhiteSpace($Context.OwnerEmail)) {
+        Assert-Gate "identities: the owner identity is named" $false "An owner email is required for the reset evidence."
     }
     else {
-        $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-        $hash = (Get-FileHash -Path $newest.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        $escapedOwner = $Context.OwnerEmail.Replace("'", "''")
+        $ownerCount = Invoke-Sql "select count(*) from users u join business_memberships m on m.user_id = u.id where lower(u.email) = lower('$escapedOwner') and m.role = 0 and m.is_active and u.is_active;"
+        Assert-Gate "identities: the named owner has an active owner membership" ($ownerCount -eq "1") "$ownerCount owner membership(s)"
+    }
 
-        if ($manifest.database -ne $Database) {
-            Add-Gate "backup: a verified backup of this database exists" $false "The manifest names the database '$($manifest.database)'."
+    $enrolled = 0
+    $approvedDevices = @($body.approvedDeviceIds)
+    foreach ($device in $approvedDevices) {
+        $state = Invoke-Sql "select status from device_registrations where id = '$device';"
+        if ($state -eq "0" -or $state -eq "Active") {
+            $enrolled++
         }
-        elseif ($manifest.sha256.ToLowerInvariant() -ne $hash) {
-            Add-Gate "backup: a verified backup of this database exists" $false "The file no longer matches its manifest hash."
+    }
+    Assert-Gate "devices: the approved device fleet is already enrolled and active" ($enrolled -eq $approvedDevices.Count) "$enrolled of $($approvedDevices.Count) approved device(s)"
+
+    Invoke-IntegrityChecks "integrity:"
+
+    $backupFiles = @(Get-ChildItem -Path $Context.ResolvedOut -Filter "$($Context.Database)-*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending)
+
+    if ($backupFiles.Count -eq 0) {
+        Assert-Gate "backup: a verified backup of this database exists" $false "No backup of '$($Context.Database)' exists in $($Context.ResolvedOut); admission does not create one."
+    }
+    else {
+        $newest = $backupFiles[0]
+        $manifestPath = "$($newest.FullName).json"
+
+        if (-not (Test-Path $manifestPath -PathType Leaf)) {
+            Assert-Gate "backup: a verified backup of this database exists" $false "The manifest of '$($newest.Name)' is missing."
         }
         else {
-            Add-Gate "backup: a verified backup of this database exists" $true "$($manifest.fileName) sha256 $($manifest.sha256.Substring(0, 16))"
+            $backupManifest = Read-JsonFile $manifestPath
+            $backupHash = Get-FileSha256Hex $newest.FullName
+
+            if ($backupManifest.database -ne $Context.Database) {
+                Assert-Gate "backup: a verified backup of this database exists" $false "The manifest names '$($backupManifest.database)'."
+            }
+            elseif ([string]$backupManifest.sha256 -ne $backupHash) {
+                Assert-Gate "backup: a verified backup of this database exists" $false "The dump no longer matches its manifest hash."
+            }
+            else {
+                Assert-Gate "backup: a verified backup of this database exists" $true "$($newest.Name) sha256 $($backupHash.Substring(0, 16))"
+            }
         }
     }
+
+    return $script:checklist
 }
 
-Assert-NoFailedGate "The read-only admission"
+function Assert-ExecutionApproval {
+    param([pscustomobject]$Context)
 
-if ($Mode -eq "Admission") {
-    Show-Checklist "go/no-go (read-only admission)"
-    Write-Host ""
-    Write-Host "The admission wrote nothing: no backup was created, no application host was started, and no"
-    Write-Host "password-reset or login request was sent. The approved execution creates the backup and"
-    Write-Host "performs the cutover."
-    Write-Host ""
-    Write-Host ("Admission: {0} gate(s), {1} failed" -f $checklist.Count, @($checklist | Where-Object { -not $_.Passed }).Count)
-    Stop-Run 0
-}
+    $manifestCheck = Test-ApprovalManifest $Context
+    Assert-Gate "approval: the manifest is re-verified immediately before any write" $manifestCheck.Ok $manifestCheck.Detail
+    $body = $manifestCheck.Body
 
-# =========================================================================================
-# PHASE 2 - the approved execution. Everything below may write, and every gate stops the run.
-# =========================================================================================
+    $release = Invoke-ExternalCommand -FilePath "git" -Arguments @("rev-parse", "HEAD") -WorkingDirectory $Context.RepoRoot
+    Assert-Gate "release: the checked-out commit is still the approved release" ($release.ExitCode -eq 0 -and [string]::Equals($release.StdOut.Trim(), [string]$body.releaseSha, [StringComparison]::OrdinalIgnoreCase)) "HEAD '$($release.StdOut.Trim())'"
+    $migrationHead = Invoke-Sql 'select "MigrationId" from "__EFMigrationsHistory" order by "MigrationId" desc limit 1;'
+    Assert-Gate "schema: the applied migration head is still the approved head" ([string]::Equals($migrationHead, [string]$body.migrationHead, [StringComparison]::Ordinal)) "applied '$migrationHead'"
 
-# 7. the codeword ----------------------------------------------------------------------------
-$expected = $env:QTS_CUTOVER_CODEWORD
-$presented = $env:QTS_CUTOVER_PRESENTED_CODEWORD
+    $packageHash = Get-FileSha256Hex (Join-Path $Context.Package "manifest.json")
+    Assert-Gate "package: the approved package bytes are unchanged before execution" ([string]::Equals($packageHash, [string]$body.nativePackageSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $packageHash"
+    $reportHash = Get-FileSha256Hex $Context.Report
+    Assert-Gate "reconciliation: the approved report bytes are unchanged before execution" ([string]::Equals($reportHash, [string]$body.reconciliationReportSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $reportHash"
+    $drillHash = Get-FileSha256Hex $Context.BackupDrill
+    Assert-Gate "backup drill: the approved drill bytes are unchanged before execution" ([string]::Equals($drillHash, [string]$body.backupDrillSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $drillHash"
+    $g7Hash = Get-FileSha256Hex $Context.G7Approval
+    Assert-Gate "G7: the approved delivery bytes are unchanged before execution" ([string]::Equals($g7Hash, [string]$body.g7ApprovalSha256, [StringComparison]::OrdinalIgnoreCase)) "sha256 $g7Hash"
 
-if ([string]::IsNullOrWhiteSpace($expected) -or [string]::IsNullOrWhiteSpace($presented)) {
-    Add-Gate "codeword: the business owner's cutover codeword" $false "QTS_CUTOVER_CODEWORD and QTS_CUTOVER_PRESENTED_CODEWORD must both be set; the script never accepts a codeword from its own arguments."
-    Stop-Run 1
-}
+    $codeword = $env:QTS_CUTOVER_CODEWORD
 
-if (-not (Test-ConstantTimeEquals $presented $expected)) {
-    Add-Gate "codeword: the business owner's cutover codeword" $false "The codeword does not match. The cutover does not start."
-    Stop-Run 1
-}
-
-Add-Gate "codeword: the business owner's cutover codeword" $true "accepted (constant-time comparison)"
-
-# 8. the fresh backup (a write, before anything else is touched) --------------------------------
-New-Item -ItemType Directory -Force -Path $resolvedOut | Out-Null
-
-$backupArguments = @("-File", "scripts/backup-postgres.ps1", "-Container", $Container, "-Database", $Database, "-User", $User, "-OutDir", $resolvedOut)
-if ($SqlMode -eq "Psql") { $backupArguments += @("-ConnectionString", $connection) }
-$backupOutput = powershell -NoProfile -ExecutionPolicy Bypass @backupArguments 2>&1 | Out-String
-$backupOk = $backupOutput -match "(?i)manifest" -and $backupOutput -notmatch "(?i)error|failed"
-$backupDetail = (($backupOutput.Trim() -split "`n" | Select-Object -Last 3) -join " | ")
-
-Add-Gate "backup: a fresh dump of this database with its SHA-256 manifest" $backupOk $backupDetail
-Assert-NoFailedGate "The approved execution (backup)"
-
-# 9. the host and the schema state ----------------------------------------------------------------
-$env:ASPNETCORE_ENVIRONMENT = "Production"
-
-$serverProcess = Start-Process -FilePath "dotnet" `
-    -ArgumentList "run --project QtsWebApp/QtsWebApp/QtsWebApp.csproj --no-launch-profile --urls $BaseUrl" `
-    -WorkingDirectory $repoRoot `
-    -RedirectStandardOutput (Join-Path $resolvedOut "cutover-server.log") `
-    -RedirectStandardError (Join-Path $resolvedOut "cutover-server.err") `
-    -WindowStyle Hidden -PassThru
-
-$healthy = $false
-for ($attempt = 0; $attempt -lt 40; $attempt++) {
-    Start-Sleep -Seconds 1
-    try {
-        if ((Invoke-WebRequest -Uri "$BaseUrl/api/v1/health" -TimeoutSec 5 -UseBasicParsing).StatusCode -eq 200) { $healthy = $true; break }
+    if ([string]::IsNullOrWhiteSpace($codeword)) {
+        Assert-Gate "codeword: the owner-designated confirmation is supplied once" $false "QTS_CUTOVER_CODEWORD is not set; no second comparison value is accepted."
     }
-    catch { }
+
+    $presentedHash = Get-Sha256Hex $codeword
+    Assert-Gate "codeword: the confirmation matches the signed manifest" (Test-ConstantTimeEquals $presentedHash ([string]$body.codewordSha256).ToLowerInvariant()) "accepted (SHA-256, constant-time comparison)"
 }
 
-Add-Gate "server: the health endpoint" $healthy $BaseUrl
-Assert-NoFailedGate "The approved execution (host)"
+function Invoke-CutoverExecution {
+    param([pscustomobject]$Context)
 
-$pending = dotnet ef migrations list --project QtsBilling.Persistence.Postgres --no-build 2>&1 | Out-String
-$pendingCount = ([regex]::Matches($pending, "\(Pending\)")).Count
-Add-Gate "schema: no pending PostgreSQL migration" ($pendingCount -eq 0) "$pendingCount pending"
-Assert-NoFailedGate "The approved execution (schema)"
+    $script:Context = $Context
+    New-Item -ItemType Directory -Force -Path $Context.ResolvedOut | Out-Null
 
-# 10. the final frozen import ------------------------------------------------------------------------
-if ([string]::IsNullOrWhiteSpace($Snapshot) -or [string]::IsNullOrWhiteSpace($Rows)) {
-    Add-Gate "import: the final frozen import" $false "The frozen snapshot and the transformed rows are required. A skipped import is not a pass."
-    Stop-Run 1
+    Add-Mutation "backup"
+    $backupArguments = @("-NoProfile", "-File", "scripts/backup-postgres.ps1", "-Container", $Context.Container, "-Database", $Context.Database, "-User", $Context.User, "-OutDir", $Context.ResolvedOut)
+    if ($Context.SqlMode -eq "Psql") {
+        $backupArguments += @("-ConnectionString", $Context.Connection)
+    }
+    $backup = Invoke-ExternalCommand -FilePath "pwsh" -Arguments $backupArguments -WorkingDirectory $Context.RepoRoot
+    Assert-Gate "backup: a fresh dump was created" ($backup.ExitCode -eq 0 -and $backup.StdOut -match "(?i)manifest") $(($backup.StdOut -split "`n" | Select-Object -Last 3) -join " | ")
+
+    $freshBackup = @(Get-ChildItem -Path $Context.ResolvedOut -Filter "$($Context.Database)-*.dump" -ErrorAction SilentlyContinue | Sort-Object LastWriteTimeUtc -Descending | Select-Object -First 1)
+    Assert-Gate "backup: the fresh dump is readable" ($freshBackup.Count -eq 1) "$($freshBackup.Count) dump(s)"
+    $freshManifest = Read-JsonFile "$($freshBackup[0].FullName).json"
+    $freshHash = Get-FileSha256Hex $freshBackup[0].FullName
+    Assert-Gate "backup: the fresh dump matches its manifest" ($freshManifest.database -eq $Context.Database -and ([string]$freshManifest.sha256) -eq $freshHash) "$($freshBackup[0].Name)"
+
+    Start-ApplicationHost $Context
+    Assert-Gate "host: the API is healthy after startup" ((Invoke-Http "$($Context.BaseUrl)/api/v1/health").StatusCode -eq 200) "$($Context.BaseUrl)/api/v1/health"
+
+    $ownerId = Invoke-Sql "select id from users where lower(email) = lower('$($Context.OwnerEmail.Replace("'", "''"))') and is_active limit 1;"
+    Assert-Gate "identity: the owner identity exists before the import" ($ownerId -match "^[0-9a-fA-F-]{36}$") $ownerId
+
+    $resultPath = Join-Path $Context.ResolvedOut "cutover-import-result.json"
+    Add-Mutation "import"
+    $import = Invoke-ExternalCommand -FilePath "dotnet" -Arguments @(
+        "run", "--project", "QtsBilling.DataImport/QtsBilling.DataImport.csproj", "--",
+        "apply", "--package", $Context.Package, "--user", $ownerId, "--result", $resultPath
+    ) -WorkingDirectory $Context.RepoRoot -Environment @{ QTS_NATIVE_IMPORT_EXECUTE = "1" }
+    Assert-Gate "import: the native package command completed" ($import.ExitCode -eq 0) "exit $($import.ExitCode)"
+    Assert-Gate "import: the command wrote its machine-readable result" (Test-Path $resultPath -PathType Leaf) $resultPath
+    $importResult = Read-JsonFile $resultPath
+    Assert-Gate "import: the transaction committed" ($importResult.committed -eq $true) "committed $($importResult.committed)"
+    Assert-Gate "import: no quarantined row remains" (@($importResult.quarantined).Count -eq 0) "$(@($importResult.quarantined).Count) quarantined"
+
+    $reportPath = Join-Path $Context.ResolvedOut "cutover-reconciliation.json"
+    Add-Mutation "reconcile"
+    $reconcile = Invoke-ExternalCommand -FilePath "dotnet" -Arguments @(
+        "run", "--project", "QtsBilling.DataImport/QtsBilling.DataImport.csproj", "--",
+        "reconcile", "--package", $Context.Package, "--import-result", $resultPath, "--report", $reportPath
+    ) -WorkingDirectory $Context.RepoRoot
+    Assert-Gate "reconciliation: the report was generated and signed" ($reconcile.ExitCode -eq 0) "exit $($reconcile.ExitCode)"
+    Assert-Gate "reconciliation: the signed report exists" (Test-Path $reportPath -PathType Leaf) $reportPath
+
+    $finalReport = Read-JsonFile $reportPath
+    $finalBody = $finalReport.body
+    $approvedManifest = Read-JsonFile $Context.ApprovalManifest
+    Assert-Gate "reconciliation: the final report is bound to the approved package business" (@($approvedManifest.body.businessIds) -contains ([string]$finalBody.targetBusinessId)) "target $($finalBody.targetBusinessId)"
+    Assert-Gate "reconciliation: the final report is bound to the committed import batch" ((([string]$finalBody.batchId) -eq ([string]$importResult.batchId))) "batch $($finalBody.batchId)"
+    Assert-Gate "reconciliation: the final report records a committed import" ($finalBody.importCommitted -eq $true) "importCommitted $($finalBody.importCommitted)"
+
+    Add-Mutation "verify"
+    $verifyArguments = @("run", "--project", "QtsBilling.DataImport/QtsBilling.DataImport.csproj", "--", "verify", "--report", $reportPath)
+    if (-not [string]::IsNullOrWhiteSpace($Context.Approvals)) {
+        $verifyArguments += @("--approvals", $Context.Approvals)
+    }
+    $verify = Invoke-ExternalCommand -FilePath "dotnet" -Arguments $verifyArguments -WorkingDirectory $Context.RepoRoot
+    Assert-Gate "reconciliation: the final report is authenticated and passes" ($verify.ExitCode -eq 0 -and $verify.StdOut -match '"canAdmitProduction"\s*:\s*true') "exit $($verify.ExitCode)"
+
+    Reset-OwnerIdentity $ownerId
+
+    Add-Mutation "smoke"
+    Assert-Gate "smoke: the host still answers after the import and reset" ((Invoke-Http "$($Context.BaseUrl)/api/v1/health").StatusCode -eq 200) "$($Context.BaseUrl)/api/v1/health"
+
+    Add-Mutation "final-integrity"
+    Invoke-IntegrityChecks "final integrity:"
 }
 
-$importOutput = dotnet run --project QtsBilling.Migration/QtsBilling.Migration.csproj --no-build -- import --rows $Rows --mapping $Mapping 2>&1 | Out-String
-$importOk = $importOutput -notmatch "(?i)Unhandled exception|error:"
-Add-Gate "import: the final frozen import (idempotent)" $importOk (($importOutput.Trim() -split "`n" | Select-Object -Last 2) -join " | ")
-Assert-NoFailedGate "The approved execution (import)"
+function Invoke-CutoverMain {
+    param([pscustomobject]$Context = $null)
 
-# 11. the signed reconciliation ------------------------------------------------------------------------
-$reconcileOutput = dotnet run --project QtsBilling.Migration/QtsBilling.Migration.csproj --no-build -- reconcile --snapshot $Snapshot --rows $Rows --mapping $Mapping --out $reportPath 2>&1 | Out-String
-$report = Get-Content $reportPath -Raw | ConvertFrom-Json
-$signed = $report.signature -ne "unsigned" -and $report.signature.Length -eq 64
-Add-Gate "reconciliation: the fresh report is signed" $signed "hash $($report.reportSha256.Substring(0, 16))"
+    $script:checklist = [Collections.Generic.List[object]]::new()
+    $script:mutations = [Collections.Generic.List[string]]::new()
+    $script:serverProcess = $null
 
-$unresolved = @($report.exceptions | Where-Object { $exception = $_; -not ($approvedExceptions | Where-Object { $exception -like "*$_*" }) })
-Add-Gate "reconciliation: no unresolved exception" ($unresolved.Count -eq 0) "$($unresolved.Count) unresolved of $($report.exceptions.Count) exception(s)"
-Assert-NoFailedGate "The approved execution (reconciliation)"
+    try {
+        if ($null -eq $Context) {
+            $Context = New-CutoverContext
+        }
 
-# 12. the smoke ----------------------------------------------------------------------------------------
-$email = $OwnerEmail
-$session = New-Object Microsoft.PowerShell.Commands.WebRequestSession
-$login = Invoke-WebRequest -Uri "$BaseUrl/api/v1/auth/login" -Method Post -WebSession $session `
-    -ContentType "application/json" -Body ('{"email":"' + $email + '","password":"' + $env:QTS_OWNER_PASSWORD + '"}') `
-    -TimeoutSec 30 -UseBasicParsing
-Add-Gate "smoke: the sign-in and the session" ($login.StatusCode -eq 200) "login -> $($login.StatusCode)"
+        Write-Host "== QtsBilling $($Context.Mode) =="
+        Write-Host ""
+        $null = Invoke-AdmissionPreflight $Context
+        Show-Checklist "go/no-go (read-only admission)"
+        Write-Host ""
+        Write-Host "Read-only admission only: this checklist does not imply owner production authorization."
 
-try {
-    $reports = Get-Scalar "$BaseUrl/api/v1/reports/balance-sheet" $session
-    Add-Gate "smoke: the balance sheet reads from the authoritative ledger" ($reports -match '"assets"') "GET /api/v1/reports/balance-sheet"
-}
-catch {
-    Add-Gate "smoke: the balance sheet reads from the authoritative ledger" $false $_.Exception.Message
-}
+        if ($Context.Mode -eq "Admission") {
+            Write-Host ("Admission: {0} gate(s), {1} failed" -f $script:checklist.Count, @($script:checklist | Where-Object { -not $_.Passed }).Count)
+            return 0
+        }
 
-Assert-NoFailedGate "The approved execution (smoke)"
-
-# 13. the identity reset (a write, after the session proved to work) -------------------------------------
-$resetRequested = Invoke-WebRequest -Uri "$BaseUrl/api/v1/auth/password-reset/request" -Method Post `
-    -ContentType "application/json" -Body ('{"email":"' + $email + '"}') -TimeoutSec 30 -UseBasicParsing
-Add-Gate "identities: the reset flow is available" ($resetRequested.StatusCode -in @(200, 202, 204)) "POST /api/v1/auth/password-reset/request -> $($resetRequested.StatusCode)"
-
-# 14. the final integrity verification --------------------------------------------------------------------------
-$ledgerDifference = Invoke-Sql "select coalesce(sum(l.debit_amount),0) - coalesce(sum(l.credit_amount),0) from journal_lines l join journal_entries e on e.id = l.journal_entry_id where e.status = 'Posted';"
-Add-Gate "integrity: the posted ledger balances (debits = credits)" ([decimal]$ledgerDifference -eq 0) "difference $ledgerDifference"
-
-$stockTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.quantity_delta) as moved, b.on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.on_hand) t where t.moved <> t.on_hand;"
-Add-Gate "integrity: the stock movements tie to the balances" ($stockTies -eq "0") "$stockTies mismatch(es)"
-
-$valueTies = Invoke-Sql "select count(*) from (select m.variant_id, m.location_id, sum(m.value_delta) as moved, b.value_on_hand from inventory_movements m join inventory_balances b on b.variant_id = m.variant_id and b.location_id = m.location_id group by m.variant_id, m.location_id, b.value_on_hand) t where t.moved <> t.value_on_hand;"
-Add-Gate "integrity: the stock value ties to the balances" ($valueTies -eq "0") "$valueTies mismatch(es)"
-
-$crossTenant = Invoke-Sql "select count(*) from (select id from sales where business_id is null union all select id from customers where business_id is null union all select id from journal_lines where business_id is null) x;"
-Add-Gate "integrity: no unowned business rows" ($crossTenant -eq "0") "$crossTenant row(s) without a business"
-
-$duplicateNumbers = Invoke-Sql "select count(*) from (select business_id, invoice_number from invoices where invoice_number is not null group by business_id, invoice_number having count(*) > 1) d;"
-Add-Gate "integrity: the invoice numbers are unique per business" ($duplicateNumbers -eq "0") "$duplicateNumbers duplicate(s)"
-
-$paymentTie = Invoke-Sql "select coalesce(sum(s.total_amount),0) - coalesce((select sum(p.amount) from payments p join sales s2 on s2.id = p.sale_id where p.status = 'Confirmed'),0) from sales s where s.status = 'Posted';"
-Add-Gate "integrity: the posted sales equal the confirmed payments" ([decimal]$paymentTie -eq 0) "difference $paymentTie"
-
-$legacyDependency = git ls-files | Select-String -Pattern "^QtsServices/|^QtsBilling/" | Measure-Object
-Add-Gate "cutover: no live dependency on the legacy client or services" ($legacyDependency.Count -eq 0) "$($legacyDependency.Count) tracked legacy project file(s)"
-
-# 15. the checklist and the handover ----------------------------------------------------------------------------
-Show-Checklist "go/no-go"
-
-Write-Host ""
-Write-Host "stop/fix-forward plan:"
-Write-Host "  stop    : if a gate fails, keep the legacy system read-only, do not open the new system for writes"
-Write-Host "            and do not delete anything; the import is idempotent and can be re-run."
-Write-Host "  forward : fix the failing gate, re-run the import (it updates the same rows), re-run this script."
-Write-Host "  never   : a blind rollback to the legacy database, and a destructive purge of the legacy backups."
-Write-Host ""
-Write-Host ("Execute: {0} gate(s), {1} failed" -f $checklist.Count, @($checklist | Where-Object { -not $_.Passed }).Count)
-
-$failed = @($checklist | Where-Object { -not $_.Passed })
-
-if ($failed.Count -gt 0) {
-    Stop-Run 1
+        Assert-ExecutionApproval $Context
+        Invoke-CutoverExecution $Context
+        Show-Checklist "cutover execution (complete)"
+        Write-Host ("Execution: {0} gate(s), {1} failed" -f $script:checklist.Count, @($script:checklist | Where-Object { -not $_.Passed }).Count)
+        return 0
+    }
+    catch {
+        Write-Host ""
+        Write-Host "STOP: $($_.Exception.Message)"
+        Show-Checklist "stopped (fail-closed)"
+        return 1
+    }
+    finally {
+        Stop-ApplicationHost
+    }
 }
 
-Stop-Run 0
+if (-not $LibraryOnly) {
+    exit (Invoke-CutoverMain)
+}

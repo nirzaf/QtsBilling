@@ -96,17 +96,13 @@ jobs:
       - name: Test migration tooling
         run: dotnet test QtsBilling.Migration.Tests/QtsBilling.Migration.Tests.csproj -c Release
 
-      # The cutover safety is part of the release controls, so it runs on every build: the read-only
-      # admission must write nothing, and a failed gate must stop the execution before the import.
-      - name: Prove the cutover safety
-        run: pwsh -File scripts/qb39-cutover-safety.ps1
-        env:
-          QTS_POSTGRES_CONNECTION: ${{ env.QTS_TEST_POSTGRES_CONNECTION }}
-          QTS_CUTOVER_SQL_MODE: Psql
-          QTS_CUTOVER_CODEWORD: ci-rehearsal-codeword
-          QTS_CUTOVER_PRESENTED_CODEWORD: ci-rehearsal-codeword
-          QTS_OWNER_PASSWORD: ci-rehearsal-password
-          QTS_RECONCILIATION_KEY: ci-rehearsal-signing-key
+      # Task 21: the production admission is fail-closed and environment-bound. The harness replaces
+      # every external command with a controlled double; it never runs against a real target. A
+      # missing PowerShell 7 fails the test instead of skipping it.
+      - name: Prove fail-closed production admission
+        run: >-
+          dotnet test TestQtsBilling/TestQtsBilling.csproj -c Release --no-build
+          --filter "FullyQualifiedName~ProductionAdmissionTests"
 
   build-desktop:
     name: Build desktop (MAUI · Windows)
