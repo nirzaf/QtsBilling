@@ -16,9 +16,11 @@ using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Invoices;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Pages;
+using QtsBilling.Ui.Pages.Invoices;
 using QtsBilling.Ui.Smoke;
 
 var failures = 0;
@@ -71,7 +73,7 @@ services.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
 services.AddSingleton<IJSRuntime>(new StubJsRuntime());
 services.AddMudServices();
 services.AddSingleton<ICustomerApiClient, StubCustomerApiClient>();
-services.AddSingleton<IAccountApiClient, StubAccountApiClient>();
+services.AddSingleton<IAccountApiClient>(new StubAccountApiClient());
 services.AddSingleton<NavigationManager, StubNavigationManager>();
 
 await using var provider = services.BuildServiceProvider();
@@ -108,11 +110,120 @@ Check("browser POS exposes a direct server post action", posHtml.Contains("Post 
 
 Console.WriteLine($"     rendered markup: {html.Length} chars");
 
+// 5. The invoice editor must render every permission and lifecycle branch through injected clients alone
+//    (spec T02.01/T02.04): issue reachable on a draft, readers not handed an editable form, issued drafts
+//    frozen, and a pre-recognition draft honestly refused.
+var draftId = Guid.CreateVersion7();
+var issuedId = Guid.CreateVersion7();
+var unknownId = Guid.CreateVersion7();
+var smokeLocationId = Guid.CreateVersion7();
+var smokeCustomerId = Guid.CreateVersion7();
+
+async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
+{
+    var editorServices = new ServiceCollection();
+    editorServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+    editorServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+    editorServices.AddMudServices();
+    editorServices.AddSingleton<ICustomerApiClient, StubCustomerApiClient>();
+    editorServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient(permissions));
+    editorServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(smokeLocationId));
+    editorServices.AddSingleton<IInvoiceApiClient>(new StubInvoiceApiClient(
+        draft: InvoiceSample(draftId, InvoiceState.Draft, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
+        issued: InvoiceSample(issuedId, InvoiceState.Issued, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
+        unknown: InvoiceSample(unknownId, InvoiceState.Draft, InvoiceRecognitionMode.HistoricalUnknown, smokeLocationId, smokeCustomerId)));
+    editorServices.AddSingleton<NavigationManager, StubNavigationManager>();
+
+    await using var editorProvider = editorServices.BuildServiceProvider();
+    await using var editorRenderer = new HtmlRenderer(editorProvider, editorProvider.GetRequiredService<ILoggerFactory>());
+
+    return await editorRenderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var parameters = invoiceId is null ? ParameterView.Empty : ParameterView.FromDictionary(new Dictionary<string, object?>
+        {
+            [nameof(InvoiceEditor.InvoiceId)] = invoiceId,
+        });
+        var output = await editorRenderer.RenderComponentAsync<InvoiceEditor>(parameters);
+        return output.ToHtmlString();
+    });
+}
+
+var newDraftHtml = await RenderInvoiceEditor(null, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
+Check("editor renders the create form for a manager", newDraftHtml.Contains("New invoice", StringComparison.Ordinal) && newDraftHtml.Contains("Save draft", StringComparison.Ordinal));
+Check("editor labels the estimate as local, not server-final", newDraftHtml.Contains("Estimated total", StringComparison.Ordinal));
+
+var draftHtml = await RenderInvoiceEditor(draftId, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
+Check("editor offers issue on a draft the operator may issue", draftHtml.Contains("Issue invoice", StringComparison.Ordinal));
+Check(
+    "editor converts the stored tax fraction once into percent units",
+    draftHtml.Contains("Tax %", StringComparison.Ordinal)
+        && draftHtml.Contains("aria-valuenow=\"15\"", StringComparison.Ordinal)
+        && !draftHtml.Contains("aria-valuenow=\"0.15\"", StringComparison.Ordinal));
+File.WriteAllText(Path.Combine(Path.GetTempPath(), "qb-invoice-editor-draft.html"), draftHtml);
+
+var readerHtml = await RenderInvoiceEditor(draftId, [Permissions.InvoicesIssue]);
+Check("reader sees the draft without an editable form", readerHtml.Contains("your role cannot edit it", StringComparison.Ordinal) && !readerHtml.Contains("Save draft", StringComparison.Ordinal));
+
+var issuedHtml = await RenderInvoiceEditor(issuedId, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
+Check("issued invoice is read-only", issuedHtml.Contains("Draft fields are locked after issue", StringComparison.Ordinal) && !issuedHtml.Contains("Save draft", StringComparison.Ordinal));
+
+var unknownHtml = await RenderInvoiceEditor(unknownId, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
+Check("pre-recognition draft is refused issue explicitly", unknownHtml.Contains("predates recognition modes", StringComparison.Ordinal));
+
+var deniedHtml = await RenderInvoiceEditor(draftId, [Permissions.CustomersRead]);
+Check("an unrelated role cannot read invoices", deniedHtml.Contains("cannot view invoices", StringComparison.Ordinal) && !deniedHtml.Contains("Save draft", StringComparison.Ordinal));
+
+// 6. The invoice list loads only after the first interactive render (a static prerender has no session
+//    cookie, the same rule the customer page follows), so its rows and filters are proven in the browser
+//    fixture at Task 45 rather than faked here.
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
 
 return failures == 0 ? 0 : 1;
+
+static InvoiceDetailDto InvoiceSample(Guid id, InvoiceState status, InvoiceRecognitionMode mode, Guid locationId, Guid customerId) => new(
+    new InvoiceSummaryDto(
+        id,
+        status == InvoiceState.Draft ? null : "INV-0001",
+        status,
+        customerId,
+        "Acme Ltd",
+        DateOnly.FromDateTime(DateTime.Today),
+        null,
+        "USD",
+        SubtotalAmount: 100m,
+        DiscountAmount: 0m,
+        TaxAmount: 15m,
+        TotalAmount: 115m,
+        PaidAmount: 0m,
+        CreditedAmount: 0m,
+        BalanceDue: status == InvoiceState.Issued ? 115m : 0m,
+        Note: null,
+        IssuedAtUtc: status == InvoiceState.Draft ? null : DateTimeOffset.UtcNow,
+        VoidedAtUtc: null,
+        Version: 1,
+        RecognitionMode: mode),
+    [
+        new InvoiceLineDto(
+            Guid.CreateVersion7(),
+            1,
+            null,
+            "Consulting",
+            null,
+            1m,
+            100m,
+            0m,
+            TaxRate: 0.15m,
+            TaxAmount: 15m,
+            LineTotal: 115m,
+            TaxMode: "Exclusive",
+            RevenueBaseAmount: 100m),
+    ],
+    [],
+    null,
+    LocationId: locationId);
 
 internal sealed class StubCustomerApiClient : ICustomerApiClient
 {
@@ -157,6 +268,13 @@ internal sealed class StubPosCheckoutOrchestrator : IPosCheckoutOrchestrator
 
 internal sealed class StubAccountApiClient : IAccountApiClient
 {
+    private readonly string[] _permissions;
+
+    public StubAccountApiClient(string[]? permissions = null)
+    {
+        _permissions = permissions ?? [.. Permissions.All];
+    }
+
     public Task<SessionDto> LoginAsync(LoginRequest request, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke does not sign in.");
 
@@ -168,7 +286,7 @@ internal sealed class StubAccountApiClient : IAccountApiClient
             Guid.CreateVersion7(),
             "Smoke Business",
             ["Owner"],
-            [.. Permissions.All],
+            [.. _permissions],
             PasswordResetRequired: false));
 
     public Task LogoutAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -197,4 +315,110 @@ internal sealed class StubJsRuntime : IJSRuntime
 
     public ValueTask<TValue> InvokeAsync<TValue>(string identifier, CancellationToken cancellationToken, object?[]? args)
         => ValueTask.FromResult(default(TValue)!);
+}
+
+/// <summary>
+/// The invoice lifecycle as the shared pages see it: reads, saves and issue only. Money effects belong to
+/// the server, so the smoke refuses the mutating commands instead of pretending to perform them.
+/// </summary>
+internal sealed class StubInvoiceApiClient(
+    InvoiceDetailDto draft,
+    InvoiceDetailDto issued,
+    InvoiceDetailDto unknown) : IInvoiceApiClient
+{
+    public Task<PagedResult<InvoiceSummaryDto>> ListAsync(
+        InvoiceState? status = null,
+        Guid? customerId = null,
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(new PagedResult<InvoiceSummaryDto>(
+            [draft.Invoice, issued.Invoice, unknown.Invoice],
+            NextCursor: null,
+            pageSize));
+
+    public Task<InvoiceDetailDto> GetAsync(Guid id, CancellationToken cancellationToken = default) => Task.FromResult(id switch
+    {
+        var requested when requested == issued.Invoice.Id => issued,
+        var requested when requested == unknown.Invoice.Id => unknown,
+        _ => draft,
+    });
+
+    public Task<InvoiceDetailDto> CreateAsync(SaveInvoiceRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(draft with { Invoice = draft.Invoice with { Status = InvoiceState.Draft } });
+
+    public Task<InvoiceDetailDto> UpdateAsync(Guid id, SaveInvoiceRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(draft);
+
+    public Task<InvoiceDetailDto> IssueAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromResult(issued);
+
+    public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => Task.CompletedTask;
+
+    public Task<string> GetPrintHtmlAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromResult("<html><body>invoice</body></html>");
+
+    public Task<InvoiceDetailDto> VoidAsync(Guid id, InvoiceVoidRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never voids a document.");
+
+    public Task<InvoiceDetailDto> CreditAsync(Guid id, InvoiceCreditNoteRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never credits a document.");
+
+    public Task<InvoicePaymentResult> AddPaymentAsync(Guid id, InvoicePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never records money.");
+
+    public Task<PaymentTransitionDto> ClearPaymentAsync(Guid paymentId, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never clears money.");
+
+    public Task<PaymentTransitionDto> BouncePaymentAsync(Guid paymentId, PaymentBounceRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never bounces money.");
+}
+
+/// <summary>Only the location list is needed to render the editor; stock commands stay refused here.</summary>
+internal sealed class StubInventoryApiClient(Guid locationId) : IInventoryApiClient
+{
+    public Task<IReadOnlyList<BusinessLocationDto>> GetLocationsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<BusinessLocationDto>>([new BusinessLocationDto(locationId, "Main store", "MAIN", null, true, 1)]);
+
+    public Task<PagedResult<InventoryBalanceDto>> GetBalancesAsync(
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 50,
+        Guid? locationId = null,
+        CancellationToken cancellationToken = default)
+        => Task.FromResult(PagedResult<InventoryBalanceDto>.Empty(pageSize));
+
+    public Task<IReadOnlyList<StockTransferSummaryDto>> GetTransfersAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<StockTransferSummaryDto>>([]);
+
+    public Task<StockTransferDetailDto> GetTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never moves stock.");
+
+    public Task<StockTransferDetailDto> CreateTransferAsync(CreateStockTransferRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never moves stock.");
+
+    public Task<StockTransferDetailDto> DispatchTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never moves stock.");
+
+    public Task<StockTransferDetailDto> ReceiveTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never moves stock.");
+
+    public Task<IReadOnlyList<StockCountSummaryDto>> GetStockCountsAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<StockCountSummaryDto>>([]);
+
+    public Task<StockCountDetailDto> GetStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never counts stock.");
+
+    public Task<StockCountDetailDto> CreateStockCountAsync(CreateStockCountRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never counts stock.");
+
+    public Task<StockCountDetailDto> RecordStockCountLinesAsync(Guid countId, RecordStockCountLinesRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never counts stock.");
+
+    public Task<StockCountDetailDto> ApproveStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never counts stock.");
+
+    public Task<StockCountDetailDto> CancelStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never counts stock.");
 }

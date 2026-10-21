@@ -1,4 +1,5 @@
 @page "/invoices"
+@implements IAsyncDisposable
 @using QtsBilling.Contracts.Abstractions
 @using QtsBilling.Contracts.Identity
 @using QtsBilling.Contracts.Invoices
@@ -98,6 +99,7 @@ else
 
     private readonly List<InvoiceSummaryDto> _rows = [];
     private readonly Stack<string?> _cursorStack = new();
+    private CancellationTokenSource? _loadCts;
     private InvoiceState? _status;
     private string _search = string.Empty;
     private string? _cursor;
@@ -149,17 +151,32 @@ else
 
     private async Task LoadAsync()
     {
+        // A newer filter, page, refresh or navigation supersedes any load still in flight: cancel it so
+        // its response can never replace the rows the operator is now looking at.
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        var cts = new CancellationTokenSource();
+        _loadCts = cts;
+        var token = cts.Token;
+
         _busy = true;
         _error = null;
         try
         {
-            var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: _cursor, pageSize: 25);
+            var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: _cursor, pageSize: 25, cancellationToken: token);
+            if (token.IsCancellationRequested) return;
             _rows.Clear();
             _rows.AddRange(page.Items);
             _nextCursor = page.NextCursor;
         }
+        catch (OperationCanceledException)
+        {
+            // The list was re-loaded with different criteria; this outcome is simply discarded.
+            return;
+        }
         catch (ApiException exception)
         {
+            if (token.IsCancellationRequested) return;
             _error = exception.Message;
             if (exception.IsConflict && _cursor is not null)
             {
@@ -167,7 +184,8 @@ else
                 _nextCursor = null;
                 _cursorStack.Clear();
                 _error = "The invoice list changed while paging. Showing the first page again.";
-                var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: null, pageSize: 25);
+                var page = await InvoiceApi.ListAsync(_status, search: _search, cursor: null, pageSize: 25, cancellationToken: token);
+                if (token.IsCancellationRequested) return;
                 _rows.Clear();
                 _rows.AddRange(page.Items);
                 _nextCursor = page.NextCursor;
@@ -175,8 +193,12 @@ else
         }
         finally
         {
-            _busy = false;
-            StateHasChanged();
+            // Only the newest load owns the rendered state.
+            if (ReferenceEquals(_loadCts, cts))
+            {
+                _busy = false;
+                StateHasChanged();
+            }
         }
     }
 
@@ -193,6 +215,15 @@ else
         if (_cursorStack.Count == 0) return;
         _cursor = _cursorStack.Pop();
         await LoadAsync();
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        // Leaving the page must not leave a load that can still write to disposed state.
+        _loadCts?.Cancel();
+        _loadCts?.Dispose();
+        _loadCts = null;
+        return ValueTask.CompletedTask;
     }
 
     private static string StatusLabel(InvoiceState state) => state switch

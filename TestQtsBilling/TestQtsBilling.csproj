@@ -6,7 +6,20 @@
         <ImplicitUsings>enable</ImplicitUsings>
         <Nullable>enable</Nullable>
         <IsPackable>false</IsPackable>
+        <!-- Browser journeys are an explicit opt-in build (specification tasks 02/11/45). A default build
+             never compiles them, so a run without the preloaded browser kit cannot report a browser pass. -->
+        <QtsBrowserTests Condition="'$(QtsBrowserTests)' == ''">false</QtsBrowserTests>
     </PropertyGroup>
+
+    <PropertyGroup Condition="'$(QtsBrowserTests)' == 'true'">
+        <DefineConstants>$(DefineConstants);QTS_BROWSER_TESTS</DefineConstants>
+    </PropertyGroup>
+
+    <ItemGroup Condition="'$(QtsBrowserTests)' == 'true'">
+        <!-- The one approved test-only browser automation dependency. It is never a production reference
+             and its browser binaries are preloaded by the offline test kit. -->
+        <PackageReference Include="Microsoft.Playwright" Version="1.63.0" />
+    </ItemGroup>
 
     <ItemGroup>
         <PackageReference Include="Bogus" Version="35.6.5" />
