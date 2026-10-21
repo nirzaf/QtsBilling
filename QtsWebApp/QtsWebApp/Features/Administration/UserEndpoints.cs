@@ -138,20 +138,24 @@ public static class UserEndpoints
 
         if (!string.IsNullOrWhiteSpace(search))
         {
-            var term = search.Trim();
-            query = query.Where(row => row.user.Email!.Contains(term, StringComparison.OrdinalIgnoreCase)
-                || row.user.DisplayName.Contains(term, StringComparison.OrdinalIgnoreCase));
+            // An operator types a name. The term is matched on the server, escaped so a percent sign stays a
+            // percent sign, and covers every account rather than only the first page (requirement R07).
+            var pattern = LikePattern.Contains(search.Trim());
+            query = query.Where(row => EF.Functions.ILike(row.user.Email!, pattern)
+                || EF.Functions.ILike(row.user.DisplayName, pattern));
         }
 
         var after = TryReadCursor(cursor);
         if (after is not null)
         {
-            query = query.Where(row => string.Compare(row.user.Email, after.Value.Email, StringComparison.OrdinalIgnoreCase) > 0
-                || (string.Equals(row.user.Email, after.Value.Email, StringComparison.OrdinalIgnoreCase) && row.user.Id.CompareTo(after.Value.UserId) > 0));
+            query = query.Where(row => row.user.Id > after.Value);
         }
 
+        // The key is the identity, not the display name: a case-insensitive name order cannot be compared against
+        // a cursor in SQL without pinning a collation, and a page that silently repeated or skipped an account is
+        // worse for an operator than a list that arrives in the order the accounts were opened.
         var rows = await query
-            .OrderBy(row => row.user.Email).ThenBy(row => row.user.Id)
+            .OrderBy(row => row.user.Id)
             .Take(size + 1)
             .Select(row => new
             {
@@ -172,7 +176,7 @@ public static class UserEndpoints
 
         var page = rows.Take(size).ToList();
         var nextCursor = rows.Count > size && page.Count > 0
-            ? WriteCursor(page[^1].Email ?? string.Empty, page[^1].Id)
+            ? WriteCursor(page[^1].Id)
             : null;
 
         var items = page.Select(row => new AdministrationUserDto(
@@ -904,7 +908,7 @@ public static class UserEndpoints
             membership.Version,
             user.UpdatedAtUtc);
 
-    private static (string Email, Guid UserId)? TryReadCursor(string? cursor)
+    private static Guid? TryReadCursor(string? cursor)
     {
         if (string.IsNullOrWhiteSpace(cursor))
         {
@@ -915,8 +919,8 @@ public static class UserEndpoints
         {
             var padded = cursor.Replace('-', '+').Replace('_', '/');
             var decoded = Encoding.UTF8.GetString(Convert.FromBase64String(padded.PadRight(padded.Length + (4 - padded.Length % 4) % 4, '=')));
-            var parts = decoded.Split('\u001f');
-            return parts.Length == 2 && Guid.TryParse(parts[1], out var id) ? (parts[0], id) : null;
+
+            return Guid.TryParse(decoded, out var id) ? id : null;
         }
         catch (FormatException)
         {
@@ -924,8 +928,8 @@ public static class UserEndpoints
         }
     }
 
-    private static string WriteCursor(string email, Guid userId)
-        => Convert.ToBase64String(Encoding.UTF8.GetBytes($"{email}\u001f{userId:D}"))
+    private static string WriteCursor(Guid userId)
+        => Convert.ToBase64String(Encoding.UTF8.GetBytes(userId.ToString("D")))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     private static IResult TicketInvalid() => ApiResults.Problem(

@@ -1,0 +1,49 @@
+@namespace QtsBilling.Ui.Components
+@using QtsBilling.Contracts.Administration
+@using QtsBilling.Ui.Pages.Administration
+
+@*
+    A one-time handover code, presented exactly as the server issued it: once, in clear view, with no way to get it
+    back and no copy left anywhere. There is deliberately no "copy" button - the operating system's clipboard would
+    keep the secret after this screen forgets it, which is the opposite of what a single-use handover means
+    (specification task 07 and task 14, recipe step 2).
+*@
+
+<MudPaper Class="pa-4 mb-4" Elevation="3" Outlined="true" data-qts-handover="shown-once">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="2" Wrap="Wrap.Wrap">
+        <MudIcon Icon="@Icons.Material.Filled.Key" Color="Color.Warning" aria-hidden="true" />
+        <MudText Typo="Typo.h6">Hand this over now - it is shown once</MudText>
+    </MudStack>
+
+    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">@Sentence</MudText>
+
+    <MudTextField Value="@Ticket.Secret" Label="@($"Setup code for {AccountName}")" ReadOnly="true"
+                  Variant="Variant.Outlined" Margin="Margin.Dense" Class="mt-3" aria-label="One-time setup code" />
+
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+        Purpose: @(Ticket.Purpose). Stops working @Ticket.ExpiresAtUtc.ToLocalTime().ToString("g").
+        The server keeps only a verifier of this code, so it cannot be read back - issuing a new one cancels this one.
+    </MudText>
+
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+        @AdministrationRules.HandoverOnceReason
+    </MudAlert>
+
+    <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="AcknowledgeAsync">
+        I have handed it over - clear this code
+    </MudButton>
+</MudPaper>
+
+@code {
+    [Parameter, EditorRequired] public SetupTicketDto Ticket { get; set; } = default!;
+
+    /// <summary>The account the code belongs to, so nobody hands one person's code to another.</summary>
+    [Parameter] public string AccountName { get; set; } = "this person";
+
+    /// <summary>Raised when the operator confirms the handover is done; the screen drops the secret there.</summary>
+    [Parameter] public EventCallback OnAcknowledged { get; set; }
+
+    private string Sentence => AdministrationRules.HandoverSentence(Ticket, DateTimeOffset.UtcNow);
+
+    private Task AcknowledgeAsync() => OnAcknowledged.InvokeAsync();
+}

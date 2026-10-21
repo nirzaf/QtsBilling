@@ -1,0 +1,130 @@
+@namespace QtsBilling.Ui.Components
+@implements IAsyncDisposable
+
+@*
+    The one way a shared screen picks a related record (specification requirement R07, task 13's "reference
+    selector"). The operator types a name and chooses from what the server returns; a GUID is never typed, pasted
+    or read off a screen, and the search runs server-side so the answer is not limited to a page somebody
+    happened to load. A stale lookup is cancelled, so a slow earlier search cannot overwrite the list the
+    operator is now reading.
+*@
+
+<MudStack Spacing="0">
+    <MudAutocomplete T="ReferenceItem"
+                    Label="@Label"
+                    Value="@_selected"
+                    ValueChanged="SelectedChangedAsync"
+                    SearchFunc="SearchAsync"
+                    ToStringFunc="@(item => item is null ? string.Empty : item.Label)"
+                    Variant="Variant.Outlined"
+                    Margin="Margin.Dense"
+                    Clearable="true"
+                    Disabled="@Disabled"
+                    aria-label="@Label" />
+
+    @if (_noMatch is not null)
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@_noMatch</MudText>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(HelpText))
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@HelpText</MudText>
+    }
+
+    @if (_error is not null)
+    {
+        <MudText Typo="Typo.caption" Color="Color.Error" role="alert">@_error</MudText>
+    }
+</MudStack>
+
+@code {
+    /// <summary>What the field is called, and the label a screen reader announces.</summary>
+    [Parameter] public string Label { get; set; } = "Choose";
+
+    /// <summary>A sentence that explains what a good choice looks like.</summary>
+    [Parameter] public string? HelpText { get; set; }
+
+    /// <summary>The server-side lookup. Called with the term the operator typed.</summary>
+    [Parameter] public Func<string, CancellationToken, Task<IReadOnlyList<ReferenceItem>>>? Search { get; set; }
+
+    [Parameter] public ReferenceItem? Value { get; set; }
+
+    [Parameter] public EventCallback<ReferenceItem?> ValueChanged { get; set; }
+
+    [Parameter] public bool Disabled { get; set; }
+
+    /// <summary>How many characters before the first lookup runs. One letter would flood the server.</summary>
+    [Parameter] public int MinimumTermLength { get; set; } = 2;
+
+    private ReferenceItem? _selected;
+    private string? _noMatch;
+    private string? _error;
+    private CancellationTokenSource? _inFlight;
+
+    // The page's own selection arrives as a parameter; mirror it so the field shows the chosen name rather than
+    // an identifier the operator could not have produced.
+    protected override void OnParametersSet()
+    {
+        if (!Equals(_selected?.Id, Value?.Id))
+        {
+            _selected = Value;
+        }
+    }
+
+    private async Task<IEnumerable<ReferenceItem>> SearchAsync(string term, CancellationToken componentToken)
+    {
+        if (Search is null)
+        {
+            return [];
+        }
+
+        if (term.Trim().Length < MinimumTermLength)
+        {
+            _noMatch = null;
+            return [];
+        }
+
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(componentToken);
+        _inFlight = cts;
+
+        try
+        {
+            var found = await Search(term.Trim(), cts.Token).ConfigureAwait(false);
+            _error = null;
+            _noMatch = found.Count == 0 ? $"Nothing named \"{term.Trim()}\" in this business." : null;
+            return found;
+        }
+        catch (OperationCanceledException)
+        {
+            // A newer keystroke already replaced this lookup.
+            return [];
+        }
+        catch (QtsBilling.Contracts.Abstractions.ApiException exception)
+        {
+            _error = exception.Message;
+            _noMatch = null;
+            return [];
+        }
+    }
+
+    private async Task SelectedChangedAsync(ReferenceItem? item)
+    {
+        _selected = item;
+        _noMatch = null;
+
+        if (ValueChanged.HasDelegate)
+        {
+            await ValueChanged.InvokeAsync(item).ConfigureAwait(false);
+        }
+    }
+
+    public ValueTask DisposeAsync()
+    {
+        _inFlight?.Cancel();
+        _inFlight?.Dispose();
+        return ValueTask.CompletedTask;
+    }
+}

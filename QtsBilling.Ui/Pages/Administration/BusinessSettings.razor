@@ -1,0 +1,264 @@
+@page "/administration/business"
+@namespace QtsBilling.Ui.Pages.Administration
+@using QtsBilling.Contracts.Accounting
+@using QtsBilling.Contracts.Administration
+@using QtsBilling.Ui.Models
+
+<PageTitle>Business and branches - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Business and branches</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The identity, calendar and counters this business posts under, the branches it trades at, and the
+            accounts its postings land in.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">
+        Reload
+    </MudButton>
+</MudStack>
+
+@*
+    The structural rule is stated before the operator touches anything, because it is the one answer a form
+    cannot give afterwards: currency and settlement scale belong to the shape of the business, and the server
+    refuses them once facts exist rather than repricing history (specification D10, task 06).
+*@
+@if (_blockedFields is not null)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">@_blockedFields</MudAlert>
+}
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    @AdministrationRules.StructuralChangeReason
+</MudAlert>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    @if (_settings is not null)
+    {
+        <MudPaper Class="pa-4 mb-4" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap">
+                <MudChip T="string" Color="@(_settings.Setup.IsReadyToPost ? Color.Success : Color.Warning)" Variant="Variant.Filled">
+                    @(_settings.Setup.IsReadyToPost ? "Ready to post" : "Not ready to post")
+                </MudChip>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Version @VersionText - every save you make is checked against it.
+                </MudText>
+            </MudStack>
+
+            @if (_settings.Setup.BlockingReasons.Count > 0)
+            {
+                <MudText Typo="Typo.subtitle2" Class="mt-3">What still blocks a posting</MudText>
+                <ul class="mt-1">
+                    @foreach (var reason in _settings.Setup.BlockingReasons)
+                    {
+                        <li><MudText Typo="Typo.body2">@reason</MudText></li>
+                    }
+                </ul>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-3">Identity and calendar</MudText>
+
+            <MudGrid Spacing="3">
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_name" Label="Trading name" Required="true" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_legalName" Label="Legal name" Placeholder="As registered, if it differs"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="6">
+                    <MudTextField @bind-Value="_timeZone" Label="Time zone" Placeholder="Asia/Qatar"
+                            HelperText="The zone documents and periods are dated in. The server validates the name."
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudSelect T="int" @bind-Value="_fiscalYearStartMonth" Label="Fiscal year starts in" Variant="Variant.Outlined" Margin="Margin.Dense"
+                               Disabled="@_structureLocked">
+                        @foreach (var month in Months)
+                        {
+                            <MudSelectItem T="int" Value="@month.Value">@month.Name</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        @(_structureLocked
+                            ? "Fixed: posted periods are already measured against it."
+                            : "The month the fiscal year starts in. Locked once anything is posted.")
+                    </MudText>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudTextField @bind-Value="_invoicePrefix" Label="Invoice number prefix" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudNumericField T="int" @bind-Value="_invoicePadding" Label="Invoice number digits" Min="1" Max="12"
+                                      HelperText="The counter itself is owned by the server, so two documents can never claim one number."
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudTextField Value="@_settings.BaseCurrency" Label="Base currency" ReadOnly="true"
+                                  HelperText="@(_structureLocked ? "Fixed by posted facts; nothing here can re-price history." : "Set when the instance was initialised. Editable only through the accounting settings, and only before the first posting.")"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudTextField Value="@ScaleText(_settings.SettlementScale)" Label="Settlement scale" ReadOnly="true"
+                                  HelperText="Decimal places money is settled to. Changed on the accounting settings, and only before the first posting."
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+
+            @if (_saveProblem is not null)
+            {
+                <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_saveProblem</MudAlert>
+            }
+
+            <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary"
+                       OnClick="SaveIdentityAsync"
+                       Disabled="@(_busy || !_canManageSettings || string.IsNullOrWhiteSpace(_name))">
+                Save identity and numbering
+            </MudButton>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Branches</MudText>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@(_settings.Locations.Count) branch(es). A branch is taken out of service, never deleted.</MudText>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add"
+                               OnClick="NewLocation" Disabled="@(!_canManageSettings || _busy)">
+                        Add branch
+                    </MudButton>
+                </MudStack>
+            </MudStack>
+
+            <MudTable Items="_settings.Locations" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Branches" Class="mt-2">
+                <HeaderContent>
+                    <MudTh>Name</MudTh>
+                    <MudTh>Code</MudTh>
+                    <MudTh>Address</MudTh>
+                    <MudTh>Time zone</MudTh>
+                    <MudTh>State</MudTh>
+                    <MudTh>Actions</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Name">@context.Name</MudTd>
+                    <MudTd DataLabel="Code">@(string.IsNullOrWhiteSpace(context.Code) ? "-" : context.Code)</MudTd>
+                    <MudTd DataLabel="Address">@(string.IsNullOrWhiteSpace(context.Address) ? "-" : context.Address)</MudTd>
+                    <MudTd DataLabel="Time zone">@(string.IsNullOrWhiteSpace(context.TimeZone) ? "-" : context.TimeZone)</MudTd>
+                    <MudTd DataLabel="State">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@(context.IsActive ? Color.Success : Color.Default)">
+                            @(context.IsActive ? "Active" : "Out of service")
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Actions">
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => EditLocation(context))" Disabled="@(!_canManageSettings)">Edit</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning"
+                                       OnClick="@(() => BeginDeactivate(context))"
+                                       Disabled="@(!_canManageSettings || !context.IsActive)">
+                                Take out of service
+                            </MudButton>
+                        </MudStack>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">This business has no branches yet, so nothing can post. Add the counter you are standing at.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+
+            @if (_editingLocation is not null || _isNewLocation)
+            {
+                <MudPaper Class="pa-3 mt-3" Elevation="2">
+                    <MudText Typo="Typo.subtitle2" Class="mb-2">Branch - @(_isNewLocation ? "new" : "changes")</MudText>
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTextField @bind-Value="_locationName" Label="Branch name" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTextField @bind-Value="_locationCode" Label="Short code" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTextField @bind-Value="_locationAddress" Label="Address" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" sm="6" md="3">
+                            <MudTextField @bind-Value="_locationTimeZone" Label="Time zone" Placeholder="@_settings.TimeZone"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudStack Row="true" Spacing="2" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveLocationAsync"
+                                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_locationName))">
+                            @(_isNewLocation ? "Add branch" : "Save branch")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="CancelLocation">Cancel</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+
+            @if (_deactivating is { } closing)
+            {
+                <MudPaper Class="pa-3 mt-3" Elevation="2">
+                    <MudText Typo="Typo.subtitle2">Take "@closing.Name" out of service</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                        Sales, invoices and stock movements already booked at this branch keep pointing at it, so the
+                        record is closed rather than removed. Say why, in the words you would want to read later.
+                    </MudText>
+                    <MudTextField @bind-Value="_deactivateReason" Label="Reason" MaxLength="500" Class="mt-2"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudStack Row="true" Spacing="2" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="ConfirmDeactivateAsync"
+                                   Disabled="@(_busy || string.IsNullOrWhiteSpace(_deactivateReason))">
+                            Confirm: out of service
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="CancelDeactivate">Cancel</MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.h6">Accounts the postings land in</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                @if (_canManageAccounts)
+                {
+                    @("Choose an account by its name or code. The server accepts only an active account of this business on the side of the ledger the rule needs.")
+                }
+                else
+                {
+                    @AdministrationRules.MissingReason("Changing a control account", Permissions.AccountingClose)
+                }
+            </MudText>
+
+            @if (_accountingReason is not null)
+            {
+                <MudAlert Severity="@(_draft is null ? Severity.Warning : Severity.Info)" Variant="Variant.Outlined" Class="mb-3">
+                    @_accountingReason
+                </MudAlert>
+            }
+
+            @if (_draft is { } mapping)
+            {
+                <MudGrid Spacing="3">
+                    @foreach (var slot in Slots)
+                    {
+                        <MudItem xs="12" md="6">
+                            <ReferenceSelector Label="@slot.Title"
+                                               HelpText="@slot.Why"
+                                               Search="SearchAccountsAsync"
+                                               Value="@(Resolve(slot.Current(mapping)))"
+                                               ValueChanged="@(item => SlotChangedAsync(slot, item))"
+                                               Disabled="@(!_canManageAccounts)" />
+                        </MudItem>
+                    }
+                </MudGrid>
+
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveMappingAsync"
+                           Disabled="@(_busy || !_canManageAccounts)">
+                    Save account mapping
+                </MudButton>
+            }
+        </MudPaper>
+    }
+</ShellStates>

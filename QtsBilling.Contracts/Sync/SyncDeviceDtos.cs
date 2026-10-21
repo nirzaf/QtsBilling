@@ -44,6 +44,9 @@ public sealed record SyncRunReport(
 /// <summary>
 /// One terminal as the owner administers it: what it is, where it belongs, when it last spoke, and how much
 /// it still holds that nobody has reconciled (specification task 08, recipe step 4).
+/// <paramref name="Version"/> is part of the projection on purpose: every lifecycle change is versioned, so the
+/// operator who can see a terminal must also be able to send the version they looked at - without reading it
+/// out of a database tool (requirement R07, decision D06).
 /// </summary>
 public sealed record DeviceInfoDto(
     Guid DeviceId,
@@ -61,7 +64,8 @@ public sealed record DeviceInfoDto(
     DateTimeOffset? GrantExpiresAtUtc,
     int ReceivedOperations,
     int OperationsNeedingReview,
-    decimal DeviceHeldProvisionalCash);
+    decimal DeviceHeldProvisionalCash,
+    long Version);
 
 /// <summary>Withdraws a terminal's authority. Revoked identities are kept, never deleted.</summary>
 public sealed record RevokeDeviceRequest(long ExpectedVersion, string Reason);
@@ -93,3 +97,31 @@ public sealed record DeviceReassignmentClearanceDto(
     int AcknowledgedOperations,
     DateTimeOffset OccurredAtUtc,
     DateTimeOffset ExpiresAtUtc);
+
+/// <summary>
+/// Asks for a short enrolment code for one branch. The code is the operator's way of proving that the terminal
+/// standing in front of them belongs to this business and this counter; it is hashed on the server, expires, and
+/// is spent by the first enrolment that uses it (specification task 08).
+/// </summary>
+public sealed record CreateEnrolmentChallengeRequest(Guid LocationId);
+
+/// <summary>The code as handed to the operator, with the branch and the moment it stops working.</summary>
+public sealed record CreateEnrolmentChallengeResponse(string EnrolmentCode, Guid LocationId, DateTimeOffset ExpiresAtUtc);
+
+/// <summary>The terminal's own enrolment: what it is called, where it runs, and the code it was handed.</summary>
+public sealed record EnrolDeviceRequest(
+    string Name,
+    string Platform,
+    Guid LocationId,
+    string EnrolmentCode,
+    string? AppVersion = null,
+    int? SchemaVersion = null);
+
+/// <summary>The identity the terminal keeps from then on.</summary>
+public sealed record DeviceEnrolmentResponse(Guid DeviceId, DateTimeOffset EnrolledAtUtc);
+
+/// <summary>The answer a lifecycle command gives: the record's new state and the version to send next time.</summary>
+public sealed record DeviceLifecycleResponse(Guid DeviceId, string Status, DateTimeOffset? RevokedAtUtc, long Version);
+
+/// <summary>The verification key this instance publishes to its own enrolled terminals for offline grants.</summary>
+public sealed record OfflineGrantKeyResponse(string KeyId, string PublicKey);

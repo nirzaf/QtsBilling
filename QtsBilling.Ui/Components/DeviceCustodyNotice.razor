@@ -1,0 +1,52 @@
+@namespace QtsBilling.Ui.Components
+@using QtsBilling.Contracts.Sync
+@using QtsBilling.Ui.Pages.Administration
+
+@*
+    What one terminal still owes, and what that means for the two commands that touch money (specification D07,
+    task 14 recipe step 3). It is a component rather than a paragraph in the page because the same sentence has to
+    appear wherever the terminal is named - in the list, and again in the confirmation a move or a retirement asks
+    for - and a rule stated twice can drift apart.
+*@
+
+<div class="qts-custody" data-qts-custody="@(HoldsMoney ? "unresolved" : "settled")">
+    <MudText Typo="Typo.caption" Color="@(HoldsMoney ? Color.Warning : Color.Default)">@Sentence</MudText>
+
+    @if (ExplainCommands)
+    {
+        @if (ReassignBlock is not null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Warning">@ReassignBlock</MudText>
+        }
+
+        @if (RetireBlock is not null)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Warning">@RetireBlock</MudText>
+        }
+    }
+
+    @if (State is not null)
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary">@State</MudText>
+    }
+</div>
+
+@code {
+    /// <summary>The terminal as the server describes it.</summary>
+    [Parameter, EditorRequired] public DeviceInfoDto Device { get; set; } = default!;
+
+    /// <summary>Add the two command preconditions as well as the position, for a confirmation panel.</summary>
+    [Parameter] public bool ExplainCommands { get; set; }
+
+    private bool HoldsMoney => AdministrationRules.HoldsUnresolvedMoney(Device);
+
+    private string Sentence => AdministrationRules.CustodySentence(Device);
+
+    private string? ReassignBlock => AdministrationRules.ReassignmentBlock(Device);
+
+    private string? RetireBlock => AdministrationRules.RetirementBlock(Device);
+
+    private string? State => AdministrationRules.IsClosed(Device)
+        ? $"This terminal is {Device.Status.ToLowerInvariant()}; its records stay readable for reconciliation."
+        : null;
+}

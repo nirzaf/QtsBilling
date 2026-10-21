@@ -320,6 +320,18 @@ builder.Services.AddHttpClient<IAccountApiClient, AccountApiClient>(client => cl
 builder.Services.AddHttpClient<QtsBilling.Contracts.Administration.IBusinessSetupApiClient, QtsBilling.Contracts.Administration.BusinessSetupApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The administration screens (specification task 14): accounts and handover codes, terminals and their custody,
+// and the control-account mapping the posting rules read. Each client reaches the route that is already the
+// authority for that fact, so the screen cannot show a different answer from the ledger.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Administration.IAdministrationUserApiClient, QtsBilling.Contracts.Administration.AdministrationUserApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
+builder.Services.AddHttpClient<QtsBilling.Contracts.Administration.IDeviceAdministrationApiClient, QtsBilling.Contracts.Administration.DeviceAdministrationApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
+builder.Services.AddHttpClient<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

@@ -1,0 +1,220 @@
+@page "/administration/devices"
+@namespace QtsBilling.Ui.Pages.Administration
+@using QtsBilling.Contracts.Administration
+@using QtsBilling.Contracts.Sync
+@using QtsBilling.Ui.Models
+
+<PageTitle>Terminals - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Terminals</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The registered tills of this business: which branch each belongs to, when it last reached the server,
+            and how much of its drawer has not been reconciled yet.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">
+            Reload
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.QrCode"
+                   OnClick="BeginEnrolment" Disabled="@(!_canManage || _busy)">
+            New enrolment code
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    Two rules are stated before any button is pressed, because both of them are about money that has not reached
+    the server yet, and an operator must not discover them by clicking (specification D07, task 08 and task 14
+    recipe step 3).
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+    A terminal that still holds cash or has operations awaiting review cannot be moved until a manager has recorded
+    what was reconciled, and cannot be retired until those operations are settled. Revoking one does not delete
+    anything it received.
+</MudAlert>
+
+<MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-4">
+    @AdministrationRules.NoWipeReason
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    <MudTable Items="_devices" Loading="_busy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+              aria-label="Registered terminals">
+        <HeaderContent>
+            <MudTh>Terminal</MudTh>
+            <MudTh>Branch</MudTh>
+            <MudTh>State</MudTh>
+            <MudTh>Last seen</MudTh>
+            <MudTh Style="text-align:right">Received</MudTh>
+            <MudTh Style="text-align:right">Awaiting review</MudTh>
+            <MudTh Style="text-align:right">Cash on record</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Terminal">
+                <MudText Typo="Typo.body2">@context.Name</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@context.Platform - version @context.AppVersion, schema @context.SchemaVersion</MudText>
+            </MudTd>
+            <MudTd DataLabel="Branch">@(context.LocationName ?? "not assigned")</MudTd>
+            <MudTd DataLabel="State">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@StateColor(context)">@context.Status</MudChip>
+                <DeviceCustodyNotice Device="context" />
+            </MudTd>
+            <MudTd DataLabel="Last seen">@(context.LastSeenAtUtc?.ToLocalTime().ToString("g") ?? "never")</MudTd>
+            <MudTd DataLabel="Received" Style="text-align:right">@context.ReceivedOperations</MudTd>
+            <MudTd DataLabel="Awaiting review" Style="text-align:right">
+                @if (context.OperationsNeedingReview > 0)
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Warning">@context.OperationsNeedingReview</MudText>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2">0</MudText>
+                }
+            </MudTd>
+            <MudTd DataLabel="Cash on record" Style="text-align:right">@context.DeviceHeldProvisionalCash.ToString("N2")</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginReassign(context))"
+                               Disabled="@(!_canManage || AdministrationRules.IsClosed(context))">
+                        Move to another branch
+                    </MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning" OnClick="@(() => BeginRevoke(context))"
+                               Disabled="@(!_canManage || AdministrationRules.IsClosed(context))">
+                        Revoke
+                    </MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginRetire(context))"
+                               Disabled="@(!_canManage || AdministrationRules.IsClosed(context))">
+                        Retire
+                    </MudButton>
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">
+                No terminal is registered with this business yet. Open an enrolment code for the branch the till
+                stands at, then enter it on the terminal.
+            </MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    @if (_enrolling)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">Open an enrolment code</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                The code proves the terminal in front of you belongs to this branch. It works once, expires after a
+                few minutes, and the server keeps only its hash.
+            </MudText>
+
+            @if (_challenge is null)
+            {
+                <ReferenceSelector Label="Branch the terminal will serve" Search="SearchBranchesAsync"
+                                   Disabled="@_busy" ValueChanged="ChosenBranchAsync" />
+
+                <MudButton Class="mt-3" Variant="Variant.Filled" Color="Color.Primary" OnClick="IssueChallengeAsync"
+                           Disabled="@(_busy || _challengeBranch is null)">
+                    Open code
+                </MudButton>
+            }
+            else
+            {
+                <MudTextField Value="@_challenge.EnrolmentCode" Label="Enrolment code" ReadOnly="true" Class="mt-3"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Enrolment code" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                    Branch @_challengeBranchName. Read it out or type it on the terminal before
+                    @_challenge.ExpiresAtUtc.ToLocalTime().ToString("g"); after that it is dead, and a fresh code costs
+                    nothing to open.
+                </MudText>
+                <MudButton Class="mt-3" Variant="Variant.Text" OnClick="CloseEnrolment">Done</MudButton>
+            }
+        </MudPaper>
+    }
+
+    @if (_selected is { } device)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@CommandTitle (@device.Name)</MudText>
+            <div class="mt-1">
+                <DeviceCustodyNotice Device="device" ExplainCommands="true" />
+            </div>
+
+            @if (CommandBlock is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3" role="alert">@CommandBlock</MudAlert>
+            }
+
+            @if (_mode == DeviceCommand.Revoke && AdministrationRules.HoldsUnresolvedMoney(device))
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3">
+                    Revoking is allowed while money is unreconciled, and it does not resolve it: this terminal keeps
+                    its receipts and its own queue, so a manager can still bring what it holds to the server.
+                    Revocation only stops new offline capture.
+                </MudAlert>
+            }
+
+            @if (_mode == DeviceCommand.Reassign)
+            {
+                @if (device.OperationsNeedingReview > 0 || device.DeviceHeldProvisionalCash > 0m)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3">@AdministrationRules.ClearanceSentence(device)</MudText>
+
+                    <MudGrid Spacing="2" Class="mt-1">
+                        <MudItem xs="12" md="3">
+                            <MudNumericField T="decimal" @bind-Value="_acknowledgedCash" Label="Cash the drawer holds" Min="0"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" md="3">
+                            <MudNumericField T="int" @bind-Value="_acknowledgedOperations"
+                                             Label="Operations acknowledged" Min="@AdministrationRules.MinimumAcknowledgedOperations(device)"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField @bind-Value="_clearanceReason" Label="What was reconciled, and by whom" MaxLength="500"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudButton Class="mt-2" Variant="Variant.Outlined" Color="Color.Primary" OnClick="IssueClearanceAsync"
+                               Disabled="@(_busy || string.IsNullOrWhiteSpace(_clearanceReason) || _acknowledgedOperations < AdministrationRules.MinimumAcknowledgedOperations(device))">
+                        @(_clearance is null ? "Record the clearance" : "Record another clearance")
+                    </MudButton>
+
+                    @if (_clearance is { } paper)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Success" Class="mt-2">
+                            Clearance recorded: @paper.AcknowledgedOperations operation(s)
+                            @paper.AcknowledgedProvisionalCash.ToString("N2") of cash, valid until @paper.ExpiresAtUtc.ToLocalTime().ToString("g").
+                            It is spent by the next move and cannot be reused.
+                        </MudText>
+                    }
+                }
+
+                <div class="mt-3">
+                    <ReferenceSelector Label="Branch to move it to" Search="SearchBranchesAsync" ValueChanged="MoveTargetAsync"
+                                       HelpText="Only an active branch of this business, and one you are allowed to work with." />
+                </div>
+            }
+
+            <MudTextField @bind-Value="_reason" Label="Reason" MaxLength="500" Class="mt-3"
+                          HelperText="Required. It goes in this business's audit trail."
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="@(_mode == DeviceCommand.Revoke ? Color.Warning : Color.Primary)"
+                           OnClick="RunCommandAsync" Disabled="@(_busy || !CanRunCommand)">
+                    @CommandConfirmLabel
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelCommand">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

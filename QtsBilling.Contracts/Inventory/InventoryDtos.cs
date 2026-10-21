@@ -13,7 +13,19 @@ public enum StockMovementKind
     TransferOut,
 }
 
-public sealed record BusinessLocationDto(Guid Id, string Name, string? Code, string? Address, bool IsActive, long Version);
+/// <summary>
+/// One branch. <paramref name="TimeZone"/> travels with it because the setup screen that edits a branch (task 14)
+/// must show what is stored rather than let an operator overwrite it blind; the value is optional, since an
+/// unset branch inherits the business's own zone.
+/// </summary>
+public sealed record BusinessLocationDto(
+    Guid Id,
+    string Name,
+    string? Code,
+    string? Address,
+    bool IsActive,
+    long Version,
+    string? TimeZone = null);
 
 public sealed record InventoryBalanceDto(
     Guid Id,

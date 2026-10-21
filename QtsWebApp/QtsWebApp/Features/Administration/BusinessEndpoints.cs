@@ -553,11 +553,15 @@ public static class BusinessEndpoints
         var locations = await db.BusinessLocations.AsNoTracking()
             .Where(row => row.BusinessId == business.Id)
             .OrderBy(row => row.Name)
-            .Select(row => new BusinessLocationDto(row.Id, row.Name, row.Code, row.Address, row.IsActive, row.Version))
+            .Select(row => new BusinessLocationDto(row.Id, row.Name, row.Code, row.Address, row.IsActive, row.Version, row.TimeZone))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
         var blocking = await SetupBlockersAsync(db, business, settings, locations, cancellationToken).ConfigureAwait(false);
+
+        // The same test the save applies, read out for the screen: once facts are booked the currency, the
+        // settlement scale and the fiscal boundary are history, and a form should say so before it is filled in.
+        var posted = await HasPostedFactsAsync(db, business.Id, cancellationToken).ConfigureAwait(false);
 
         return new BusinessSettingsDto(
             business.Id,
@@ -570,7 +574,7 @@ public static class BusinessEndpoints
             settings?.SettlementScale,
             settings is null ? null : new NumberingSettingsDto(settings.InvoicePrefix, settings.InvoicePadding),
             locations,
-            new BusinessSetupCompletenessDto(blocking.Count == 0, blocking));
+            new BusinessSetupCompletenessDto(blocking.Count == 0, blocking, posted));
     }
 
     /// <summary>

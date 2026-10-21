@@ -29,8 +29,14 @@ public sealed record BusinessSettingsDto(
 /// <summary>
 /// Whether this business can trade yet, with the precise reason for every missing piece, so a screen can
 /// guide the owner instead of failing on the first posting (specification task 06, recipe step 4).
+/// <paramref name="HasPostedFacts"/> is the server's own answer to "does history already depend on this shape?":
+/// the setup screen shows currency, settlement scale and the fiscal boundary as fixed only when it is true,
+/// rather than inviting an attempt the save would refuse (task 14, recipe step 1).
 /// </summary>
-public sealed record BusinessSetupCompletenessDto(bool IsReadyToPost, IReadOnlyList<string> BlockingReasons);
+public sealed record BusinessSetupCompletenessDto(
+    bool IsReadyToPost,
+    IReadOnlyList<string> BlockingReasons,
+    bool HasPostedFacts = false);
 
 /// <summary>
 /// Saves the business identity. <paramref name="ExpectedVersion"/> is mandatory: two owners editing setup

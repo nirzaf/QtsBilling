@@ -12,7 +12,9 @@ using Microsoft.Extensions.Logging;
 using Microsoft.JSInterop;
 using MudBlazor;
 using MudBlazor.Services;
+using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
@@ -22,6 +24,7 @@ using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Layout;
 using QtsBilling.Ui.Pages;
+using QtsBilling.Ui.Pages.Administration;
 using QtsBilling.Ui.Pages.Invoices;
 using QtsBilling.Ui.Smoke;
 
@@ -300,6 +303,126 @@ Check("a lost race offers a reload, not a blind repeat", conflictHtml.Contains("
 
 var unknownHtml2 = await RenderState(QtsBilling.Ui.Layout.ShellStateKind.UnknownOutcome, withRetry: true);
 Check("an unconfirmed outcome tells the operator to check first", unknownHtml2.Contains("never captured twice", StringComparison.Ordinal));
+
+// 9. The administration screens (specification task 14). A shared page may only reach its host's typed clients, and a
+//    prerender must not ask the server for anything it cannot answer yet - the stubs count their own calls, so a
+//    screen that reads during initialisation fails here rather than in front of an operator on a real host.
+var adminServices = new ServiceCollection();
+adminServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+adminServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+adminServices.AddMudServices();
+adminServices.AddSingleton<NavigationManager, StubNavigationManager>();
+adminServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+var stubSetup = new StubBusinessSetupApiClient();
+var stubUsers = new StubAdministrationUserApiClient();
+var stubDevices = new StubDeviceAdministrationApiClient();
+var stubAccounts = new StubAccountingApiClient();
+adminServices.AddSingleton<IBusinessSetupApiClient>(stubSetup);
+adminServices.AddSingleton<IAdministrationUserApiClient>(stubUsers);
+adminServices.AddSingleton<IDeviceAdministrationApiClient>(stubDevices);
+adminServices.AddSingleton<IAccountingApiClient>(stubAccounts);
+
+await using var adminProvider = adminServices.BuildServiceProvider();
+await using var adminRenderer = new HtmlRenderer(adminProvider, adminProvider.GetRequiredService<ILoggerFactory>());
+
+async Task<string> RenderAdmin<TComponent>()
+    where TComponent : IComponent
+    => await adminRenderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var output = await adminRenderer.RenderComponentAsync<TComponent>(ParameterView.Empty);
+        return output.ToHtmlString();
+    });
+
+async Task<string> RenderWith<TComponent>(Dictionary<string, object?> parameters)
+    where TComponent : IComponent
+    => await adminRenderer.Dispatcher.InvokeAsync(async () =>
+    {
+        var output = await adminRenderer.RenderComponentAsync<TComponent>(ParameterView.FromDictionary(parameters));
+        return output.ToHtmlString();
+    });
+
+var businessHtml = await RenderAdmin<QtsBilling.Ui.Pages.Administration.BusinessSettings>();
+var usersHtml = await RenderAdmin<QtsBilling.Ui.Pages.Administration.Users>();
+var devicesHtml = await RenderAdmin<QtsBilling.Ui.Pages.Administration.Devices>();
+
+Check("no administration screen asks the server for data during the prerender",
+    stubSetup.Calls == 0 && stubUsers.Calls == 0 && stubDevices.Calls == 0 && stubAccounts.Calls == 0,
+    $"setup {stubSetup.Calls}, users {stubUsers.Calls}, terminals {stubDevices.Calls}, accounts {stubAccounts.Calls}");
+
+Check("each administration screen shows a stated state rather than a blank page",
+    businessHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && usersHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && devicesHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+
+Check("the business screen states the structural rule before any field is touched",
+    businessHtml.Contains("The base currency and the settlement scale belong to the", StringComparison.Ordinal));
+Check("the users screen states that a handover code is shown once",
+    usersHtml.Contains("cannot be shown again", StringComparison.Ordinal));
+Check("the terminal screen states that there is no wipe control",
+    devicesHtml.Contains("no wipe button", StringComparison.OrdinalIgnoreCase));
+Check("the terminal screen states the custody precondition",
+    devicesHtml.Contains("awaiting review", StringComparison.OrdinalIgnoreCase));
+
+// The custody notice as the terminal screen renders it: the money, and both blocked commands, in one place.
+var custodyHtml = await RenderWith<QtsBilling.Ui.Components.DeviceCustodyNotice>(new Dictionary<string, object?>
+{
+    ["Device"] = stubDevices.Holding,
+    ["ExplainCommands"] = true,
+});
+
+Check("a terminal holding cash is announced as unresolved, with the amount", custodyHtml.Contains("data-qts-custody=\"unresolved\"", StringComparison.Ordinal)
+    && custodyHtml.Contains("240.75", StringComparison.Ordinal));
+Check("the custody notice explains both blocked commands", custodyHtml.Contains("clearance", StringComparison.OrdinalIgnoreCase)
+    && custodyHtml.Contains("Retirement waits for reconciliation", StringComparison.Ordinal));
+
+var settledHtml = await RenderWith<QtsBilling.Ui.Components.DeviceCustodyNotice>(new Dictionary<string, object?>
+{
+    ["Device"] = stubDevices.Settled,
+});
+Check("a settled terminal says so instead of being silent", settledHtml.Contains("data-qts-custody=\"settled\"", StringComparison.Ordinal)
+    && settledHtml.Contains("Nothing outstanding", StringComparison.Ordinal));
+
+// The handover panel: the secret once, with nothing that could keep it.
+var handoverCode = "smoke-handover-code";
+var ticketHtml = await RenderWith<QtsBilling.Ui.Components.SetupTicketPanel>(new Dictionary<string, object?>
+{
+    ["Ticket"] = new QtsBilling.Contracts.Administration.SetupTicketDto(Guid.NewGuid(), handoverCode, "Setup", DateTimeOffset.UtcNow.AddMinutes(30)),
+    ["AccountName"] = "Night Cashier",
+});
+Check("the handover panel shows the code and names the account it belongs to",
+    ticketHtml.Contains(handoverCode, StringComparison.Ordinal) && ticketHtml.Contains("Night Cashier", StringComparison.Ordinal));
+Check("the handover panel offers no way to keep the code",
+    !ticketHtml.Contains("clipboard", StringComparison.OrdinalIgnoreCase) && !ticketHtml.Contains("Copy", StringComparison.Ordinal));
+
+// The reference selector: a name in, a name out, and no identifier for a human to read.
+var branchId = Guid.NewGuid();
+var selectorHtml = await RenderWith<QtsBilling.Ui.Components.ReferenceSelector>(new Dictionary<string, object?>
+{
+    ["Label"] = "Branch the terminal will serve",
+    ["Search"] = new Func<string, CancellationToken, Task<IReadOnlyList<QtsBilling.Ui.Models.ReferenceItem>>>(
+        (term, token) =>
+        {
+            token.ThrowIfCancellationRequested();
+            return Task.FromResult<IReadOnlyList<QtsBilling.Ui.Models.ReferenceItem>>(
+                [QtsBilling.Ui.Models.ReferenceItem.From(branchId, "Main counter", "MAIN")]);
+        }),
+});
+Check("the reference selector asks for a name, never an identifier",
+    selectorHtml.Contains("Branch the terminal will serve", StringComparison.Ordinal) && !selectorHtml.Contains(branchId.ToString("D"), StringComparison.Ordinal));
+
+// The screens' own decisions, where they live (task 14 recipe steps 2-3).
+var accounts = (await stubUsers.ListUsersAsync()).Items;
+var soleOwner = accounts.Single(row => row.Role == "Owner");
+Check("the last owner cannot be taken out of service, and says why",
+    AdministrationRules.LastOwnerBlock(accounts, soleOwner) is { Length: > 0 });
+Check("the last owner cannot be demoted either, while keeping ownership stays allowed",
+    AdministrationRules.LastOwnerBlock(accounts, soleOwner, "Manager") is { Length: > 0 }
+    && AdministrationRules.LastOwnerBlock(accounts, soleOwner, "Owner") is null);
+Check("a new cashier is offered no discount allowance", AdministrationRules.DefaultDiscountRate("Cashier") == 0m
+    && AdministrationRules.DefaultDiscountRate("Manager") == 1m);
+Check("a refusal names the authority that is missing",
+    AdministrationRules.MissingReason("Adding a person", Permissions.UsersManage).Contains(Permissions.UsersManage, StringComparison.Ordinal));
 
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="

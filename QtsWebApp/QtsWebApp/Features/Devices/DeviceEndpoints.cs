@@ -375,7 +375,8 @@ public static class DeviceEndpoints
                 null,
                 counts?.Total ?? 0,
                 counts?.Review ?? 0,
-                acknowledged ?? 0m);
+                acknowledged ?? 0m,
+                device.Version);
         })];
     }
 
@@ -714,7 +715,8 @@ public static class DeviceEndpoints
         statusCode: StatusCodes.Status409Conflict,
         extensions: new Dictionary<string, object?> { ["code"] = ApiErrorCodes.OptimisticConcurrencyFailure });
 
-    public sealed record DeviceLifecycleResponse(Guid DeviceId, string Status, DateTimeOffset? RevokedAtUtc, long Version);
+    // The enrolment and lifecycle payloads are wire contracts, not server internals: the administration screen
+    // (task 14) and the terminal both speak them, so they live in QtsBilling.Contracts.Sync.
 
     private static IResult Invalid(string detail)
         => Results.BadRequest(new { code = "invalid_request", detail });
@@ -740,16 +742,6 @@ public static class DeviceEndpoints
         var token = new string(chars);
         return $"QTS-{token[..4]}-{token[4..8]}-{token[8..12]}";
     }
-
-    public sealed record CreateEnrolmentChallengeRequest(Guid LocationId);
-
-    public sealed record CreateEnrolmentChallengeResponse(string EnrolmentCode, Guid LocationId, DateTimeOffset ExpiresAtUtc);
-
-    public sealed record EnrolDeviceRequest(string Name, string Platform, Guid LocationId, string EnrolmentCode, string? AppVersion = null, int? SchemaVersion = null);
-
-    public sealed record DeviceEnrolmentResponse(Guid DeviceId, DateTimeOffset EnrolledAtUtc);
-
-    public sealed record OfflineGrantKeyResponse(string KeyId, string PublicKey);
 }
 
 /// <summary>

@@ -24,6 +24,9 @@ builder.Services.AddScoped(_ => new HttpClient(new AntiforgeryHandler { InnerHan
 builder.Services.AddScoped<ICustomerApiClient, CustomerApiClient>();
 builder.Services.AddScoped<IAccountApiClient, AccountApiClient>();
 builder.Services.AddScoped<IBusinessSetupApiClient, BusinessSetupApiClient>();
+builder.Services.AddScoped<IAdministrationUserApiClient, AdministrationUserApiClient>();
+builder.Services.AddScoped<IDeviceAdministrationApiClient, DeviceAdministrationApiClient>();
+builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();
 builder.Services.AddScoped<IInventoryApiClient, InventoryApiClient>();
 builder.Services.AddScoped<IBankingApiClient, BankingApiClient>();

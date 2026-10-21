@@ -153,6 +153,42 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // The administration screens live in the shared library, and this host routes them (Routes.razor adds the
+        // whole QtsBilling.Ui assembly). Registering their clients here is the cross-host gate specification finding
+        // F25 asks for: a terminal signed in as an owner gets the same owner screens as the browser, and a host that
+        // forgot one would hand the operator a dead form.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Administration.IBusinessSetupApiClient, QtsBilling.Contracts.Administration.BusinessSetupApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Administration.IAdministrationUserApiClient, QtsBilling.Contracts.Administration.AdministrationUserApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Administration.IDeviceAdministrationApiClient, QtsBilling.Contracts.Administration.DeviceAdministrationApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(60);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<IPaymentApiClient, PaymentApiClient>((services, client) =>
             {

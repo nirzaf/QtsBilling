@@ -99,12 +99,9 @@ public static class ShellNavigation
             "Arrives with task 33."),
 
         // Administration: the instance itself.
-        new("Business and branches", "administration/business", Icons.Material.Filled.Storefront, GroupAdministration, Permissions.BusinessSettingsManage, ShellAvailability.Planned,
-            "Arrives with task 14."),
-        new("Users and handover tickets", "administration/users", Icons.Material.Filled.ManageAccounts, GroupAdministration, Permissions.UsersManage, ShellAvailability.Planned,
-            "Arrives with task 14."),
-        new("Terminals", "administration/devices", Icons.Material.Filled.PointOfSale, GroupAdministration, Permissions.DevicesManage, ShellAvailability.Planned,
-            "Arrives with task 14."),
+        new("Business and branches", "administration/business", Icons.Material.Filled.Storefront, GroupAdministration, Permissions.BusinessSettingsManage, ShellAvailability.Available),
+        new("Users and handover tickets", "administration/users", Icons.Material.Filled.ManageAccounts, GroupAdministration, Permissions.UsersManage, ShellAvailability.Available),
+        new("Terminals", "administration/devices", Icons.Material.Filled.PointOfSale, GroupAdministration, Permissions.DevicesManage, ShellAvailability.Available),
         new("Audit and diagnostics", "administration/audit", Icons.Material.Filled.FactCheck, GroupAdministration, Permissions.AuditView, ShellAvailability.Planned,
             "Arrives with task 34."),
     ];

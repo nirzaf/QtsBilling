@@ -1,0 +1,251 @@
+@page "/administration/users"
+@namespace QtsBilling.Ui.Pages.Administration
+@using QtsBilling.Contracts.Administration
+@using QtsBilling.Ui.Models
+@implements IAsyncDisposable
+
+<PageTitle>Users and handover tickets - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Users and handover tickets</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            Who belongs to this business, what authority they hold here, and the one-time code that lets a new
+            person choose their own password. No email, no hosted identity service, no shared secret.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PersonAdd"
+               OnClick="BeginCreate" Disabled="@(!_canManage || _list.IsBusy)">
+        Add a person
+    </MudButton>
+</MudStack>
+
+@*
+    The handover rule is stated before the first code is issued, because it is the property that makes a local
+    handover safe without a delivery channel: the code exists once, and nothing here keeps it.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    @AdministrationRules.HandoverOnceReason
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+@if (_ticket is not null)
+{
+    <SetupTicketPanel Ticket="_ticket" AccountName="_ticketAccountName" OnAcknowledged="DismissTicket" />
+}
+
+<ShellStates Kind="_list.State" Body="_list.Message" RetryCallback="ReloadAsync">
+    <MudPaper Class="pa-3 mb-3" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="5">
+                <MudTextField @bind-Value="_search" Label="Search accounts by name or email" HelperText="Searches on the server, across every account of this business."
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChanged"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="4" md="5">
+                <MudText Typo="Typo.body2" Class="pt-3" Color="Color.Secondary">
+                    @_list.Rows.Count account(s) on this page.
+                    Authority changes end the affected sessions, so an edited person signs in again.
+                </MudText>
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                           OnClick="ReloadAsync" Disabled="@_list.IsBusy">Refresh</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudTable Items="_list.Rows" Loading="_list.IsBusy" Dense="true" Hover="true" Striped="true"
+              Breakpoint="Breakpoint.Sm" aria-label="Accounts in this business">
+        <HeaderContent>
+            <MudTh>Person</MudTh>
+            <MudTh>Sign-in</MudTh>
+            <MudTh>Role</MudTh>
+            <MudTh>Branches</MudTh>
+            <MudTh Style="text-align:right">Discount</MudTh>
+            <MudTh>Last change</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Person">@context.DisplayName</MudTd>
+            <MudTd DataLabel="Sign-in">
+                <MudText Typo="Typo.body2">@context.Email</MudText>
+                @if (context.PasswordResetRequired)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">No password set yet</MudChip>
+                }
+                else if (!context.IsActive)
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Default" Variant="Variant.Text">Out of service</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Role">
+                <MudText Typo="Typo.body2">@context.Role</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@AdministrationRules.RoleSummary(context.Role)</MudText>
+            </MudTd>
+            <MudTd DataLabel="Branches">@BranchText(context)</MudTd>
+            <MudTd DataLabel="Discount" Style="text-align:right">@context.MaxDiscountRate.ToString("P0")</MudTd>
+            <MudTd DataLabel="Last change">@(context.LastSeenAtUtc?.ToLocalTime().ToString("g") ?? "never recorded")</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginEdit(context))">Change authority</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => BeginTicket(context))">Handover code</MudButton>
+                    @if (context.IsActive)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Warning" OnClick="@(() => BeginDeactivate(context))">
+                            Take out of service
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Success" OnClick="@(() => BeginActivate(context))">
+                            Put back in service
+                        </MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">Nobody matches that search in this business.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-3">
+        <MudButton Variant="Variant.Outlined" OnClick="PreviousAsync" Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="NextAsync" Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+    </MudStack>
+
+    @if (_editing is not null)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@DialogTitle</MudText>
+            <MudGrid Spacing="3" Class="mt-1">
+                <MudItem xs="12" md="4">
+                    <MudTextField Value="@_email" Label="Email address" ReadOnly="@(!_isNew)"
+                                  Placeholder="name at this business, used to sign in"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_displayName" Label="Display name" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_role" Label="Role" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        @foreach (var role in Roles)
+                        {
+                            <MudSelectItem T="string" Value="@role">@role</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@AdministrationRules.RoleSummary(_role)</MudText>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSwitch T="bool" @bind-Value="_allLocations" Label="Every branch, now and later" Color="Color.Primary" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    @if (!_allLocations)
+                    {
+                        <ReferenceSelector Label="Branch this person works at"
+                                           HelpText="Type a branch name. Add as many as they need - a cashier at two counters is two grants."
+                                           Search="SearchBranchesAsync"
+                                           ValueChanged="AddBranchAsync" />
+                        <MudStack Row="true" Spacing="1" Class="mt-1" Wrap="Wrap.Wrap">
+                            @foreach (var branch in _chosenBranches)
+                            {
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="Color.Primary"
+                                             OnClose="@(() => RemoveBranchAsync(branch))">@branch.Name</MudChip>
+                            }
+                        </MudStack>
+                    }
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudNumericField T="decimal" @bind-Value="_maxDiscount" Label="Maximum discount" Min="0" Max="1" Step="0.05m"
+                                      HelperText="@DiscountHint"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12">
+                    <MudTextField @bind-Value="_reason" Label="Why is this changing" MaxLength="500"
+                                  HelperText="Required. It goes in the audit trail of this business."
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+
+            @if (_lastOwnerWarning is not null)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">@_lastOwnerWarning</MudAlert>
+            }
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveAsync" Disabled="@(_busy || !CanSave)">
+                    @(_isNew ? "Create and issue a handover code" : "Save authority")
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelEdit">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_ticketTarget is not null)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">Issue a handover code for @_ticketTarget.DisplayName</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                You are giving somebody access to this business, so you prove you are still yourself first. Your
+                password is checked and then forgotten - it is never stored, logged or written to the audit trail.
+            </MudText>
+
+            <MudGrid Spacing="3" Class="mt-2">
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_reauthentication" Label="Your own current password"
+                                  InputType="InputType.Password" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  autocomplete="off" />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudSelect T="string" @bind-Value="_ticketPurpose" Label="Purpose" Variant="Variant.Outlined" Margin="Margin.Dense">
+                        <MudSelectItem T="string" Value="@("Setup")">First sign-in for a new account</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("Recovery")">Recovery for an account that lost its password</MudSelectItem>
+                    </MudSelect>
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField @bind-Value="_ticketReason" Label="How the code will be handed over" MaxLength="500"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" />
+                </MudItem>
+            </MudGrid>
+
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="IssueTicketAsync"
+                           Disabled="@(_busy || _reauthentication.Length == 0 || string.IsNullOrWhiteSpace(_ticketReason))">
+                    Issue code
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelTicket">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (_stateTarget is { } subject)
+    {
+        <MudPaper Class="pa-4 mt-4" Elevation="2">
+            <MudText Typo="Typo.h6">@(_activating ? $"Put {subject.DisplayName} back in service" : $"Take {subject.DisplayName} out of service")</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">
+                @if (_activating)
+                {
+                    @("The account keeps its history. Say why it is being restored - authority is only ever handed back on the record.")
+                }
+                else
+                {
+                    @("Their sessions end and any handover code still outstanding is revoked. Sales they posted keep their name on them; nothing is rewritten, and the account can be put back in service later.")
+                }
+            </MudText>
+            <MudTextField @bind-Value="_stateReason" Label="Reason" MaxLength="500" Class="mt-2"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="@(_activating ? Color.Success : Color.Warning)" OnClick="ApplyStateAsync"
+                           Disabled="@(_busy || string.IsNullOrWhiteSpace(_stateReason))">
+                    @(_activating ? "Confirm: back in service" : "Confirm: out of service")
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="CancelState">Cancel</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

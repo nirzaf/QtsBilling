@@ -67,7 +67,8 @@ public static class InventoryEndpoints
                 location.Code,
                 location.Address,
                 location.IsActive,
-                location.Version))
+                location.Version,
+                location.TimeZone))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
