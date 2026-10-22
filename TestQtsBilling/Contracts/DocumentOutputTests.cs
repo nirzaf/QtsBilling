@@ -53,9 +53,33 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
         Assert.Throws<ArgumentException>(() => new DocumentOutputRequest(new string('x', DocumentOutputRequest.MaxContentLength + 1), "Invoice X"));
 
         // A document name must be safe wherever a host decides to use it, and it is never allowed to smuggle a path.
-        Assert.Throws<ArgumentException>(() => new DocumentOutputRequest("<html><body>x</body></html>", @"C:\shared\invoice"));
-        Assert.Throws<ArgumentException>(() => new DocumentOutputRequest("<html><body>x</body></html>", "../elsewhere"));
-        Assert.Throws<ArgumentException>(() => new DocumentOutputRequest("<html><body>x</body></html>", new string('n', 200)));
+        // The rule is fixed rather than read from the host's file-name rules, because a request composed on a Linux
+        // server is printed on the device the operator stands at: the same name must be refused on every OS.
+        foreach (var unsafeTitle in new[]
+        {
+            @"C:\shared\invoice",
+            "../elsewhere",
+            "..",
+            "Invoice: final",
+            "INV|1",
+            "<script>INV</script>",
+            "INV\"1\"",
+            "INV*1",
+            "INV?1",
+            "Invoice\tINV-1",
+            "share\\invoice",
+            new string('n', 200),
+        })
+        {
+            Assert.Throws<ArgumentException>(() => new DocumentOutputRequest("<html><body>x</body></html>", unsafeTitle));
+        }
+
+        // An ordinary name an operator would recognise still passes, so the rule protects the printer without
+        // refusing the document.
+        foreach (var safeTitle in new[] { "Invoice INV-1", "Receipt GRN-2026-0001 (copy)", "Purchase order PO-0007" })
+        {
+            Assert.Equal(safeTitle, new DocumentOutputRequest("<html><body>x</body></html>", safeTitle).Title);
+        }
 
         var document = new DocumentOutputRequest("<!DOCTYPE html><html><body><p>INV-1</p></body></html>", "Invoice INV-1");
         Assert.Equal("Invoice INV-1", document.Title);

@@ -20,6 +20,19 @@ public sealed record DocumentOutputRequest
 
     private const int MaxTitleLength = 120;
 
+    /// <summary>
+    /// Characters a document name never contains. The list is fixed here rather than read from
+    /// <see cref="Path.GetInvalidFileNameChars"/> on purpose: a request is validated on the host that composed the
+    /// document - a Linux server or a browser tab - and consumed on the host the operator is standing at, which may
+    /// be a Windows device that turns the name into a file. A name that is legal on one of those platforms and
+    /// illegal on the other is a drive, a share or a parent directory smuggled inside a title, so the union of both
+    /// sets is refused everywhere and the contract means the same thing on every host.
+    /// </summary>
+    private static readonly char[] ForbiddenTitleCharacters =
+    [
+        '\0', '"', '*', '/', ':', '<', '>', '?', '\\', '|',
+    ];
+
     public DocumentOutputRequest(string content, string title)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(content);
@@ -50,10 +63,10 @@ public sealed record DocumentOutputRequest
                 nameof(content));
         }
 
-        if (title.Length > MaxTitleLength || title.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
+        if (title.Length > MaxTitleLength || TitleNamesAPath(title))
         {
             throw new ArgumentException(
-                $"A document name is at most {MaxTitleLength} characters and must not contain path or file-name characters.",
+                $"A document name is at most {MaxTitleLength} characters and must not contain a path, drive, share or file-name character on any host.",
                 nameof(title));
         }
 
@@ -75,6 +88,20 @@ public sealed record DocumentOutputRequest
             || trimmed.StartsWith("https://", StringComparison.OrdinalIgnoreCase)
             || trimmed.StartsWith("//", StringComparison.Ordinal)
             || trimmed.StartsWith("file://", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>Whether a name could be read as a place rather than as what the operator knows the document by.</summary>
+    private static bool TitleNamesAPath(string title)
+    {
+        foreach (var character in title)
+        {
+            if (char.IsControl(character) || Array.IndexOf(ForbiddenTitleCharacters, character) >= 0)
+            {
+                return true;
+            }
+        }
+
+        return title.Contains("..", StringComparison.Ordinal);
     }
 }
 
