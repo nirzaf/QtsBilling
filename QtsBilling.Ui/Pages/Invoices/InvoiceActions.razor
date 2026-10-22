@@ -1,0 +1,316 @@
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Invoices
+@using QtsBilling.Contracts.Sales
+
+@* The settlement workbench of one invoice (specification task 24, recipe steps 1-4). It renders beside the
+   read-only document view and offers only what this document's own state and this session's own authority
+   allow. Every figure it shows is the server's: nothing here re-prices, re-numbers or re-reads a total. *@
+
+<MudStack Spacing="3">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Collected</MudText>
+                <MudText Typo="Typo.h6" data-qts-figure="paid">@InvoiceRules.Money(Invoice.PaidAmount, Scale)</MudText>
+                <MudText Typo="Typo.caption">@Invoice.Currency · confirmed tenders only</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Awaiting clearance</MudText>
+                <MudText Typo="Typo.h6" Color="Color.Warning" data-qts-figure="awaiting">@InvoiceRules.Money(Detail.AwaitingClearanceAmount, Scale)</MudText>
+                <MudText Typo="Typo.caption">@Invoice.Currency · not yet this business's money</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Credited back</MudText>
+                <MudText Typo="Typo.h6" data-qts-figure="credited">@InvoiceRules.Money(Invoice.CreditedAmount, Scale)</MudText>
+                <MudText Typo="Typo.caption">@Invoice.Currency · against the original lines</MudText>
+            </MudPaper>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">Still due</MudText>
+                <MudText Typo="Typo.h6" Color="@(Invoice.BalanceDue > 0m ? Color.Error : Color.Success)" data-qts-figure="due">@InvoiceRules.Money(Invoice.BalanceDue, Scale)</MudText>
+                <MudText Typo="Typo.caption">@Invoice.Currency · due @DueText</MudText>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    <MudText Typo="Typo.body2" Color="Color.Secondary">@InvoiceRules.AwaitingClearanceRule</MudText>
+
+    <MudStack Row="true" Spacing="4" Wrap="Wrap.Wrap" Class="align-center">
+        <MudText Typo="Typo.body2">Status: <b>@StatusLabel(Invoice.Status)</b></MudText>
+        <MudText Typo="Typo.body2">Recognition: <b>@InvoiceRules.RecognitionText(Invoice.RecognitionMode)</b></MudText>
+        <MudText Typo="Typo.body2">Business date: <b>@InvoiceRules.BusinessTodayText(Detail)</b></MudText>
+        <MudText Typo="Typo.body2" data-qts-scale="@Scale">Settlement scale: <b>@(Scale is { } chosen ? $"{chosen} decimals" : "not configured")</b></MudText>
+    </MudStack>
+
+    @if (Detail.Source is { } source)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-0">
+            <MudText Typo="Typo.body2">
+                This document was made from
+                <MudLink Href="@SourceHref(source)" Underline="Underline.Hover">@SourceText(source)</MudLink>.
+                Its revenue and stock follow that document, never this screen.
+            </MudText>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-0" role="status">@_notice</MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-0" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="ReloadAsync" Disabled="@_busy">Read the document back</MudButton>
+        </MudAlert>
+    }
+
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Printed copy</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@InvoiceRules.PrintRule</MudText>
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print"
+                           OnClick="PrintAsync" Disabled="@(_busy || !Allowed.Contains(InvoiceAction.Print))"
+                           aria-label="Print this invoice">
+                    @(_printing ? "Handing the document to your print dialogue…" : "Print or save as PDF")
+                </MudButton>
+                @if (!Output.CanPresentDocuments)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">This host has no local print facility; the figures above are the document's own.</MudText>
+                }
+                @if (_printedTitle is not null)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Handed over: @_printedTitle. Reprints are the same stored snapshot.</MudText>
+                }
+            </MudStack>
+        </MudStack>
+    </MudPaper>
+
+    @if (Awaiting.Count > 0)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Tenders awaiting clearance</MudText>
+                <MudTable Items="Awaiting" Dense="true" Hover="true" aria-label="Tenders awaiting clearance">
+                    <HeaderContent>
+                        <MudTh>Method</MudTh><MudTh>Reference</MudTh><MudTh>Received</MudTh>
+                        <MudTh Style="text-align:right">Amount</MudTh><MudTh>Confirmation</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Method">@MethodText(context.Method)</MudTd>
+                        <MudTd DataLabel="Reference">@(string.IsNullOrWhiteSpace(context.Reference) ? "—" : context.Reference)</MudTd>
+                        <MudTd DataLabel="Received">@InvoiceRules.InstantText(context.ReceivedAtUtc, Detail.Presentation)</MudTd>
+                        <MudTd DataLabel="Amount" Style="text-align:right">@InvoiceRules.Money(context.Amount, Scale)</MudTd>
+                        <MudTd DataLabel="Confirmation">
+                            @if (_busy)
+                            {
+                                <MudText Typo="Typo.caption">Working…</MudText>
+                            }
+                            else if (Access.CanPost)
+                            {
+                                <MudStack Row="true" Spacing="1">
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Success"
+                                               OnClick="@(() => ClearAsync(context))"
+                                               aria-label="@($"Confirm {MethodText(context.Method)} of {InvoiceRules.Money(context.Amount, Scale)}")">Confirm as collected</MudButton>
+                                    <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error"
+                                               OnClick="@(() => StartBounce(context))"
+                                               aria-label="@($"Bounce {MethodText(context.Method)} of {InvoiceRules.Money(context.Amount, Scale)}")">Bounce</MudButton>
+                                </MudStack>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@InvoiceAccess.Missing(InvoiceAction.BounceTender)</MudText>
+                            }
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+                @if (Bouncing is { } bouncing)
+                {
+                    <MudStack Spacing="2">
+                        <MudTextField Label="Why the bank refused this tender" @bind-Value="_bounceReason" Variant="Variant.Outlined"
+                                      MaxLength="512" HelperText="@($"Recorded against {MethodText(bouncing.Method)} of {InvoiceRules.Money(bouncing.Amount, Scale)} {Invoice.Currency}.")" />
+                        <MudStack Row="true" Spacing="2">
+                            <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="@(() => BounceAsync(bouncing))" Disabled="@_busy">
+                                @(_busy ? "Posting…" : "Bounce this tender")
+                            </MudButton>
+                            <MudButton Variant="Variant.Text" OnClick="CancelBounce" Disabled="@_busy">Leave it awaiting clearance</MudButton>
+                        </MudStack>
+                    </MudStack>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (Allowed.Contains(InvoiceAction.RecordPayment))
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Record a tender</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    At most @InvoiceRules.MoneyText(Invoice.BalanceDue, Invoice.Currency, Scale) may be taken against this document.
+                    A cash payment is counted into a drawer; a cheque or transfer waits for clearance.
+                </MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudSelect T="string" Label="Method" Value="_paymentMethod" ValueChanged="OnPaymentMethodChanged"
+                                   Variant="Variant.Outlined" Disabled="@Paying">
+                            @foreach (var (value, label) in InvoiceRules.OfferedMethods)
+                            {
+                                <MudSelectItem T="string" Value="@value">@label</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudNumericField T="decimal" Label="Amount" @bind-Value="_paymentAmount" Min="0.01m"
+                                         Max="@Invoice.BalanceDue" Step="@Step" Variant="Variant.Outlined"
+                                         Disabled="@Paying" Format="@FormatForScale" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField Label="@ReferenceLabel" @bind-Value="_paymentReference" Variant="Variant.Outlined"
+                                      MaxLength="128" Disabled="@Paying" />
+                    </MudItem>
+                    @if (_paymentMethod == "cash")
+                    {
+                        <MudItem xs="12" sm="6">
+                            <MudSelect T="Guid?" Label="Register" @bind-Value="_registerId" Variant="Variant.Outlined" Disabled="@Paying" Clearable="true">
+                                @foreach (var register in OpenRegisters)
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)register.Id)">@register.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@CashRegisterHint</MudText>
+                        </MudItem>
+                        <MudItem xs="12" sm="6" Class="d-flex align-center">
+                            <MudSwitch T="bool" Label="@($"I have the {InvoiceRules.Money(_paymentAmount, Scale)} {Invoice.Currency} in hand")"
+                                       Value="_confirmCash" ValueChanged="@(value => _confirmCash = value)" Color="Color.Primary" Disabled="@Paying" />
+                        </MudItem>
+                    }
+                </MudGrid>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="PaymentAsync" Disabled="@(_busy || _paymentAmount <= 0m)">
+                        @(Paying ? "Ask the server about this same tender…" : "Record the tender")
+                    </MudButton>
+                    @if (Paying)
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="AbandonPayment">Stop waiting and read the document back</MudButton>
+                    }
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@PaymentKeyHint</MudText>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (Allowed.Contains(InvoiceAction.Credit))
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Credit this document</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@InvoiceRules.CreditRule</MudText>
+                <MudSwitch T="bool" Label="Credit everything that is left of the document" Value="_creditWhole" ValueChanged="OnCreditWholeChanged" Color="Color.Primary" Disabled="@Paying" />
+                @if (!_creditWhole)
+                {
+                    <MudTable Items="Detail.Lines" Dense="true" Hover="true" aria-label="Lines to credit">
+                        <HeaderContent>
+                            <MudTh>Line</MudTh><MudTh Style="text-align:right">Invoiced</MudTh><MudTh Style="text-align:right">Still creditable</MudTh>
+                            <MudTh>Quantity this note</MudTh><MudTh>Stock</MudTh><MudTh Style="text-align:right">Value</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Line">@context.ProductName @(string.IsNullOrWhiteSpace(context.Sku) ? null : $"· {context.Sku}")</MudTd>
+                            <MudTd DataLabel="Invoiced" Style="text-align:right">@InvoiceRules.Money(context.Quantity, null)</MudTd>
+                            <MudTd DataLabel="Still creditable" Style="text-align:right">@InvoiceRules.Money(InvoiceRules.RemainingQuantity(context, Detail), null)</MudTd>
+                            <MudTd DataLabel="Quantity this note">
+                                <MudNumericField T="decimal" Label="@(null)" Value="QuantityFor(context)" ValueChanged="@(value => SetQuantity(context, value))"
+                                                 Min="0m" Max="@InvoiceRules.RemainingQuantity(context, Detail)" Step="0.001m" Disabled="@Paying"
+                                                 aria-label="@($"Quantity to credit for {context.ProductName}")" />
+                            </MudTd>
+                            <MudTd DataLabel="Stock">
+                                <MudCheckBox T="bool" Value="RestockFor(context)" ValueChanged="@(value => SetRestock(context, value))"
+                                             Disabled="@Paying" Label="Restock" aria-label="@($"Restock {context.ProductName}")" />
+                            </MudTd>
+                            <MudTd DataLabel="Value" Style="text-align:right">@InvoiceRules.Money(CreditValueFor(context), Scale)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@StockDispositionHint</MudText>
+                }
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudTextField Label="Reason for the credit" @bind-Value="_creditReason" Variant="Variant.Outlined" MaxLength="512" Disabled="@Paying"
+                                      HelperText="Mandatory: it is audited with who credited the document and when." />
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudTextField Label="Note on the credit" @bind-Value="_creditNote" Variant="Variant.Outlined" MaxLength="1000" Disabled="@Paying" />
+                    </MudItem>
+                </MudGrid>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudText Typo="Typo.body2">This note would credit <b>@InvoiceRules.MoneyText(CreditTotal, Invoice.Currency, Scale)</b>.</MudText>
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="CreditAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_creditReason))">
+                        @(Crediting ? "Ask the server about this same credit…" : "Issue the credit note")
+                    </MudButton>
+                    @if (Crediting)
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="AbandonCredit">Stop waiting and read the document back</MudButton>
+                    }
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (Allowed.Contains(InvoiceAction.Void))
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Void this document</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Voiding reverses the original journal entry and leaves the document on the file as void. Nothing is deleted:
+                    the issued snapshot, the reversal and this reason stay readable forever.
+                </MudText>
+                <MudTextField Label="Reason for the void" @bind-Value="_voidReason" Variant="Variant.Outlined" MaxLength="512" Disabled="@_busy" />
+                <MudStack Row="true" Spacing="2">
+                    <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="VoidAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_voidReason))">
+                        @(_busy ? "Posting…" : "Void the document")
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">A document that holds money, or a tender still on its way, cannot be voided.</MudText>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (!Allowed.Contains(InvoiceAction.RecordPayment) && !Allowed.Contains(InvoiceAction.Credit) && !Allowed.Contains(InvoiceAction.Void) && Awaiting.Count == 0)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-0">
+            @ClosingSentence
+        </MudAlert>
+    }
+
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">What has happened to this document</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                Every posting on a document is a fact of its own. This list is assembled from those facts - it changes nothing and can never be edited.
+            </MudText>
+            <MudTable Items="History" Dense="true" Hover="true" aria-label="Invoice event history">
+                <HeaderContent><MudTh>When</MudTh><MudTh>What</MudTh><MudTh>Evidence</MudTh></HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">@InvoiceRules.InstantText(context.At, Detail.Presentation)</MudTd>
+                    <MudTd DataLabel="What">@context.What</MudTd>
+                    <MudTd DataLabel="Evidence">@context.Evidence</MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">Nothing has been posted against this document yet.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudStack>
+    </MudPaper>
+</MudStack>
+
+@code {
+    /// <summary>A single posting event on this document, read from the server's own rows.</summary>
+    public sealed record InvoiceEvent(DateTimeOffset At, string What, string Evidence);
+}

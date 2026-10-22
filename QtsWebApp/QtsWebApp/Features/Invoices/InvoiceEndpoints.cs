@@ -2681,6 +2681,48 @@ public static class InvoiceEndpoints
 
         var creditDto = creditDtos.LastOrDefault();
 
+        // Presentation facts for the reader (task 24, recipe 4 - finding F21): the business's own settlement scale
+        // and time zone, taken from the single place each is owned. Amounts are untouched; only how they are read
+        // is described. The source document travels with its number because an operator follows a name, not a key.
+        var businessFacts = await db.Businesses.AsNoTracking()
+            .Where(candidate => candidate.Id == businessId)
+            .Select(candidate => new { candidate.TimeZone, Settings = db.BusinessAccountingSettings
+                .Where(settings => settings.BusinessId == businessId)
+                .Select(settings => (int?)settings.SettlementScale)
+                .FirstOrDefault() })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var zone = businessFacts?.TimeZone;
+        var now = DateTimeOffset.UtcNow;
+
+        InvoiceSourceDto? source = null;
+
+        if (invoice.SourceSaleId is { } sourceSaleId)
+        {
+            var saleNumber = await db.Sales.AsNoTracking()
+                .Where(sale => sale.BusinessId == businessId && sale.Id == sourceSaleId)
+                .Select(sale => sale.SaleNumber)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            source = new InvoiceSourceDto("sale", sourceSaleId, saleNumber);
+        }
+        else if (invoice.SourceOrderId is { } sourceOrderId)
+        {
+            var orderNumber = await db.SalesOrders.AsNoTracking()
+                .Where(order => order.BusinessId == businessId && order.Id == sourceOrderId)
+                .Select(order => order.OrderNumber)
+                .FirstOrDefaultAsync(cancellationToken)
+                .ConfigureAwait(false);
+
+            source = new InvoiceSourceDto("order", sourceOrderId, orderNumber);
+        }
+
+        var awaitingClearance = payments
+            .Where(payment => payment.Status == QtsBilling.Persistence.Postgres.PaymentStatus.Pending)
+            .Sum(payment => payment.Amount);
+
         return new InvoiceDetailDto(
             await ToSummaryAsync(db, businessId, invoice, cancellationToken).ConfigureAwait(false),
             lines,
@@ -2696,7 +2738,13 @@ public static class InvoiceEndpoints
                 invoice.CustomerAddressSnapshot,
                 invoice.CustomerPhoneSnapshot,
                 invoice.CustomerEmailSnapshot,
-                invoice.PaymentTermsDaysSnapshot));
+                invoice.PaymentTermsDaysSnapshot),
+            new InvoicePresentationDto(
+                businessFacts?.Settings,
+                string.IsNullOrWhiteSpace(zone) ? null : zone,
+                LedgerWriter.LocalDate(zone, now)),
+            source,
+            awaitingClearance);
     }
 
     private static async Task<InvoiceSummaryDto> ToSummaryAsync(
@@ -2780,7 +2828,10 @@ public static class InvoiceEndpoints
             payment.ReceivedAtUtc,
             payment.PspReference,
             payment.CardBrand,
-            payment.CardLast4);
+            payment.CardLast4,
+            payment.ClearedAtUtc,
+            payment.BouncedAtUtc,
+            payment.BounceReason);
 
     private static bool TryGetUserId(ClaimsPrincipal principal, out Guid userId)
         => Guid.TryParse(principal.FindFirst(ClaimTypes.NameIdentifier)?.Value, out userId);

@@ -142,8 +142,34 @@ Console.WriteLine($"     rendered markup: {html.Length} chars");
 var draftId = Guid.CreateVersion7();
 var issuedId = Guid.CreateVersion7();
 var unknownId = Guid.CreateVersion7();
+var settledId = Guid.CreateVersion7();
 var smokeLocationId = Guid.CreateVersion7();
 var smokeCustomerId = Guid.CreateVersion7();
+
+// The settlement workbench is proven from a document that has already taken money: part collected, one tender
+// still on its way, one line credited, and the business's own scale and calendar attached to it (task 24).
+var settledDetail = InvoiceSample(settledId, InvoiceState.PartiallyPaid, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId) with
+{
+    Invoice = InvoiceSample(settledId, InvoiceState.PartiallyPaid, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId).Invoice with
+    {
+        InvoiceNumber = "INV-0042",
+        Status = InvoiceState.PartiallyPaid,
+        PaidAmount = 40m,
+        CreditedAmount = 15m,
+        BalanceDue = 60m,
+    },
+    Payments =
+    [
+        new InvoicePaymentDto(Guid.CreateVersion7(), "Cash", "Confirmed", 40m, "USD", null, DateTimeOffset.UtcNow.AddHours(-3)),
+        new InvoicePaymentDto(Guid.CreateVersion7(), "Cheque", "Pending", 25m, "USD", "CHEQUE-9", DateTimeOffset.UtcNow.AddHours(-1)),
+    ],
+    AwaitingClearanceAmount = 25m,
+    Presentation = new InvoicePresentationDto(3, "Pacific/Auckland", DateOnly.FromDateTime(DateTime.UtcNow)),
+    Source = new InvoiceSourceDto("sale", Guid.CreateVersion7(), "S-1001"),
+};
+
+StubInvoiceApiClient? invoiceStub = null;
+StubDocumentOutput? outputStub = null;
 
 async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
 {
@@ -154,11 +180,18 @@ async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
     editorServices.AddSingleton<ICustomerApiClient, StubCustomerApiClient>();
     editorServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient(permissions));
     editorServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(smokeLocationId));
-    editorServices.AddSingleton<IInvoiceApiClient>(new StubInvoiceApiClient(
+    editorServices.AddSingleton<ICashRegisterApiClient, StubCashRegisterApiClient>();
+    var documentOutput = new StubDocumentOutput();
+    editorServices.AddSingleton<IDocumentOutput>(documentOutput);
+    var invoiceApi = new StubInvoiceApiClient(
         draft: InvoiceSample(draftId, InvoiceState.Draft, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
         issued: InvoiceSample(issuedId, InvoiceState.Issued, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
-        unknown: InvoiceSample(unknownId, InvoiceState.Draft, InvoiceRecognitionMode.HistoricalUnknown, smokeLocationId, smokeCustomerId)));
+        unknown: InvoiceSample(unknownId, InvoiceState.Draft, InvoiceRecognitionMode.HistoricalUnknown, smokeLocationId, smokeCustomerId),
+        settled: settledDetail);
+    editorServices.AddSingleton<IInvoiceApiClient>(invoiceApi);
     editorServices.AddSingleton<NavigationManager, StubNavigationManager>();
+    invoiceStub = invoiceApi;
+    outputStub = documentOutput;
 
     await using var editorProvider = editorServices.BuildServiceProvider();
     await using var editorRenderer = new HtmlRenderer(editorProvider, editorProvider.GetRequiredService<ILoggerFactory>());
@@ -198,6 +231,54 @@ Check("pre-recognition draft is refused issue explicitly", unknownHtml.Contains(
 
 var deniedHtml = await RenderInvoiceEditor(draftId, [Permissions.CustomersRead]);
 Check("an unrelated role cannot read invoices", deniedHtml.Contains("cannot view invoices", StringComparison.Ordinal) && !deniedHtml.Contains("Save draft", StringComparison.Ordinal));
+
+// 5b. The settlement workbench (specification task 24, recipe steps 1-4) on a document that has already taken
+//     money: four figures read apart, the uncleared tender named for what it is, the business's own scale used
+//     instead of an assumed two decimals, printing offered as a local action with no link into a protected route,
+//     and every button held back from a role that cannot actually press it.
+var settlementHtml = await RenderInvoiceEditor(settledId, [Permissions.InvoicesManage, Permissions.InvoicesIssue, Permissions.AccountingPost, Permissions.SalesPost]);
+Check("the workbench reads collected, awaiting, credited and due as four separate figures",
+    settlementHtml.Contains("data-qts-figure=\"paid\"", StringComparison.Ordinal)
+        && settlementHtml.Contains("data-qts-figure=\"awaiting\"", StringComparison.Ordinal)
+        && settlementHtml.Contains("data-qts-figure=\"credited\"", StringComparison.Ordinal)
+        && settlementHtml.Contains("data-qts-figure=\"due\"", StringComparison.Ordinal));
+Check("figures are read at the business's own settlement scale, not at two decimals someone assumed",
+    settlementHtml.Contains("60.000", StringComparison.Ordinal)
+        && settlementHtml.Contains("25.000", StringComparison.Ordinal)
+        && !settlementHtml.Contains("60.00 USD", StringComparison.Ordinal)
+        && settlementHtml.Contains("data-qts-scale=\"3\"", StringComparison.Ordinal));
+Check("an uncleared tender is awaiting clearance and never counted as collected money",
+    settlementHtml.Contains("Tenders awaiting clearance", StringComparison.Ordinal)
+        && settlementHtml.Contains("CHEQUE-9", StringComparison.Ordinal)
+        && settlementHtml.Contains("not yet this business's money", StringComparison.Ordinal)
+        && settlementHtml.Contains("A cheque or transfer that has not cleared", StringComparison.Ordinal));
+Check("the document names the sale it was made from, by its number",
+    settlementHtml.Contains("S-1001", StringComparison.Ordinal) && settlementHtml.Contains("sales/", StringComparison.Ordinal));
+Check("printing is a local action, not a link into a bearer-protected route",
+    settlementHtml.Contains("Print or save as PDF", StringComparison.Ordinal)
+        && !settlementHtml.Contains("/api/v1/invoices", StringComparison.Ordinal)
+        && settlementHtml.Contains("local print dialogue", StringComparison.Ordinal));
+Check("a render never reaches for the printer or the drawer on its own",
+    invoiceStub!.PrintFetches == 0 && outputStub!.Presented.Count == 0);
+Check("a document that holds money is not offered a void, and still offers what it can settle",
+    !settlementHtml.Contains("Void this document", StringComparison.Ordinal)
+        && settlementHtml.Contains("Record a tender", StringComparison.Ordinal)
+        && settlementHtml.Contains("Credit this document", StringComparison.Ordinal));
+Check("the events of the document are read back as history, not as an editable list",
+    settlementHtml.Contains("What has happened to this document", StringComparison.Ordinal)
+        && settlementHtml.Contains("Cheque recorded", StringComparison.Ordinal)
+        && settlementHtml.Contains("Cash recorded", StringComparison.Ordinal));
+Check("no field asks the operator for an identifier a human could not know",
+    !settlementHtml.Contains("Invoice id", StringComparison.Ordinal) && !settlementHtml.Contains("Register id", StringComparison.Ordinal));
+
+var noPostHtml = await RenderInvoiceEditor(settledId, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
+Check("a role that may not post to the ledger is told what is missing instead of being handed the buttons",
+    !noPostHtml.Contains("Confirm as collected", StringComparison.Ordinal)
+        && noPostHtml.Contains("needs the accounting-posting authority", StringComparison.Ordinal));
+Check("a document with nothing collected may still be voided, with its reason asked for",
+    issuedHtml.Contains("Void this document", StringComparison.Ordinal) && issuedHtml.Contains("Reason for the void", StringComparison.Ordinal));
+Check("a draft settles nothing: the workbench is not offered before issue",
+    !draftHtml.Contains("Record a tender", StringComparison.Ordinal) && draftHtml.Contains("Issue invoice", StringComparison.Ordinal));
 
 // 6. The invoice list loads only after the first interactive render (a static prerender has no session
 //    cookie, the same rule the customer page follows), so its rows and filters are proven in the browser
@@ -1088,6 +1169,21 @@ internal sealed class StubJsRuntime : IJSRuntime
         => ValueTask.FromResult(default(TValue)!);
 }
 
+/// <summary>Records what a host was asked to print, and never prints it (specification task 24).</summary>
+internal sealed class StubDocumentOutput : IDocumentOutput
+{
+    public List<DocumentOutputRequest> Presented { get; } = [];
+
+    public bool CanPresentDocuments { get; init; } = true;
+
+    public Task<bool> PresentAsync(DocumentOutputRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        Presented.Add(request);
+        return Task.FromResult(true);
+    }
+}
+
 /// <summary>
 /// The invoice lifecycle as the shared pages see it: reads, saves and issue only. Money effects belong to
 /// the server, so the smoke refuses the mutating commands instead of pretending to perform them.
@@ -1095,8 +1191,16 @@ internal sealed class StubJsRuntime : IJSRuntime
 internal sealed class StubInvoiceApiClient(
     InvoiceDetailDto draft,
     InvoiceDetailDto issued,
-    InvoiceDetailDto unknown) : IInvoiceApiClient
+    InvoiceDetailDto unknown,
+    InvoiceDetailDto? settled = null) : IInvoiceApiClient
 {
+    /// <summary>How often the printable snapshot was asked for. The smoke never prints, so a non-zero count here
+    /// would mean a render reached for the printer on its own (specification task 24).</summary>
+    public int PrintFetches { get; private set; }
+
+    /// <summary>The bodies of the money commands the screen has tried to send, in order.</summary>
+    public List<InvoicePaymentRequest?> MoneyAttempts { get; } = [];
+
     public Task<PagedResult<InvoiceSummaryDto>> ListAsync(
         InvoiceState? status = null,
         Guid? customerId = null,
@@ -1113,6 +1217,7 @@ internal sealed class StubInvoiceApiClient(
     {
         var requested when requested == issued.Invoice.Id => issued,
         var requested when requested == unknown.Invoice.Id => unknown,
+        var requested when settled is not null && requested == settled.Invoice.Id => settled,
         _ => draft,
     });
 
@@ -1128,7 +1233,16 @@ internal sealed class StubInvoiceApiClient(
     public Task DeleteAsync(Guid id, CancellationToken cancellationToken = default) => Task.CompletedTask;
 
     public Task<string> GetPrintHtmlAsync(Guid id, CancellationToken cancellationToken = default)
-        => Task.FromResult("<html><body>invoice</body></html>");
+    {
+        PrintFetches++;
+        return Task.FromResult("<html><body>invoice</body></html>");
+    }
+
+    public Task<DocumentOutputRequest> GetPrintDocumentAsync(Guid id, string title, CancellationToken cancellationToken = default)
+    {
+        PrintFetches++;
+        return Task.FromResult(new DocumentOutputRequest("<html><body>invoice</body></html>", title));
+    }
 
     public Task<InvoiceDetailDto> VoidAsync(Guid id, InvoiceVoidRequest request, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never voids a document.");
@@ -1137,7 +1251,10 @@ internal sealed class StubInvoiceApiClient(
         => throw new NotSupportedException("The smoke never credits a document.");
 
     public Task<InvoicePaymentResult> AddPaymentAsync(Guid id, InvoicePaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
-        => throw new NotSupportedException("The smoke never records money.");
+    {
+        MoneyAttempts.Add(request);
+        throw new NotSupportedException("The smoke never records money.");
+    }
 
     public Task<PaymentTransitionDto> ClearPaymentAsync(Guid paymentId, string idempotencyKey, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never clears money.");

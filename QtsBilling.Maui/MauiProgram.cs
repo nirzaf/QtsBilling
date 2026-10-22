@@ -164,6 +164,13 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // Local document output on the device (specification task 24, T24.02). The invoice snapshot arrives over
+        // the bearer client above, and only its content is handed to the print facility: a device never navigates
+        // a WebView at a protected route, because that is the one shape of printing that forces a token into a
+        // URL. Registering it here is the same cross-host gate F25 asks for - without it the terminal's operator
+        // would get a print button that throws.
+        builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.IDocumentOutput, NativeDocumentOutput>();
+
         // The administration screens live in the shared library, and this host routes them (Routes.razor adds the
         // whole QtsBilling.Ui assembly). Registering their clients here is the cross-host gate specification finding
         // F25 asks for: a terminal signed in as an owner gets the same owner screens as the browser, and a host that

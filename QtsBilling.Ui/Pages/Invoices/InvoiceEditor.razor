@@ -36,25 +36,35 @@ else
         <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">@ReadOnlyMessage</MudAlert>
         <MudPaper Class="pa-4" Outlined="true">
             <MudGrid Spacing="2">
-                <MudItem xs="12" sm="6"><MudText><b>Customer:</b> @(_detail.Invoice.CustomerName ?? "Walk-in / service")</MudText></MudItem>
-                <MudItem xs="12" sm="6"><MudText><b>Dates:</b> @_detail.Invoice.IssueDate.ToString("d") · due @(_detail.Invoice.DueDate?.ToString("d") ?? "—")</MudText></MudItem>
-                <MudItem xs="12" sm="6"><MudText><b>Recognition:</b> @RecognitionLabel(_detail.Invoice.RecognitionMode)</MudText></MudItem>
-                <MudItem xs="12"><MudTable Items="_detail.Lines" Dense="true" Hover="true" aria-label="Invoice lines">
-                    <HeaderContent><MudTh>Item</MudTh><MudTh>Qty</MudTh><MudTh>Unit price</MudTh><MudTh>Tax</MudTh><MudTh>Total</MudTh></HeaderContent>
-                    <RowTemplate><MudTd DataLabel="Item">@context.ProductName</MudTd><MudTd DataLabel="Qty">@context.Quantity</MudTd><MudTd DataLabel="Unit price">@context.UnitPrice.ToString("N2")</MudTd><MudTd DataLabel="Tax">@context.TaxAmount.ToString("N2")</MudTd><MudTd DataLabel="Total">@context.LineTotal.ToString("N2")</MudTd></RowTemplate>
-                </MudTable></MudItem>
-                <MudItem xs="12" sm="6"><MudText><b>Total:</b> @_detail.Invoice.TotalAmount.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
-                <MudItem xs="12" sm="6"><MudText><b>Balance due:</b> @_detail.Invoice.BalanceDue.ToString("N2") @_detail.Invoice.Currency</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Customer:</b> @(_detail.Invoice.CustomerName ?? InvoiceRules.NoCustomerRecorded)</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Dates:</b> @InvoiceRules.DateText(_detail.Invoice.IssueDate) · due @(_detail.Invoice.DueDate is { } due ? InvoiceRules.DateText(due) : "—")</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Recognition:</b> @InvoiceRules.RecognitionText(_detail.Invoice.RecognitionMode)</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Settlement scale:</b> @(InvoiceRules.Scale(_detail) is { } scale ? $"{scale} decimals, in the business's own calendar" : "not configured for this business")</MudText></MudItem>
+                <MudItem xs="12">
+                    <MudTable Items="_detail.Lines" Dense="true" Hover="true" aria-label="Invoice lines">
+                        <HeaderContent><MudTh>Item</MudTh><MudTh>Qty</MudTh><MudTh>Unit price</MudTh><MudTh>Tax</MudTh><MudTh>Total</MudTh></HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Item">@context.ProductName</MudTd>
+                            <MudTd DataLabel="Qty">@InvoiceRules.Money(context.Quantity, null)</MudTd>
+                            <MudTd DataLabel="Unit price">@InvoiceRules.Money(context.UnitPrice, InvoiceRules.Scale(_detail))</MudTd>
+                            <MudTd DataLabel="Tax">@InvoiceRules.Money(context.TaxAmount, InvoiceRules.Scale(_detail))</MudTd>
+                            <MudTd DataLabel="Total">@InvoiceRules.Money(context.LineTotal, InvoiceRules.Scale(_detail))</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                </MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Total:</b> @InvoiceRules.MoneyText(_detail.Invoice.TotalAmount, _detail.Invoice.Currency, InvoiceRules.Scale(_detail))</MudText></MudItem>
+                <MudItem xs="12" sm="6"><MudText><b>Balance due:</b> @InvoiceRules.MoneyText(_detail.Invoice.BalanceDue, _detail.Invoice.Currency, InvoiceRules.Scale(_detail))</MudText></MudItem>
                 @if (_isIssuable)
                 {
                     <MudItem xs="12"><MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="IssueAsync" Disabled="@_busy">@(_busy ? "Issuing…" : "Issue invoice")</MudButton></MudItem>
                 }
-                @if (_detail.Invoice.Status != InvoiceState.Draft)
-                {
-                    <MudItem xs="12"><MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" Href="@($"/api/v1/invoices/{_detail.Invoice.Id:D}/print")" Target="_blank">Print / reprint</MudButton></MudItem>
-                }
             </MudGrid>
         </MudPaper>
+
+        @* Settlement, credits, tender clearance and printing of an issued document are one workbench (task 24).
+           Printing is not a link here: a link to an API route can only be authenticated by a cookie or by a token
+           in the URL, and a terminal has neither. *@
+        <InvoiceActions Detail="_detail" Access="_access" Reload="LoadAsync" />
     }
     else if (_isEditable)
     {
@@ -66,7 +76,7 @@ else
                         <MudAutocomplete T="CustomerDto" Label="Customer" Value="_selectedCustomer" ValueChanged="OnCustomerChanged"
                                          SearchFunc="SearchCustomersAsync" ToStringFunc="@(customer => customer?.Name ?? string.Empty)"
                                          Clearable="true" ResetValueOnEmptyText="true" DebounceInterval="300" Variant="Variant.Outlined"
-                                         HelperText="Leave empty for a walk-in or service customer" />
+                                         HelperText="A customer is required: the amount owed is tracked against them" />
                     </MudItem>
                     <MudItem xs="12" sm="6">
                         <MudSelect T="Guid?" Label="Location" @bind-Value="_form.LocationId" Variant="Variant.Outlined" Clearable="true">
@@ -120,7 +130,7 @@ else
     private IReadOnlyList<BusinessLocationDto> _locations = [];
     private CustomerDto? _selectedCustomer;
     private InvoiceDetailDto? _detail;
-    private DateTime? _issueDate = DateTime.Today;
+    private DateTime? _issueDate;
     private DateTime? _dueDate;
     private bool _loading = true;
     private bool _busy;
@@ -130,6 +140,7 @@ else
     private int _loadVersion;
     private bool _isNew => InvoiceId is null;
     private string? _error;
+    private InvoiceAccess _access = new(false, false, false, false);
 
     // Only draft Service and DirectGoods invoices are edited here; source-linked and unknown-mode drafts are read-only.
     private bool _isEditable => _canManage && (_isNew || _detail is { Invoice.Status: InvoiceState.Draft } && IsEditableMode(_detail.Invoice.RecognitionMode));
@@ -140,9 +151,9 @@ else
         : !_canManage ? "You can view this draft, but your role cannot edit it."
         : _detail.Invoice.RecognitionMode == InvoiceRecognitionMode.HistoricalUnknown
             ? "This draft predates recognition modes, so it cannot be issued. Create a new draft instead."
-            : $"This draft is maintained by its {RecognitionLabel(_detail.Invoice.RecognitionMode)} workflow.";
+            : $"This draft is maintained by its {InvoiceRules.RecognitionText(_detail.Invoice.RecognitionMode)} workflow.";
 
-    private string EstimateText => ComputeEstimate() is { } total ? total.ToString("N2") : "—";
+    private string EstimateText => ComputeEstimate() is { } total ? InvoiceRules.Money(total, _detail is null ? null : InvoiceRules.Scale(_detail)) : "—";
 
     protected override async Task OnParametersSetAsync()
     {
@@ -150,7 +161,20 @@ else
         var version = ++_loadVersion;
         ResetState();
         _loading = true;
+        await LoadAsync(version);
+    }
 
+    /// <summary>
+    /// Reads the session, the branches and the document. The settlement workbench calls it back after every
+    /// posted action and after a version conflict, so a screen never keeps figures the server has already moved.
+    /// </summary>
+    private async Task LoadAsync()
+    {
+        await LoadAsync(_loadVersion);
+    }
+
+    private async Task LoadAsync(int version)
+    {
         try
         {
             var session = await Accounts.GetSessionAsync();
@@ -159,6 +183,14 @@ else
             _canRead = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true || session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
             _canManage = session?.Permissions.Contains(Permissions.InvoicesManage, StringComparer.Ordinal) == true;
             _canIssue = session?.Permissions.Contains(Permissions.InvoicesIssue, StringComparer.Ordinal) == true;
+
+            // What the workbench may offer is decided by the authorities this session actually holds - the same
+            // ones the routes check - so a button is never offered on a guess and a refusal always names what is missing.
+            _access = new InvoiceAccess(
+                CanSettle: _canIssue,
+                CanManage: _canManage,
+                CanPost: session?.Permissions.Contains(Permissions.AccountingPost, StringComparer.Ordinal) == true,
+                CanReadRegisters: session?.Permissions.Contains(Permissions.SalesPost, StringComparer.Ordinal) == true);
             if (!_canRead) return;
 
             if (_canManage)
@@ -201,6 +233,11 @@ else
             {
                 _form.LocationId = _locations[0].Id;
             }
+
+            if (_isNew)
+            {
+                OfferBusinessDate();
+            }
         }
         catch (ApiException ex)
         {
@@ -223,11 +260,26 @@ else
         _form.Note = null;
         _form.Lines.Clear();
         _form.Lines.Add(new InvoiceLineForm());
-        _issueDate = DateTime.Today;
+        _issueDate = null;
         _dueDate = null;
         _canRead = false;
         _canManage = false;
         _canIssue = false;
+    }
+
+    /// <summary>
+    /// A brand-new draft is dated on the trading day of the branch it will be raised at, not on the date the
+    /// machine it happens to be typed on believes it is (finding F21). A branch carries its own time zone and the
+    /// screen already reads the branch list, so the offered date is the business's; the operator may still change
+    /// it, and an existing document always keeps the date it was raised with.
+    /// </summary>
+    private void OfferBusinessDate()
+    {
+        var zone = (_form.LocationId is { } locationId
+                ? _locations.FirstOrDefault(candidate => candidate.Id == locationId)
+                : _locations.Count == 1 ? _locations[0] : null)?.TimeZone;
+
+        _issueDate = InvoiceRules.BusinessClock(zone).ToDateTime(TimeOnly.MinValue);
     }
 
     private async Task<IEnumerable<CustomerDto>> SearchCustomersAsync(string text, CancellationToken cancellationToken)
@@ -294,6 +346,8 @@ else
     private async Task SaveAsync()
     {
         if (!_isEditable || _busy) return;
+        if (_form.CustomerId is null)
+        { _error = InvoiceRules.NeedsCustomer; return; }
         if (_form.Lines.Count == 0 || _form.Lines.Any(x => string.IsNullOrWhiteSpace(x.ProductName) || x.Quantity <= 0 || x.UnitPrice < 0 || x.DiscountAmount < 0 || x.TaxRate < 0 || x.TaxRate > 100))
         { _error = "Enter a description and valid quantity, price, discount, and tax (0–100%) for every line."; return; }
 
@@ -303,10 +357,11 @@ else
         {
             // Updates keep the recognition mode the draft already has; only new drafts are created as Service.
             var mode = _isNew ? InvoiceRecognitionMode.Service : _detail!.Invoice.RecognitionMode;
+            var date = DateOnly.FromDateTime(_issueDate ?? InvoiceRules.BusinessClock().ToDateTime(TimeOnly.MinValue));
             var request = new SaveInvoiceRequest(
                 _form.LocationId,
                 _form.CustomerId,
-                DateOnly.FromDateTime(_issueDate ?? DateTime.Today),
+                date,
                 _dueDate is null ? null : DateOnly.FromDateTime(_dueDate.Value),
                 _form.Note,
                 _form.Lines.Select(x => new InvoiceLineRequest(x.VariantId, x.ProductName.Trim(), x.Quantity, x.UnitPrice, x.DiscountAmount, x.TaxRate / 100m)).ToArray(),
@@ -378,14 +433,6 @@ else
     private void AddLine() => _form.Lines.Add(new InvoiceLineForm());
     private void RemoveLine(int index) { if (_form.Lines.Count > 1) _form.Lines.RemoveAt(index); }
     private static bool IsEditableMode(InvoiceRecognitionMode mode) => mode is InvoiceRecognitionMode.Service or InvoiceRecognitionMode.DirectGoods;
-    private static string RecognitionLabel(InvoiceRecognitionMode mode) => mode switch
-    {
-        InvoiceRecognitionMode.Service => "service",
-        InvoiceRecognitionMode.DirectGoods => "direct-goods",
-        InvoiceRecognitionMode.SaleRepresentation => "sale representation",
-        InvoiceRecognitionMode.Delivery => "delivery",
-        _ => "unknown (historical)",
-    };
     private static string StatusLabel(InvoiceState status) => status == InvoiceState.PartiallyPaid ? "partially paid" : status.ToString().ToLowerInvariant();
 
     private sealed class InvoiceForm

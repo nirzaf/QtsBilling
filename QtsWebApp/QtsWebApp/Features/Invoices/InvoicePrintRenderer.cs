@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net;
 using System.Text;
 using QtsBilling.Contracts.Invoices;
+using QtsWebApp.Features.Accounting;
 
 namespace QtsWebApp.Features.Invoices;
 
@@ -19,6 +20,17 @@ public static class InvoicePrintRenderer
 
         var invoice = detail.Invoice;
         var culture = CultureInfo.InvariantCulture;
+
+        // Finding F21: a document is read in its business's own settlement scale, never in the two decimals a
+        // renderer happened to assume. Line rates keep the precision they were stored with, because a rate that
+        // is rounded on paper is a different rate; only the settlement figures - totals, tenders, credits - are
+        // shown at the scale the business settles in. A business with no settings at all still shows stored
+        // precision rather than being given a scale it never chose.
+        var settlementFormat = detail.Presentation?.SettlementScale is { } scale
+            ? scale == 0 ? "0" : "0." + new string('0', scale)
+            : "0.0000";
+        var zone = detail.Presentation?.TimeZoneId;
+
         var builder = new StringBuilder(8_000);
 
         builder.AppendLine("<!DOCTYPE html>");
@@ -97,6 +109,27 @@ public static class InvoicePrintRenderer
         builder.AppendLine("      <td class=\"muted\">Due date</td><td>").Append(Encode(invoice.DueDate?.ToString("yyyy-MM-dd", culture) ?? "-")).AppendLine("</td></tr>");
         builder.AppendLine("  <tr><td class=\"muted\">Currency</td><td>").Append(Encode(invoice.Currency)).AppendLine("</td>");
         builder.AppendLine("      <td class=\"muted\">Status</td><td>").Append(Encode(invoice.Status.ToString())).AppendLine("</td></tr>");
+
+        // "Issued" and "Voided" are instants. Printed as a bare UTC date they would read as a day the business
+        // never traded on, so they are named in the business's own zone, with the offset stated once.
+        if (invoice.IssuedAtUtc is { } issuedAt)
+        {
+            builder.AppendLine("  <tr><td class=\"muted\">Issued</td><td colspan=\"3\">")
+                .Append(Encode(ZoneDate(zone, issuedAt) + " " + ZoneExplanation(zone, issuedAt))).AppendLine("</td></tr>");
+        }
+
+        if (invoice.VoidedAtUtc is { } voidedAt)
+        {
+            builder.AppendLine("  <tr><td class=\"muted\">Voided</td><td colspan=\"3\">").Append(Encode(ZoneDate(zone, voidedAt))).AppendLine("</td></tr>");
+        }
+
+        if (detail.Source is { } source)
+        {
+            builder.AppendLine("  <tr><td class=\"muted\">From</td><td colspan=\"3\">")
+                .Append(Encode($"{(source.Kind == "sale" ? "sale" : "order")} {(string.IsNullOrWhiteSpace(source.Number) ? "(no number on the original document)" : source.Number)}"))
+                .AppendLine("</td></tr>");
+        }
+
         builder.AppendLine("</table>");
 
         builder.AppendLine("<table>");
@@ -112,36 +145,46 @@ public static class InvoicePrintRenderer
             }
 
             builder.Append("</td><td class=\"num\">").Append(FormatQuantity(line.Quantity));
+
+            // A rate is not a settlement figure: the unit price keeps the precision it was stored with, because a
+            // price that moves on paper is a different price. The money the line adds up to is read at scale.
             builder.Append("</td><td class=\"num\">").Append(line.UnitPrice.ToString("0.0000", culture));
-            builder.Append("</td><td class=\"num\">").Append(line.DiscountAmount.ToString("0.0000", culture));
-            builder.Append("</td><td class=\"num\">").Append(line.TaxAmount.ToString("0.0000", culture));
-            builder.Append("</td><td class=\"num\">").Append(line.LineTotal.ToString("0.0000", culture)).AppendLine("</td></tr>");
+            builder.Append("</td><td class=\"num\">").Append(line.DiscountAmount.ToString(settlementFormat, culture));
+            builder.Append("</td><td class=\"num\">").Append(line.TaxAmount.ToString(settlementFormat, culture));
+            builder.Append("</td><td class=\"num\">").Append(line.LineTotal.ToString(settlementFormat, culture)).AppendLine("</td></tr>");
         }
 
         builder.AppendLine("</table>");
 
         builder.AppendLine("<table>");
-        AppendAmountRow(builder, "Subtotal", invoice.SubtotalAmount, culture);
+        AppendAmountRow(builder, "Subtotal", invoice.SubtotalAmount, culture, settlementFormat);
 
         if (invoice.DiscountAmount > 0)
         {
-            AppendAmountRow(builder, "Discount", -invoice.DiscountAmount, culture);
+            AppendAmountRow(builder, "Discount", -invoice.DiscountAmount, culture, settlementFormat);
         }
 
         if (invoice.TaxAmount > 0)
         {
-            AppendAmountRow(builder, "Tax", invoice.TaxAmount, culture);
+            AppendAmountRow(builder, "Tax", invoice.TaxAmount, culture, settlementFormat);
         }
 
         builder.Append("  <tr class=\"totals\"><td>Total ").Append(Encode(invoice.Currency)).Append("</td><td class=\"num\">")
-            .Append(invoice.TotalAmount.ToString("0.0000", culture)).AppendLine("</td></tr>");
+            .Append(invoice.TotalAmount.ToString(settlementFormat, culture)).AppendLine("</td></tr>");
 
         if (invoice.PaidAmount > 0)
         {
-            AppendAmountRow(builder, "Paid", invoice.PaidAmount, culture);
+            AppendAmountRow(builder, "Paid", invoice.PaidAmount, culture, settlementFormat);
 
             var balance = invoice.Status == InvoiceState.Void ? 0m : invoice.TotalAmount - invoice.PaidAmount;
-            AppendAmountRow(builder, "Balance due", balance, culture);
+            AppendAmountRow(builder, "Balance due", balance, culture, settlementFormat);
+        }
+
+        // A tender that has not cleared is not collected money. Printing it beside "Paid" would let a piece of
+        // paper claim a settlement the ledger has not accepted, so it is named for what it is.
+        if (detail.AwaitingClearanceAmount > 0)
+        {
+            AppendAmountRow(builder, "Recorded, awaiting clearance", detail.AwaitingClearanceAmount, culture, settlementFormat);
         }
 
         builder.AppendLine("</table>");
@@ -154,22 +197,44 @@ public static class InvoicePrintRenderer
             foreach (var payment in detail.Payments)
             {
                 builder.Append("  <tr><td>").Append(Encode(payment.Method)).Append(" (").Append(Encode(payment.Status)).Append(")")
+                    .Append("<br /><span class=\"muted\">").Append(Encode(ZoneDate(zone, payment.ReceivedAtUtc))).AppendLine("</span>")
                     .Append("</td><td class=\"muted\">").Append(Encode(payment.Reference ?? "-"))
-                    .Append("</td><td class=\"num\">").Append(payment.Amount.ToString("0.0000", culture)).AppendLine("</td></tr>");
+                    .Append("</td><td class=\"num\">").Append(payment.Amount.ToString(settlementFormat, culture)).AppendLine("</td></tr>");
             }
 
             builder.AppendLine("</table>");
         }
 
-        if (detail.CreditNote is { } credit)
+        if (detail.CreditNotes is { Count: > 0 } notes)
+        {
+            builder.AppendLine("<table>");
+            builder.AppendLine("  <tr><th>Credit notes</th><th>Reason</th><th class=\"num\">Amount</th></tr>");
+
+            foreach (var note in notes)
+            {
+                builder.Append("  <tr><td>").Append(Encode(note.CreditNumber)).Append("<br /><span class=\"muted\">")
+                    .Append(Encode(ZoneDate(zone, note.IssuedAtUtc))).AppendLine("</span></td>")
+                    .Append("<td class=\"muted\">").Append(Encode(note.Reason)).AppendLine("</td>")
+                    .Append("<td class=\"num\">").Append(note.Amount.ToString(settlementFormat, culture)).AppendLine("</td></tr>");
+            }
+
+            builder.AppendLine("</table>");
+        }
+        else if (detail.CreditNote is { } credit)
         {
             builder.AppendLine("<table>");
             builder.AppendLine("  <tr><th>Credit note</th><th>Reason</th><th class=\"num\">Amount</th></tr>");
             builder.Append("  <tr><td>").Append(Encode(credit.CreditNumber)).Append("<br /><span class=\"muted\">")
-                .Append(Encode(credit.IssuedAtUtc.ToString("yyyy-MM-dd", culture))).AppendLine("</span></td>")
+                .Append(Encode(ZoneDate(zone, credit.IssuedAtUtc))).AppendLine("</span></td>")
                 .Append("<td class=\"muted\">").Append(Encode(credit.Reason)).AppendLine("</td>")
-                .Append("<td class=\"num\">").Append(credit.Amount.ToString("0.0000", culture)).AppendLine("</td></tr>");
+                .Append("<td class=\"num\">").Append(credit.Amount.ToString(settlementFormat, culture)).AppendLine("</td></tr>");
             builder.AppendLine("</table>");
+        }
+
+        // Only a voided document that also carries a credit note can say what reversed it; a plain void posts its
+        // own reversal entry and must not be described as credited.
+        if (detail.CreditNote is not null && invoice.Status == InvoiceState.Void)
+        {
             builder.AppendLine("<p class=\"muted\">This invoice is void; the credit note reverses the original journal entry.</p>");
         }
 
@@ -178,7 +243,9 @@ public static class InvoicePrintRenderer
             builder.Append("<p class=\"muted\">Note: ").Append(Encode(invoice.Note)).AppendLine("</p>");
         }
 
-        builder.AppendLine("<p class=\"foot\">Values are the immutable snapshots stored when the invoice was issued; later catalog or customer edits never change this document.</p>");
+        builder.AppendLine("<p class=\"foot\">Values are the immutable snapshots stored when the invoice was issued; later catalog or customer edits never change this document.");
+        builder.Append(" Settlement figures are shown at ").Append(Encode(SettlementFootnote(detail.Presentation)));
+        builder.AppendLine("</p>");
         builder.AppendLine("</div>");
         builder.AppendLine("</body>");
         builder.AppendLine("</html>");
@@ -206,9 +273,26 @@ public static class InvoicePrintRenderer
             _ => "issued",
         };
 
-    private static void AppendAmountRow(StringBuilder builder, string label, decimal amount, CultureInfo culture)
+    private static void AppendAmountRow(StringBuilder builder, string label, decimal amount, CultureInfo culture, string format)
         => builder.Append("  <tr><td>").Append(Encode(label)).Append("</td><td class=\"num\">")
-            .Append(amount.ToString("0.0000", culture)).AppendLine("</td></tr>");
+            .Append(amount.ToString(format, culture)).AppendLine("</td></tr>");
+
+    /// <summary>
+    /// An instant read in the business's own zone, because a paper document is filed against a trading day and a
+    /// UTC date printed next to a local one would be read as the wrong day (finding F21).
+    /// </summary>
+    private static string ZoneDate(string? zone, DateTimeOffset instant)
+        => LedgerWriter.LocalDate(zone, instant).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    private static string ZoneExplanation(string? zone, DateTimeOffset instant)
+        => string.IsNullOrWhiteSpace(zone)
+            ? "(recorded in UTC)"
+            : $"(business time zone {zone}, recorded {instant.ToUniversalTime().ToString("HH:mm", CultureInfo.InvariantCulture)} UTC)";
+
+    private static string SettlementFootnote(InvoicePresentationDto? presentation)
+        => presentation?.SettlementScale is { } scale
+            ? $"the business's settlement scale ({scale} decimal {(scale == 1 ? "place" : "places")}), read in the business time zone {presentation.TimeZoneId ?? "as recorded"}. Line rates keep their stored precision."
+            : "the precision each value was stored with: this business has no settlement scale configured yet, so nothing is rounded for it.";
 
     private static string FormatQuantity(decimal quantity)
         => quantity == decimal.Truncate(quantity)

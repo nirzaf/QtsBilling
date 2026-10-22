@@ -371,6 +371,11 @@ builder.Services.AddHttpClient<IFulfillmentApiClient, FulfillmentApiClient>(clie
 builder.Services.AddHttpClient<IInvoiceApiClient, InvoiceApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// Local document output for this host (specification task 24). The shared invoice screens render here too when
+// the circuit is interactive-server rather than WebAssembly, so the print contract must resolve in the server
+// process as well - a host that forgot it would hand the operator a print button that throws.
+builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.IDocumentOutput, QtsWebApp.Client.Services.WebDocumentOutput>();
+
 builder.Services.AddHttpClient<IInventoryApiClient, InventoryApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

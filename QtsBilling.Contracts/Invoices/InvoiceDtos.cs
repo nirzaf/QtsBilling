@@ -97,7 +97,12 @@ public sealed record InvoicePaymentDto(
     DateTimeOffset ReceivedAtUtc,
     string? PspReference = null,
     string? CardBrand = null,
-    string? CardLast4 = null);
+    string? CardLast4 = null,
+    /// <summary>When a cheque or transfer was confirmed as collected money; null while it still awaits clearance.</summary>
+    DateTimeOffset? ClearedAtUtc = null,
+    /// <summary>When a tender was returned unpaid, and why - an event in the document's own history.</summary>
+    DateTimeOffset? BouncedAtUtc = null,
+    string? BounceReason = null);
 
 /// <summary>Full credit note referencing the original invoice (QB-11); one per invoice.</summary>
 public sealed record InvoiceCreditNoteDto(
@@ -128,7 +133,35 @@ public sealed record InvoiceDetailDto(
     InvoiceCreditNoteDto? CreditNote,
     IReadOnlyList<InvoiceCreditNoteDto>? CreditNotes = null,
     Guid? LocationId = null,
-    InvoicePartySnapshotDto? PartySnapshot = null);
+    InvoicePartySnapshotDto? PartySnapshot = null,
+    InvoicePresentationDto? Presentation = null,
+    InvoiceSourceDto? Source = null,
+    /// <summary>Tenders recorded but not yet confirmed as collected money, in the document's own currency.</summary>
+    decimal AwaitingClearanceAmount = 0m);
+
+/// <summary>
+/// How this document must be read, projected by the server that owns the values (specification task 24, recipe
+/// step 4 - finding F21). A screen may not assume two decimal places or its own machine's clock: the settlement
+/// scale belongs to the business, its time zone decides what "today" is, and the amounts themselves keep the
+/// precision they were stored with. These are presentation facts only - the money never changes by reading them.
+/// </summary>
+/// <param name="SettlementScale">Decimal places the business settles in (0, 2, 3 or 4), or null when the business
+/// has never been given accounting settings; a screen then shows the stored precision instead of inventing one.</param>
+/// <param name="TimeZoneId">The business time zone identifier, or null when the business has none.</param>
+/// <param name="BusinessToday">The business date the document is being read on, in that zone.</param>
+public sealed record InvoicePresentationDto(
+    int? SettlementScale,
+    string? TimeZoneId,
+    DateOnly BusinessToday);
+
+/// <summary>
+/// The document this invoice was made from, named the way an operator knows it. A GUID alone is not a link a
+/// human can follow, and R07 forbids asking them to work with one, so the number travels with the identifier
+/// the route needs.
+/// </summary>
+/// <param name="Kind">Which workflow owns the source: <c>sale</c> or <c>order</c>.</param>
+/// <param name="Number">The source document's own number, or null when it predates numbering.</param>
+public sealed record InvoiceSourceDto(string Kind, Guid Id, string? Number);
 
 public sealed record InvoicePartySnapshotDto(
     string BusinessName,

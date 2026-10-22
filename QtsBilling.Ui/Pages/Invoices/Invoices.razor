@@ -56,6 +56,11 @@ else
         </MudGrid>
     </MudPaper>
 
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2">
+        Dates are business dates in the calendar the document was raised in, and figures carry the precision they were
+        stored with; open a document to read its totals at this business's own settlement scale (task 24).
+    </MudText>
+
     <MudTable Items="_rows" Loading="_busy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Invoices">
         <HeaderContent>
             <MudTh>Invoice</MudTh>
@@ -73,10 +78,10 @@ else
             </MudTd>
             <MudTd DataLabel="Customer">@(string.IsNullOrWhiteSpace(context.CustomerName) ? "Walk-in / service" : context.CustomerName)</MudTd>
             <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Color="@StatusColor(context.Status)" Variant="Variant.Outlined">@StatusLabel(context.Status)</MudChip></MudTd>
-            <MudTd DataLabel="Issue date">@context.IssueDate.ToString("d")</MudTd>
-            <MudTd DataLabel="Due date">@(context.DueDate?.ToString("d") ?? "—")</MudTd>
-            <MudTd DataLabel="Total" Style="text-align:right">@context.TotalAmount.ToString("N2") @context.Currency</MudTd>
-            <MudTd DataLabel="Balance due" Style="text-align:right">@context.BalanceDue.ToString("N2") @context.Currency</MudTd>
+            <MudTd DataLabel="Issue date">@InvoiceRules.DateText(context.IssueDate)</MudTd>
+            <MudTd DataLabel="Due date">@(context.DueDate is { } due ? InvoiceRules.DateText(due) : "—")</MudTd>
+            <MudTd DataLabel="Total" Style="text-align:right">@InvoiceRules.Money(context.TotalAmount, null) @context.Currency</MudTd>
+            <MudTd DataLabel="Balance due" Style="text-align:right">@InvoiceRules.Money(context.BalanceDue, null) @context.Currency</MudTd>
             <MudTd DataLabel="Actions">
                 <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => OpenInvoice(context.Id))">Open</MudButton>
             </MudTd>

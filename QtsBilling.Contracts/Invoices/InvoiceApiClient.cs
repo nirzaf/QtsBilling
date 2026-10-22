@@ -18,6 +18,15 @@ public interface IInvoiceApiClient
     Task<PaymentTransitionDto> ClearPaymentAsync(Guid paymentId, string idempotencyKey, CancellationToken cancellationToken = default);
     Task<PaymentTransitionDto> BouncePaymentAsync(Guid paymentId, PaymentBounceRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     Task<string> GetPrintHtmlAsync(Guid id, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// Fetches the printable snapshot through this authenticated client and returns it as a document that a host
+    /// may print. Nothing navigates and no token travels in a location: the response is read here, with the
+    /// session this client already carries, and only a complete HTML document is handed on (task 24, recipe 3).
+    /// A missing, foreign or expired document throws and yields no request at all, so the caller has nothing to
+    /// print (T24.04).
+    /// </summary>
+    Task<DocumentOutputRequest> GetPrintDocumentAsync(Guid id, string title, CancellationToken cancellationToken = default);
 }
 
 public interface IPaymentApiClient
@@ -76,6 +85,29 @@ public sealed class InvoiceApiClient(HttpClient http) : IInvoiceApiClient
         using var response = await http.GetAsync($"{Route}/{id:D}/print", cancellationToken).ConfigureAwait(false);
         await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
         return await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<DocumentOutputRequest> GetPrintDocumentAsync(Guid id, string title, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"{Route}/{id:D}/print", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        // A document is a document only if the server said so: an empty body, an error page or a redirect that a
+        // proxy turned into a 200 must never reach a printer or a file.
+        var mediaType = response.Content.Headers.ContentType?.MediaType;
+        if (mediaType is not null && !mediaType.Contains("html", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new ApiException(
+                (int)response.StatusCode,
+                ApiErrorCodes.Conflict,
+                "The invoice document did not arrive as a printable page.",
+                new Dictionary<string, string[]> { ["print"] = [$"Expected an HTML document but received '{mediaType}' from the server."] });
+        }
+
+        var content = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+
+        // The constructor is the guard: it refuses a location, a non-document body and an unusable name.
+        return new DocumentOutputRequest(content, title);
     }
 
     private Task<T> SendJsonAsync<T>(HttpMethod method, string uri, object? body, CancellationToken cancellationToken) where T : class
