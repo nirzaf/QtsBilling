@@ -1084,6 +1084,65 @@ Check("the printable purchase document is composed locally from snapshots and na
                 StubPurchasingApiClient.SampleReceipt("GRN-0001", "JE-0001", ["1200"]), "Main branch", reprint: false).Content
             .Contains("Ledger entry", StringComparison.Ordinal));
 
+// 15. The payables workbench (specification task 27): a shipped shared page that reads nothing during the prerender,
+//     states that a bill is matched to a delivery rather than typed into existence, and offers credit only within what
+//     a bill line can still yield. The reconciliation it quotes is the arithmetic, not a claim: a control account that
+//     does not tie to the documents is said so.
+var payablesServices = new ServiceCollection();
+payablesServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+payablesServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+payablesServices.AddMudServices();
+payablesServices.AddSingleton<NavigationManager, StubNavigationManager>();
+payablesServices.AddSingleton<IPurchasingApiClient>(stubPurchasing);
+payablesServices.AddSingleton<ISupplierApiClient>(new StubSupplierApiClient());
+payablesServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(purchaseBranchId));
+payablesServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var payablesProvider = payablesServices.BuildServiceProvider();
+await using var payablesRenderer = new HtmlRenderer(payablesProvider, payablesProvider.GetRequiredService<ILoggerFactory>());
+
+var payablesHtml = await payablesRenderer.Dispatcher.InvokeAsync(async () =>
+    (await payablesRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Purchasing.Payables>(ParameterView.Empty)).ToHtmlString());
+
+Check("the payables screen is a shared page with its own route and an honest nav row",
+    typeof(QtsBilling.Ui.Pages.Purchasing.Payables).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "purchasing/payables")
+        && QtsBilling.Ui.Layout.ShellNavigation.Routes
+            .Single(route => route.Href == "purchasing/payables").Availability == QtsBilling.Ui.Layout.ShellAvailability.Available);
+Check("the payables screen reads nothing and posts nothing during the prerender",
+    stubPurchasing.Calls == 0 && stubPurchasing.WriteCalls == 0,
+    $"reads {stubPurchasing.Calls}, writes {stubPurchasing.WriteCalls}");
+Check("the payables screen states the match, credit and settlement rules before any account is loaded",
+    payablesHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && payablesHtml.Contains("matched to the goods receipt lines it pays for", StringComparison.Ordinal)
+        && payablesHtml.Contains("never removes stock by itself", StringComparison.Ordinal)
+        && payablesHtml.Contains("imported opening payable", StringComparison.Ordinal));
+Check("a bill offers only what its state allows, and a credit is bounded by what the line can still yield",
+    QtsBilling.Ui.Pages.Purchasing.PayablesRules.AllowedActions(SupplierBillState.Draft)
+        .SequenceEqual([QtsBilling.Ui.Pages.Purchasing.PayableAction.Issue])
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.AllowedActions(SupplierBillState.Issued)
+            .Contains(QtsBilling.Ui.Pages.Purchasing.PayableAction.Credit)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.AllowedActions(SupplierBillState.Void).Count == 0
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.CreditableQuantity(
+            StubPurchasingApiClient.SampleBillLine(10m, 4m)) == 6m
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.CreditableQuantity(
+            StubPurchasingApiClient.SampleBillLine(10m, 10m)) == 0m
+        && !QtsBilling.Ui.Pages.Purchasing.PayablesRules.IsOpen(StubPurchasingApiClient.SampleBillLine(10m, 12m)));
+Check("a held credit is named as a balance owed back, and a mismatched control account is stated as unreconciled",
+    QtsBilling.Ui.Pages.Purchasing.PayablesRules.ReconciliationText(
+        StubPurchasingApiClient.SampleStatement(Guid.CreateVersion7(), DateOnly.FromDateTime(DateTime.UtcNow)))
+        .Contains("Reconciled", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Purchasing.PayablesRules.HeldCreditRule.Contains("negative payable", StringComparison.OrdinalIgnoreCase)
+    && QtsBilling.Ui.Pages.Purchasing.PayablesRules.KindText("opening").Contains("imported opening", StringComparison.Ordinal));
+Check("a lost payables answer keeps its key while a proven refusal releases it",
+    !QtsBilling.Ui.Pages.Purchasing.PayablesRules.CommittedNothing(ApiErrorCodes.InternalError)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.CommittedNothing(ApiErrorCodes.OverCredit)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.CommittedNothing(ApiErrorCodes.SupplierBillNotIssued)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.CommittedNothing(ApiErrorCodes.DuplicateSupplierReference)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.RefusalSentence(
+            new ApiException(409, ApiErrorCodes.OverCredit, "x"), "this credit").Contains("read the bill back", StringComparison.OrdinalIgnoreCase)
+        && QtsBilling.Ui.Pages.Purchasing.PayablesRules.NewKey("settle", Guid.CreateVersion7()).Length <= 64);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -2062,6 +2121,95 @@ internal sealed class StubPurchasingApiClient(Guid branchId, Guid orderId) : IPu
 
     public Task<PurchaseReceiptDto> ReturnAsync(Guid orderId, PurchaseReceiptRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
         => Task.FromException<PurchaseReceiptDto>(Refused());
+
+    public Task<IReadOnlyList<SupplierBillDto>> ListBillsAsync(
+        Guid? supplierId = null,
+        bool openOnly = false,
+        int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult<IReadOnlyList<SupplierBillDto>>([SampleDraftBill(branchId, orderId)]);
+    }
+
+    public Task<SupplierBillDto> GetBillAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(SampleDraftBill(branchId, id));
+    }
+
+    public Task<SupplierStatementDto> GetStatementAsync(Guid supplierId, DateOnly? asOf = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(SampleStatement(supplierId, asOf ?? DateOnly.FromDateTime(DateTime.UtcNow)));
+    }
+
+    public Task<SupplierBillDto> CreateBillAsync(CreateSupplierBillRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<SupplierBillDto>(Refused());
+
+    public Task<SupplierBillDto> IssueBillAsync(Guid id, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<SupplierBillDto>(Refused());
+
+    public Task<SupplierBillDto> CreateCreditAsync(Guid billId, CreateSupplierCreditRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<SupplierBillDto>(Refused());
+
+    public Task<SupplierBillDto> ApplyCreditAsync(Guid creditId, ApplySupplierCreditRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<SupplierBillDto>(Refused());
+
+    public Task<SupplierPaymentDto> PaySupplierAsync(CreateSupplierPaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<SupplierPaymentDto>(Refused());
+
+    public static SupplierBillLineDto SampleBillLine(decimal billed, decimal credited) => new(
+        Guid.CreateVersion7(), 1, Guid.CreateVersion7(), Guid.CreateVersion7(), "Test item", billed, 60m, billed * 60m,
+        0m, 0.15m, "Exclusive", billed * 60m, billed * 9m, billed * 69m, credited);
+
+    public static SupplierBillDto SampleDraftBill(Guid branchId, Guid id) => new(
+        id,
+        "SB-2026-0001",
+        SupplierBillState.Draft,
+        Guid.CreateVersion7(),
+        branchId,
+        Guid.CreateVersion7(),
+        "SUP-INV-77",
+        DateOnly.FromDateTime(DateTime.UtcNow),
+        DateOnly.FromDateTime(DateTime.UtcNow).AddDays(30),
+        "QAR",
+        600m,
+        0m,
+        90m,
+        0m,
+        690m,
+        0m,
+        690m,
+        null,
+        [new SupplierBillLineDto(Guid.CreateVersion7(), 1, Guid.CreateVersion7(), Guid.CreateVersion7(), "Test item", 10m, 60m, 600m, 0m, 0.15m, "Exclusive", 600m, 90m, 690m, 4m)]);
+
+    public static SupplierStatementDto SampleStatement(Guid supplierId, DateOnly asOf) => new(
+        supplierId,
+        "Van supply",
+        "QAR",
+        asOf,
+        DateTimeOffset.UtcNow,
+        OpeningBalance: 0m,
+        MovementDebit: 0m,
+        MovementCredit: 690m,
+        ClosingBalance: 690m,
+        UnappliedCredits: 50m,
+        PayableControlBalance: 640m,
+        GrniBalance: 0m,
+        OpenDocumentCount: 1,
+        Truncated: false,
+        Lines: [new SupplierStatementLineDto("bill", Guid.CreateVersion7(), "SB-2026-0001", asOf, asOf.AddDays(30), 0m, 690m, 690m, "Supplier invoice SUP-INV-77")],
+        OpenItems: [new SupplierOpenItemDto("bill", Guid.CreateVersion7(), "SB-2026-0001", asOf, asOf.AddDays(30), 690m, 0m, 690m, "QAR", false, "Supplier invoice SUP-INV-77")],
+        Credits: [new SupplierCreditDto(
+            Guid.CreateVersion7(), "SC-2026-0001", Guid.CreateVersion7(), "SB-2026-0000", supplierId, Guid.CreateVersion7(),
+            null, null, "goods short-delivered", "QAR", 43.48m, 6.52m, 50m, 0m, 50m, Guid.CreateVersion7(), "JE-2026-0009",
+            ["1300", "2000", "5150"], DateTimeOffset.UtcNow, [])],
+        SettlementScale: 2,
+        TimeZoneId: "Asia/Qatar");
 
     private NotSupportedException Refused()
     {

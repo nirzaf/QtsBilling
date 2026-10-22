@@ -61,17 +61,15 @@ public static class ShellNavigation
         new("Sales history and refunds", "sales", Icons.Material.Filled.History, GroupSales, Permissions.SalesPost, ShellAvailability.Available),
         new("Quotes", "orders/quotes", Icons.Material.Filled.RequestQuote, GroupSales, Permissions.OrdersManage, ShellAvailability.Available),
         new("Sales orders", "orders/sales-orders", Icons.Material.Filled.Description, GroupSales, Permissions.OrdersManage, ShellAvailability.Available),
-        new("Delivery and fulfillment", "orders/fulfillment", Icons.Material.Filled.LocalShipping, GroupSales, Permissions.OrdersManage, ShellAvailability.Planned,
-            "Arrives with task 23."),
+        new("Delivery and fulfillment", "orders/fulfillment", Icons.Material.Filled.LocalShipping, GroupSales, Permissions.OrdersManage, ShellAvailability.Available),
 
         // Purchasing: suppliers, what is owed to them, and what arrived.
         new("Suppliers", "suppliers", Icons.Material.Filled.LocalShipping, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
-        // Procurement is one journey in three screens: the order, the delivery that makes it stock, and - in
-        // task 27 - the supplier's bill that makes it a payable. Each row reaches a route that exists.
+        // Procurement is one journey in three screens: the order, the delivery that makes it stock, and the
+        // supplier's bill that makes it a payable. Each row reaches a route that exists.
         new("Purchase orders", "purchasing/orders", Icons.Material.Filled.Description, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
         new("Receiving", "purchasing/receiving", Icons.Material.Filled.Inventory, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
-        new("Payables and supplier credits", "purchasing/payables", Icons.Material.Filled.Payment, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
-            "Arrives with task 27."),
+        new("Payables and supplier credits", "purchasing/payables", Icons.Material.Filled.Payment, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
 
         // Inventory: what is held, where, and what it is worth.
         new("Products and variants", "catalog/products", Icons.Material.Filled.Category, GroupInventory, Permissions.ProductsWrite, ShellAvailability.Available),

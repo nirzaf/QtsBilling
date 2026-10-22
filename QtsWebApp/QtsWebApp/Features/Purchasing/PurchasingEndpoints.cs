@@ -1304,6 +1304,27 @@ public static class PurchasingEndpoints
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // A delivered line that has already been matched to a supplier bill is not billable again (task 27): the
+        // quantity already billed travels with the line so the payables screen bounds its entry with it.
+        var receiptLineIds = lines.Select(line => line.Id).ToArray();
+        var billed = receiptLineIds.Length == 0
+            ? []
+            : await db.SupplierBillLines.AsNoTracking()
+                .Where(billLine => billLine.BusinessId == businessId
+                    && receiptLineIds.Contains(billLine.PurchaseReceiptLineId)
+                    && db.SupplierBills.Any(bill => bill.BusinessId == businessId
+                        && bill.Id == billLine.SupplierBillId
+                        && bill.Status != SupplierBillStatus.Draft
+                        && bill.Status != SupplierBillStatus.Void))
+                .GroupBy(billLine => billLine.PurchaseReceiptLineId)
+                .Select(group => new { group.Key, Quantity = group.Sum(item => item.QuantityBilled) })
+                .ToDictionaryAsync(row => row.Key, row => row.Quantity, cancellationToken)
+                .ConfigureAwait(false);
+
+        var projected = lines
+            .Select(line => line with { QuantityBilled = billed.GetValueOrDefault(line.Id) })
+            .ToArray();
+
         // A receipt is the moment stock and the ledger both move, so the document names the entry it produced and
         // the accounts it touched (task 26, recipe step 3). The operator follows the delivery into the accounts
         // instead of asking which journal ought to exist.
@@ -1336,7 +1357,7 @@ public static class PurchasingEndpoints
             receipt.LocationId,
             receipt.ReceivedAtUtc,
             receipt.Note,
-            lines,
+            projected,
             ledgerEntryNumber,
             controlAccountCodes);
     }

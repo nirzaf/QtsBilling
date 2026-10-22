@@ -157,11 +157,13 @@ public sealed class SupplierCreditTests : IClassFixture<PostgresApiFixture>
         Assert.Equal(299m, credited.BalanceDue);
         Assert.Equal(299m, (await purchasing.GetStatementAsync(order.SupplierId)).ClosingBalance);
 
-        // A second credit for the same two pieces is refused whole: the cumulative guard counts what is left.
+        // A second credit for more than the line can still yield is refused whole: the cumulative guard counts what
+        // the earlier credit already took, and nothing at all is written for the refused document.
         var greedy = await CaptureAsync(() => purchasing.CreateCreditAsync(billId, new CreateSupplierCreditRequest(
-            $"the same crates again {suffix}", returned.Id, [new SupplierCreditLineRequest(credited.Lines[0].Id, 3m, returned.Lines[0].Id)]),
+            $"more than the line holds {suffix}", returned.Id, [new SupplierCreditLineRequest(credited.Lines[0].Id, 5m, returned.Lines[0].Id)]),
             $"t27-02-greedy-{suffix}"));
         Assert.Equal(ApiErrorCodes.OverCredit, greedy.Code);
+        Assert.Contains("is already credited", greedy.Message, StringComparison.OrdinalIgnoreCase);
         Assert.Equal(299m, (await purchasing.GetBillAsync(billId)).BalanceDue);
         Assert.Equal(onHandAfterReturn, await OnHandAsync(order.VariantId));
         Assert.Equal(2, await CountAsync<PurchaseReceipt>(receipt => receipt.PurchaseOrderId == order.OrderId));
@@ -669,86 +671,12 @@ public sealed class SupplierCreditTests : IClassFixture<PostgresApiFixture>
     }
 
     /// <summary>
-    /// The fixture business starts with no chart, so the payables accounts the three-way match posts to are created
-    /// here - the same way task 16's bill tests do it - before any bill is issued.
+    /// The fixture business starts with no chart, so the payables accounts the three-way match posts to are
+    /// established before any bill is issued - the shared harness, not a copy per test class.
     /// </summary>
     private async Task EnsurePayablesChartAsync()
-        => await _fixture.WithFreshContextAsync(async db =>
-        {
-            var wanted = new Dictionary<string, (string Name, AccountType Type)>
-            {
-                ["1000"] = ("Cash", AccountType.Asset),
-                ["1010"] = ("Bank", AccountType.Asset),
-                ["1100"] = ("Accounts receivable", AccountType.Asset),
-                ["1200"] = ("Inventory", AccountType.Asset),
-                ["1250"] = ("Delivered not invoiced", AccountType.Asset),
-                ["1300"] = ("Input VAT", AccountType.Asset),
-                [Payable] = ("Accounts payable", AccountType.Liability),
-                ["2100"] = ("Output VAT", AccountType.Liability),
-                [Grni] = ("GRNI", AccountType.Liability),
-                ["2105"] = ("Customer deposits", AccountType.Liability),
-                ["3000"] = ("Retained earnings", AccountType.Equity),
-                ["4000"] = ("Sales", AccountType.Revenue),
-                ["4010"] = ("Sales returns", AccountType.Revenue),
-                ["5000"] = ("COGS", AccountType.Expense),
-                [Variance] = ("Purchase price variance", AccountType.Expense),
-                ["5200"] = ("Inventory shrinkage", AccountType.Expense),
-                ["5300"] = ("Cash over short", AccountType.Expense),
-                ["5999"] = ("Rounding", AccountType.Expense),
-            };
-
-            var accounts = await db.Accounts
-                .Where(row => row.BusinessId == _fixture.BusinessA.BusinessId)
-                .ToDictionaryAsync(row => row.Code, StringComparer.Ordinal);
-
-            foreach (var (code, (name, type)) in wanted)
-            {
-                if (!accounts.ContainsKey(code))
-                {
-                    var account = new Account
-                    {
-                        BusinessId = _fixture.BusinessA.BusinessId,
-                        Code = code,
-                        Name = name,
-                        AccountType = type,
-                    };
-                    db.Accounts.Add(account);
-                    accounts[code] = account;
-                }
-            }
-
-            await db.SaveChangesAsync();
-
-            var settings = await db.BusinessAccountingSettings
-                .SingleOrDefaultAsync(row => row.BusinessId == _fixture.BusinessA.BusinessId);
-            if (settings is null)
-            {
-                settings = new BusinessAccountingSettings { BusinessId = _fixture.BusinessA.BusinessId };
-                db.BusinessAccountingSettings.Add(settings);
-            }
-
-            settings.SettlementScale = 2;
-            settings.CashAccountId = accounts["1000"].Id;
-            settings.BankClearingAccountId = accounts["1010"].Id;
-            settings.AccountsReceivableAccountId = accounts["1100"].Id;
-            settings.InventoryAssetAccountId = accounts["1200"].Id;
-            settings.DeliveredNotInvoicedAccountId = accounts["1250"].Id;
-            settings.InputTaxReceivableAccountId = accounts["1300"].Id;
-            settings.AccountsPayableAccountId = accounts[Payable].Id;
-            settings.OutputTaxPayableAccountId = accounts["2100"].Id;
-            settings.GrniClearingAccountId = accounts[Grni].Id;
-            settings.CustomerDepositsAccountId = accounts["2105"].Id;
-            settings.RetainedEarningsAccountId = accounts["3000"].Id;
-            settings.SalesRevenueAccountId = accounts["4000"].Id;
-            settings.SalesReturnsAccountId = accounts["4010"].Id;
-            settings.CogsAccountId = accounts["5000"].Id;
-            settings.PurchasePriceVarianceAccountId = accounts[Variance].Id;
-            settings.InventoryShrinkageAccountId = accounts["5200"].Id;
-            settings.CashOverShortAccountId = accounts["5300"].Id;
-            settings.RoundingAccountId = accounts["5999"].Id;
-            await db.SaveChangesAsync();
-            return true;
-        });
+        => await _fixture.WithFreshContextAsync(db =>
+            FixtureAccounting.EnsurePayablesAsync(db, _fixture.BusinessA.BusinessId));
 
     private static async Task<ApiException> CaptureAsync(Func<Task> action)
     {

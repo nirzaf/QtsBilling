@@ -134,8 +134,10 @@ public sealed class PurchasingJourneyTests : IClassFixture<PostgresApiFixture>
         Assert.Equal(Permissions.PurchasingManage, Single("purchasing/orders").RequiredPermission);
         Assert.Null(Single("purchasing/receiving").ArrivalNote);
 
-        // The payables row stays planned: this task must not open a door that task 27 has not built behind it.
-        Assert.Equal(ShellAvailability.Planned, Single("purchasing/payables").Availability);
+        // Task 27 built the screen behind this row, so the payables journey is now continuous: the delivery that
+        // makes stock and the bill that makes the payable are both reachable from the purchasing group.
+        Assert.Equal(ShellAvailability.Available, Single("purchasing/payables").Availability);
+        Assert.Null(Single("purchasing/payables").ArrivalNote);
 
         var pages = new[] { typeof(PurchaseOrders), typeof(PurchaseOrderEditor), typeof(Receiving) };
         var injected = pages

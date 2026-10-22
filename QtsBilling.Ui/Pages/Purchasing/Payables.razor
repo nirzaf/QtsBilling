@@ -1,0 +1,469 @@
+@page "/purchasing/payables"
+@namespace QtsBilling.Ui.Pages.Purchasing
+@using QtsBilling.Contracts.Purchasing
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>Payables and supplier credits - QTS Billing</PageTitle>
+
+@* The payables workbench (specification task 27): a supplier's account read as at one business date, the documents
+   that still owe - issued bills and imported opening payables together - the credits held against them, the
+   settlements that close them, and the matching of a delivery to a bill. Every figure is the server's; this screen
+   posts intentions and reads the account back. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Payables and supplier credits</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">One supplier's account, the documents that owe, and the credits held against them.</MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read the account again</MudButton>
+</MudStack>
+
+@* The three rules this screen will not cross, stated before anything is loaded. *@
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@PayablesRules.MatchRule @PayablesRules.CreditRule @PayablesRules.SettlementRule</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the account again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read the account back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (Outstanding)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="unknown-outcome">
+            <MudText Typo="Typo.body2">One of these documents is still awaiting its answer. Its key and its exact figures are held, so pressing again asks the server about the same document rather than writing a second one.</MudText>
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                @if (_match.Outstanding)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AbandonAsync(_match, "draft bill"))">Stop waiting on the bill</MudButton>
+                }
+                @if (_settleIntention.Outstanding)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AbandonAsync(_settleIntention, "settlement"))">Stop waiting on the settlement</MudButton>
+                }
+                @if (_credit.Outstanding)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AbandonAsync(_credit, "credit"))">Stop waiting on the credit</MudButton>
+                }
+                @if (_apply.Outstanding)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => AbandonAsync(_apply, "credit application"))">Stop waiting on the application</MudButton>
+                }
+            </MudStack>
+        </MudAlert>
+    }
+
+    <MudPaper Class="pa-3 mb-3" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <ReferenceSelector Label="Supplier (search by name)" Value="_supplier" ValueChanged="SupplierChangedAsync" Search="SearchSuppliersAsync"
+                                   HelpText="Chosen from the supplier list, never typed as an identifier." />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudDatePicker Label="Read the account as at" Date="_asOf" DateChanged="AsOfChangedAsync" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" md="5" Class="d-flex align-center">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@PayablesRules.AsOfRule @PayablesRules.OpeningRule</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_statement is { } statement)
+    {
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudText Typo="Typo.body2"><b>Documents still owed</b> @PayablesRules.MoneyText(statement.OpenItems.Sum(item => item.RemainingAmount), statement)</MudText>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudText Typo="Typo.body2" data-qts-figure="credits-held"><b>Credits held on account</b> @PayablesRules.MoneyText(statement.UnappliedCredits, statement)</MudText>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudText Typo="Typo.body2"><b>Account as at @InvoiceRules.DateText(statement.AsOf)</b> @PayablesRules.MoneyText(statement.ClosingBalance, statement)</MudText>
+                    </MudItem>
+                    <MudItem xs="12" sm="6" md="3">
+                        <MudText Typo="Typo.body2"><b>Charged / settled in the period</b> @PayablesRules.MoneyText(statement.MovementCredit, statement) / @PayablesRules.MoneyText(statement.MovementDebit, statement)</MudText>
+                    </MudItem>
+                </MudGrid>
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-0" data-qts-figure="reconciliation">@PayablesRules.ReconciliationText(statement)</MudAlert>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@PayablesRules.ReconciliationRule</MudText>
+                @if (statement.Truncated)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Warning">Only the most recent events are listed; the figures above cover every document dated on or before @InvoiceRules.DateText(statement.AsOf).</MudText>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Documents that still owe</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@PayablesRules.OpeningRule</MudText>
+                <MudTable Items="statement.OpenItems" Dense="true" Hover="true" aria-label="Open payables">
+                    <HeaderContent>
+                        <MudTh>Document</MudTh><MudTh>Raised</MudTh><MudTh>Due</MudTh>
+                        <MudTh Style="text-align:right">Original</MudTh><MudTh Style="text-align:right">Settled</MudTh>
+                        <MudTh Style="text-align:right">Remaining</MudTh><MudTh Style="text-align:right">Settle now</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Document">@PayablesRules.DocumentText(context)@(context.IsPastDue ? " · past due" : null)</MudTd>
+                        <MudTd DataLabel="Raised">@InvoiceRules.DateText(context.DocumentDate)</MudTd>
+                        <MudTd DataLabel="Due">@(context.DueDate is { } due ? InvoiceRules.DateText(due) : "-")</MudTd>
+                        <MudTd DataLabel="Original" Style="text-align:right">@PayablesRules.Money(context.OriginalAmount, statement)</MudTd>
+                        <MudTd DataLabel="Settled" Style="text-align:right" data-qts-figure="settled">@PayablesRules.Money(context.SettledAmount, statement)</MudTd>
+                        <MudTd DataLabel="Remaining" Style="text-align:right" data-qts-figure="remaining">@PayablesRules.Money(context.RemainingAmount, statement)</MudTd>
+                        <MudTd DataLabel="Settle now">
+                            <MudNumericField T="decimal" Label="@(null)" Value="@SettleAmountFor(context)"
+                                             ValueChanged="@(value => SettleChanged(context, value))"
+                                             Min="0m" Max="@context.RemainingAmount" Step="0.01m" Disabled="@(_busy || Outstanding || !_canPost)"
+                                             aria-label="@($"Amount to settle on {context.Reference}")" />
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">Nothing is owed to this supplier as at that date.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudSelect T="string" Label="Settled by" @bind-Value="_method" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_busy || !_canPost)">
+                        <MudSelectItem T="string" Value="@("cash")">Cash</MudSelectItem>
+                        <MudSelectItem T="string" Value="@("bankTransfer")">Bank transfer</MudSelectItem>
+                    </MudSelect>
+                    <MudDatePicker Label="Paid on" @bind-Date="_paidOn" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    <MudTextField Label="Cheque, transfer or reference" @bind-Value="_paymentReference" Variant="Variant.Outlined" Margin="Margin.Dense" MaxLength="128" Disabled="@(_busy || Outstanding)" />
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SettleAsync"
+                               Disabled="@(_busy || Outstanding || !_canPost || SettleTotal <= 0m)">
+                        @(_settleIntention.Outstanding ? "Ask the server about this settlement…" : "Record the settlement")
+                    </MudButton>
+                </MudStack>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@PayablesRules.SettlementRule One key per document: @SettleTotalText</MudText>
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Credits held</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@PayablesRules.HeldCreditRule</MudText>
+                <MudTable Items="statement.Credits" Dense="true" Hover="true" aria-label="Supplier credits">
+                    <HeaderContent>
+                        <MudTh>Credit</MudTh><MudTh>Bill credited</MudTh><MudTh>Source return</MudTh><MudTh>Reason</MudTh>
+                        <MudTh>Ledger</MudTh><MudTh Style="text-align:right">Value</MudTh>
+                        <MudTh Style="text-align:right">Used</MudTh><MudTh Style="text-align:right">Held</MudTh><MudTh>Apply</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Credit">@context.CreditNumber</MudTd>
+                        <MudTd DataLabel="Bill credited">@context.BillNumber</MudTd>
+                        <MudTd DataLabel="Source return">@(context.SourceReceiptNumber ?? "value only")</MudTd>
+                        <MudTd DataLabel="Reason">@context.Reason</MudTd>
+                        <MudTd DataLabel="Ledger" data-qts-figure="journal">@LedgerText(context)</MudTd>
+                        <MudTd DataLabel="Value" Style="text-align:right">@PayablesRules.Money(context.ValueAmount, statement)</MudTd>
+                        <MudTd DataLabel="Used" Style="text-align:right">@PayablesRules.Money(context.AppliedAmount, statement)</MudTd>
+                        <MudTd DataLabel="Held" Style="text-align:right" data-qts-figure="remaining">@PayablesRules.Money(context.RemainingAmount, statement)</MudTd>
+                        <MudTd DataLabel="Apply">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => UseCredit(context))"
+                                       Disabled="@(_busy || context.RemainingAmount <= 0m || !_canPost)"
+                                       aria-label="@($"Apply {context.CreditNumber} to a document")">Apply to a document</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">No credits have been issued to this account.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                @if (_appliedCredit is { } credit)
+                {
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                        <MudText Typo="Typo.body2"><b>@credit.CreditNumber</b> holds @PayablesRules.MoneyText(credit.RemainingAmount, statement)</MudText>
+                        <ReferenceSelector Label="Settle which document (search by number)" Value="ApplyTargetItem" ValueChanged="ApplyTargetChanged"
+                                           Search="SearchOpenItemsAsync" HelpText="Bills and opening payables of this supplier that still owe." />
+                        <MudNumericField T="decimal" Label="Amount to apply" @bind-Value="_applyAmount" Min="0m" Max="@credit.RemainingAmount" Step="0.01m"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(_busy || Outstanding)" />
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ApplyCreditAsync"
+                                   Disabled="@(_busy || Outstanding || !_canPost || _applyTarget is null || _applyAmount <= 0m)">
+                            @(_apply.Outstanding ? "Ask the server about this application…" : "Apply the credit")
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="@(() => CancelApply())" Disabled="@_busy">Leave the credit held</MudButton>
+                    </MudStack>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Applying a credit moves no money and posts no journal: the entry was made when the credit was issued, and this says which document the benefit settled.</MudText>
+                }
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">The account's own history</MudText>
+                <MudTable Items="statement.Lines" Dense="true" Hover="true" aria-label="Supplier account history">
+                    <HeaderContent>
+                        <MudTh>Document</MudTh><MudTh>Kind</MudTh><MudTh>Date</MudTh>
+                        <MudTh Style="text-align:right">Charged</MudTh><MudTh Style="text-align:right">Settled</MudTh>
+                        <MudTh Style="text-align:right">Balance</MudTh><MudTh>Note</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Document">@context.Reference</MudTd>
+                        <MudTd DataLabel="Kind">@PayablesRules.KindText(context.Kind)</MudTd>
+                        <MudTd DataLabel="Date">@InvoiceRules.DateText(context.DocumentDate)</MudTd>
+                        <MudTd DataLabel="Charged" Style="text-align:right">@(context.CreditAmount > 0m ? PayablesRules.Money(context.CreditAmount, statement) : "-")</MudTd>
+                        <MudTd DataLabel="Settled" Style="text-align:right">@(context.DebitAmount > 0m ? PayablesRules.Money(context.DebitAmount, statement) : "-")</MudTd>
+                        <MudTd DataLabel="Balance" Style="text-align:right">@PayablesRules.Money(context.RunningBalance, statement)</MudTd>
+                        <MudTd DataLabel="Note">@(string.IsNullOrWhiteSpace(context.Note) ? "-" : context.Note)</MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">Nothing has been charged or settled with this supplier on or before that date.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+            </MudStack>
+        </MudPaper>
+    }
+
+    <MudPaper Class="pa-4 mb-3" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Bills matched but not yet issued</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@PayablesRules.IssueRule</MudText>
+            <MudTable Items="_draftBills" Dense="true" Hover="true" aria-label="Draft supplier bills">
+                <HeaderContent>
+                    <MudTh>Bill</MudTh><MudTh>Supplier</MudTh><MudTh>Branch</MudTh><MudTh>Supplier's reference</MudTh>
+                    <MudTh>Ordered</MudTh><MudTh Style="text-align:right">Total</MudTh><MudTh>Action</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Bill">@context.BillNumber</MudTd>
+                    <MudTd DataLabel="Supplier">@(context.SupplierName ?? "the supplier")</MudTd>
+                    <MudTd DataLabel="Branch">@BranchText(context.LocationId)</MudTd>
+                    <MudTd DataLabel="Supplier's reference">@(context.SupplierInvoiceReference ?? "-")</MudTd>
+                    <MudTd DataLabel="Ordered">@InvoiceRules.DateText(context.BillDate)</MudTd>
+                    <MudTd DataLabel="Total" Style="text-align:right">@PurchasingRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                    <MudTd DataLabel="Action">
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="@(() => IssueBillAsync(context))"
+                                   Disabled="@(_busy || _issue.Outstanding || !_canPost)"
+                                   aria-label="@($"Issue {context.BillNumber} and open the payable")">Issue the bill</MudButton>
+                    </MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">No draft bills are waiting. Nothing is owed until a bill is issued.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4 mb-3" Outlined="true">
+        <MudStack Spacing="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Match a delivery to a supplier bill</MudText>
+                <MudButton Variant="Variant.Outlined" StartIcon="@(_matching ? Icons.Material.Filled.Remove : Icons.Material.Filled.Add)"
+                           OnClick="ToggleMatching" Disabled="@_busy">@(_matching ? "Close the matching panel" : "Match a delivery")</MudButton>
+            </MudStack>
+
+            @if (_matching)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@PayablesRules.MatchRule</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="4">
+                        <ReferenceSelector Label="Order the invoice arrived against (search by number)" Value="_order" ValueChanged="OrderChangedAsync"
+                                           Search="SearchOrdersAsync" HelpText="Only orders of the chosen supplier are offered." />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudTextField Label="The supplier's own invoice number" @bind-Value="_supplierReference" Variant="Variant.Outlined" MaxLength="128"
+                                      HelperText="Recorded once: a second bill carrying the same number for this supplier is refused, because that is the double payment a three-way match exists to stop." />
+                    </MudItem>
+                    <MudItem xs="12" md="2"><MudDatePicker Label="Bill date" @bind-Date="_billDate" Variant="Variant.Outlined" /></MudItem>
+                    <MudItem xs="12" md="2"><MudDatePicker Label="Due by" @bind-Date="_dueDate" Variant="Variant.Outlined" /></MudItem>
+                </MudGrid>
+
+                @foreach (var entry in _draftLines)
+                {
+                    <MudGrid Spacing="2">
+                        <MudItem xs="12" md="4">
+                            <MudText Typo="Typo.body2" Class="pt-4"><b>@entry.ProductName</b></MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">from @entry.ReceiptNumber · up to @PurchasingRules.QuantityText(entry.Ceiling) unbilled</MudText>
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="decimal" Label="Quantity" Value="@entry.Quantity" ValueChanged="@(value => { entry.Quantity = value; })"
+                                             Min="0.001m" Max="@entry.Ceiling" Step="0.001m" Variant="Variant.Outlined" Disabled="@_busy" />
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="decimal" Label="Unit cost charged" Value="@entry.UnitCost" ValueChanged="@(value => { entry.UnitCost = value; })"
+                                             Min="0m" Variant="Variant.Outlined" Disabled="@_busy" />
+                        </MudItem>
+                        <MudItem xs="6" md="2">
+                            <MudNumericField T="decimal" Label="Discount" Value="@entry.DiscountAmount" ValueChanged="@(value => { entry.DiscountAmount = value; })"
+                                             Min="0m" Variant="Variant.Outlined" Disabled="@_busy" />
+                        </MudItem>
+                        <MudItem xs="4" md="1">
+                            <MudNumericField T="decimal" Label="Tax %" Value="@entry.TaxRate" ValueChanged="@(value => { entry.TaxRate = value; })"
+                                             Min="0m" Max="100m" Variant="Variant.Outlined" Disabled="@_busy" />
+                        </MudItem>
+                        <MudItem xs="2" md="1" Class="d-flex align-center">
+                            <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" aria-label="@($"Remove {entry.ProductName} from the bill")"
+                                           OnClick="@(() => RemoveBillLine(entry))" Disabled="@_busy" />
+                        </MudItem>
+                    </MudGrid>
+                }
+
+                @if (_order is not null)
+                {
+                    <MudText Typo="Typo.h6">Deliveries not yet billed</MudText>
+                    @foreach (var (receipt, line) in BillableLines)
+                    {
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                            <MudText Typo="Typo.body2">@line.ProductName · @receipt.ReceiptNumber · @PurchasingRules.QuantityText(line.Quantity - line.QuantityBilled) of @PurchasingRules.QuantityText(line.Quantity) unbilled at @PurchasingRules.Money(line.UnitCost)</MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => AddBillableLine(receipt, line))"
+                                       Disabled="@(_busy || _draftLines.Any(entry => entry.ReceiptLineId == line.Id))"
+                                       aria-label="@($"Add {line.ProductName} to the bill")">Add to the bill</MudButton>
+                        </MudStack>
+                    }
+
+                    @if (_draftLines.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Every delivered line on this order has already been matched to a bill, or nothing has arrived against it yet.</MudText>
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Choose the order first: the deliveries that can be billed come from the goods received notes recorded against it, never from a typed quantity.</MudText>
+                }
+
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="MatchBillAsync"
+                               Disabled="@(_busy || Outstanding || !_canManage || _supplier is null || _order is null || _draftLines.Count == 0)">
+                        @(_match.Outstanding ? "Ask the server about this draft…" : "Record the matched draft")
+                    </MudButton>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">A draft opens nothing in the ledger: it is issued from the list above when the figures have been checked.</MudText>
+                </MudStack>
+            }
+        </MudStack>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Outlined="true">
+        <MudStack Spacing="2">
+            <MudText Typo="Typo.h6">Credit a bill for what the supplier is taking back</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@PayablesRules.CreditRule</MudText>
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="4">
+                    <ReferenceSelector Label="Bill to credit (search by number)" Value="_creditBill" ValueChanged="CreditBillChangedAsync"
+                                       Search="SearchCreditableBillsAsync" HelpText="Issued, partly settled or settled bills can be credited." />
+                </MudItem>
+                <MudItem xs="12" md="4">
+                    <MudTextField Label="Why the credit exists" @bind-Value="_creditReason" Variant="Variant.Outlined" MaxLength="512" Disabled="@(_busy || Outstanding)"
+                                  HelperText="Mandatory: it is audited with whoever issues the credit." />
+                </MudItem>
+                <MudItem xs="12" md="2">
+                    <MudNumericField T="decimal" Label="Quantity credited" @bind-Value="_creditQuantity" Min="0m" Step="0.001m"
+                                     Variant="Variant.Outlined" Disabled="@(_busy || Outstanding)"
+                                     aria-label="Quantity to credit on the first open line" />
+                </MudItem>
+                <MudItem xs="12" md="2" Class="d-flex align-end">
+                    <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="CreditAsync"
+                               Disabled="@(_busy || Outstanding || !_canPost || CreditedBill is null || _creditQuantity <= 0m)">
+                        @(_credit.Outstanding ? "Ask the server about this credit…" : "Record the credit")
+                    </MudButton>
+                </MudItem>
+            </MudGrid>
+
+            @if (CreditedBill is { } credited)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @credited.BillNumber: @PurchasingRules.MoneyText(credited.BalanceDue, credited.Currency) still owed,
+                    @PayablesRules.Money(credited.CreditedAmount, _statement) already credited,
+                    @PurchasingRules.QuantityText(credited.Lines.Sum(PayablesRules.CreditableQuantity)) of @PurchasingRules.QuantityText(credited.Lines.Sum(line => line.QuantityBilled)) still creditable.
+                </MudText>
+                @if (_returns.Count > 0)
+                {
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                        <ReferenceSelector Label="Follow which return? (leave empty for a value-only credit)" Value="_returnSource" ValueChanged="ReturnChangedAsync"
+                                           Search="SearchReturnsAsync" HelpText="A credit for goods that went back cites the return that already took them out of stock, so nothing is removed twice." />
+                    </MudStack>
+                }
+            }
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@PayablesRules.HeldCreditRule</MudText>
+        </MudStack>
+    </MudPaper>
+</ShellStates>
+
+@code {
+    private decimal SettleTotal => _settle.Values.Sum();
+
+    private string SettleTotalText => $"total being settled {PayablesRules.Money(SettleTotal, _statement)}";
+
+    private decimal SettleAmountFor(SupplierOpenItemDto item) => _settle.TryGetValue(item, out var value) ? value : 0m;
+
+    private void SettleChanged(SupplierOpenItemDto item, decimal value)
+    {
+        var ceiling = item.RemainingAmount;
+        _settle[item] = value < 0m ? 0m : value > ceiling ? ceiling : value;
+    }
+
+    private ReferenceItem? ApplyTargetItem => _applyTarget is null
+        ? null
+        : ReferenceItem.From(_applyTarget.Id, PayablesRules.DocumentText(_applyTarget), PayablesRules.Money(_applyTarget.RemainingAmount, _statement));
+
+    private void CancelApply()
+    {
+        _appliedCredit = null;
+        _applyTarget = null;
+        _applyAmount = 0m;
+    }
+
+    private void ApplyTargetChanged(ReferenceItem? target)
+    {
+        _applyTarget = target is null
+            ? null
+            : _statement?.OpenItems.FirstOrDefault(item => item.Id == target.Id);
+    }
+
+    private static string LedgerText(SupplierCreditDto credit)
+        => credit.ControlAccountCodes is { Count: > 0 } codes
+            ? $"{credit.JournalEntryNumber ?? "entry"} · {string.Join(", ", codes)}"
+            : credit.JournalEntryNumber ?? "no entry number recorded";
+
+    private async Task<IReadOnlyList<ReferenceItem>> SearchSuppliersAsync(string term, CancellationToken token)
+    {
+        var page = await Suppliers.GetSuppliersAsync(search: term, pageSize: 25, includeInactive: false, cancellationToken: token);
+
+        return page.Items.Select(supplier => ReferenceItem.From(supplier.Id, supplier.Name, supplier.Phone)).ToList();
+    }
+
+    private Task<IReadOnlyList<ReferenceItem>> SearchOrdersAsync(string term, CancellationToken token)
+        => Task.FromResult<IReadOnlyList<ReferenceItem>>(_orders
+            .Where(order => string.IsNullOrWhiteSpace(term) || order.OrderNumber.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(order => ReferenceItem.From(order.Id, order.OrderNumber,
+                $"{order.SupplierName ?? "the supplier"} · {BranchText(order.LocationId)} · {PurchasingRules.StatusText(order.Status)}"))
+            .ToList());
+
+    private Task<IReadOnlyList<ReferenceItem>> SearchCreditableBillsAsync(string term, CancellationToken token)
+        => Task.FromResult<IReadOnlyList<ReferenceItem>>(_bills
+            .Where(bill => bill.Status is not (SupplierBillState.Draft or SupplierBillState.Void)
+                && (string.IsNullOrWhiteSpace(term) || bill.BillNumber.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .Select(bill => ReferenceItem.From(bill.Id, bill.BillNumber,
+                $"{PayablesRules.StatusText(bill.Status)} · {PurchasingRules.MoneyText(bill.BalanceDue, bill.Currency)} owed"))
+            .ToList());
+
+    private Task<IReadOnlyList<ReferenceItem>> SearchOpenItemsAsync(string term, CancellationToken token)
+        => Task.FromResult<IReadOnlyList<ReferenceItem>>((_statement?.OpenItems ?? [])
+            .Where(item => item.RemainingAmount > 0m
+                && (string.IsNullOrWhiteSpace(term) || item.Reference.Contains(term, StringComparison.OrdinalIgnoreCase)))
+            .Select(item => ReferenceItem.From(item.Id, PayablesRules.DocumentText(item),
+                $"{PayablesRules.Money(item.RemainingAmount, _statement)} still owed"))
+            .ToList());
+
+    private Task<IReadOnlyList<ReferenceItem>> SearchReturnsAsync(string term, CancellationToken token)
+        => Task.FromResult<IReadOnlyList<ReferenceItem>>(_returns
+            .Where(receipt => string.IsNullOrWhiteSpace(term) || receipt.ReceiptNumber.Contains(term, StringComparison.OrdinalIgnoreCase))
+            .Select(receipt => ReferenceItem.From(receipt.Id, receipt.ReceiptNumber,
+                $"{PurchasingRules.KindText(receipt.Kind)} · {InvoiceRules.InstantText(receipt.ReceivedAtUtc, _statement is null ? null : PurchasingRules.PresentationOf(_statement.TimeZoneId))}"))
+            .ToList());
+
+    private async Task ReturnChangedAsync(ReferenceItem? source)
+    {
+        _returnSource = source;
+        _error = null;
+        await Task.CompletedTask;
+    }
+}

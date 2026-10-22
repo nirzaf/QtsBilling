@@ -88,7 +88,10 @@ public sealed record PurchaseReceiptLineDto(
     string ProductName,
     string? Sku,
     decimal Quantity,
-    decimal UnitCost);
+    decimal UnitCost,
+    /// <summary>How much of this delivered line the supplier's bills have already been matched to (task 27), so a
+    /// bill can be entered against what is still unbilled rather than against a quantity the ledger has used.</summary>
+    decimal QuantityBilled = 0m);
 
 public sealed record PurchaseReceiptDto(
     Guid Id,
