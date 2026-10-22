@@ -20,9 +20,9 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
 {
     private static readonly string[] HostStartups =
     [
-        @"QtsWebApp\QtsWebApp\Program.cs",
-        @"QtsWebApp\QtsWebApp.Client\Program.cs",
-        @"QtsBilling.Maui\MauiProgram.cs",
+        @"QtsWebApp/QtsWebApp/Program.cs",
+        @"QtsWebApp/QtsWebApp.Client/Program.cs",
+        @"QtsBilling.Maui/MauiProgram.cs",
     ];
 
     private readonly PostgresApiFixture _fixture;
@@ -97,7 +97,7 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
             Assert.Contains(nameof(IDocumentOutput), source, StringComparison.Ordinal);
         }
 
-        var maui = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui\MauiProgram.cs"));
+        var maui = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui/MauiProgram.cs"));
         var bearerGate = maui.IndexOf($"AddHttpClient<IInvoiceApiClient, InvoiceApiClient>", StringComparison.Ordinal);
         Assert.True(bearerGate >= 0, "the device host does not build its invoice client at all");
         Assert.True(
@@ -153,10 +153,10 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
 
         var adapters = new[]
         {
-            @"QtsWebApp\QtsWebApp.Client\Services\WebDocumentOutput.cs",
-            @"QtsBilling.Maui\Services\NativeDocumentOutput.cs",
-            @"QtsWebApp\QtsWebApp\wwwroot\document-output.js",
-            @"QtsBilling.Maui\wwwroot\document-output.js",
+            @"QtsWebApp/QtsWebApp.Client/Services/WebDocumentOutput.cs",
+            @"QtsBilling.Maui/Services/NativeDocumentOutput.cs",
+            @"QtsWebApp/QtsWebApp/wwwroot/document-output.js",
+            @"QtsBilling.Maui/wwwroot/document-output.js",
         };
 
         foreach (var relative in adapters)
@@ -177,8 +177,8 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
         }
 
         // Each host declares its own local facility, and the shared library asks for no print dependency.
-        var web = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp\QtsWebApp.Client\Services\WebDocumentOutput.cs"));
-        var native = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui\Services\NativeDocumentOutput.cs"));
+        var web = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp/QtsWebApp.Client/Services/WebDocumentOutput.cs"));
+        var native = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui/Services/NativeDocumentOutput.cs"));
         Assert.Contains("qtsDocuments.print", web, StringComparison.Ordinal);
         Assert.Contains("qtsDocuments.print", native, StringComparison.Ordinal);
         Assert.Contains("DocumentOutputRequest", native, StringComparison.Ordinal);
@@ -191,8 +191,8 @@ public sealed class DocumentOutputTests : IClassFixture<PostgresApiFixture>
             "the shared UI reached for a renderer or a database to print a document");
 
         // The host pages load their own copy of the facility, and nothing else (specification task 10).
-        var app = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp\QtsWebApp\Components\App.razor"));
-        var index = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui\wwwroot\index.html"));
+        var app = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp/QtsWebApp/Components/App.razor"));
+        var index = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui/wwwroot/index.html"));
         Assert.Contains("document-output.js", app, StringComparison.Ordinal);
         Assert.Contains("document-output.js", index, StringComparison.Ordinal);
     }

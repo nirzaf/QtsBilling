@@ -408,7 +408,7 @@ public sealed class SalesRefundJourneyTests(PostgresApiFixture fixture) : IClass
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the sales screens but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = File.ReadAllText(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();
@@ -423,10 +423,10 @@ public sealed class SalesRefundJourneyTests(PostgresApiFixture fixture) : IClass
         // The screen never asks a human for an identifier, never reaches for a public resource, and never puts a
         // token in a URL: the reprint is read from the same contract as everything else (finding F20's rule).
         var markup = string.Concat(
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Sales\Sales.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Sales\Sales.razor.cs")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Sales\SaleDetail.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Sales\SaleDetail.razor.cs")));
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Sales/Sales.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Sales/Sales.razor.cs")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Sales/SaleDetail.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Sales/SaleDetail.razor.cs")));
 
         Assert.DoesNotContain("Sale id", markup, StringComparison.Ordinal);
         Assert.DoesNotContain("Refund id", markup, StringComparison.Ordinal);

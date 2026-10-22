@@ -16,10 +16,10 @@ namespace TestQtsBilling.Ui;
 public sealed class NoExternalAssetsTests
 {
     [Theory]
-    [InlineData(@"QtsWebApp\QtsWebApp\Components\App.razor")]
-    [InlineData(@"QtsBilling.Maui\wwwroot\index.html")]
-    [InlineData(@"QtsWebApp\QtsWebApp\wwwroot\app.css")]
-    [InlineData(@"QtsBilling.Maui\wwwroot\app.css")]
+    [InlineData(@"QtsWebApp/QtsWebApp/Components/App.razor")]
+    [InlineData(@"QtsBilling.Maui/wwwroot/index.html")]
+    [InlineData(@"QtsWebApp/QtsWebApp/wwwroot/app.css")]
+    [InlineData(@"QtsBilling.Maui/wwwroot/app.css")]
     public void T10_01_a_shipped_asset_loads_no_public_resource(string relativePath)
     {
         var path = Path.Combine(InvoiceEditorTests.RepositoryRoot(), relativePath);
@@ -35,20 +35,20 @@ public sealed class NoExternalAssetsTests
     [Fact]
     public void T10_01_the_web_shell_does_not_return_to_a_hosted_webfont()
     {
-        var shell = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp\QtsWebApp\Components\App.razor"));
+        var shell = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp/QtsWebApp/Components/App.razor"));
 
         // The defect this task closed: the shell fetched Roboto from Google on every cold start.
         Assert.DoesNotContain("fonts.googleapis.com", shell, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("fonts.gstatic.com", shell, StringComparison.OrdinalIgnoreCase);
 
-        var appCss = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp\QtsWebApp\wwwroot\app.css"));
+        var appCss = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp/QtsWebApp/wwwroot/app.css"));
         Assert.Contains("system-ui", appCss, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]
     public void T10_01_the_desktop_shell_still_allows_accessible_zoom()
     {
-        var index = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsBilling.Maui\wwwroot\index.html"));
+        var index = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsBilling.Maui/wwwroot/index.html"));
 
         // Zoom is an accessibility requirement, not a preference: an operator must read money at 200%+.
         Assert.DoesNotContain("user-scalable=no", index, StringComparison.OrdinalIgnoreCase);

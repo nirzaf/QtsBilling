@@ -272,7 +272,7 @@ public sealed class AdministrationTests(PostgresApiFixture fixture) : IClassFixt
             || entry.Contains("erase", StringComparison.OrdinalIgnoreCase)).ToArray();
         Assert.True(wipeRoutes.Length == 0, $"the server exposes a wipe route: {string.Join(", ", wipeRoutes)}");
 
-        var pageSource = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsBilling.Ui\Pages\Administration\Devices.razor"));
+        var pageSource = File.ReadAllText(Path.Combine(InvoiceEditorTests.RepositoryRoot(), @"QtsBilling.Ui/Pages/Administration/Devices.razor"));
         Assert.Contains(nameof(AdministrationRules.NoWipeReason), pageSource, StringComparison.Ordinal);
 
         // 8. Revocation is the one command money does not block, and it destroys nothing.
@@ -426,7 +426,7 @@ public sealed class AdministrationTests(PostgresApiFixture fixture) : IClassFixt
         Assert.True(missing.Length == 0, $"the server host renders the administration pages but registers none for: {string.Join(", ", missing)}");
 
         // 2. The browser and the terminal each name every client they are asked to supply.
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = File.ReadAllText(Path.Combine(root, startup));
 

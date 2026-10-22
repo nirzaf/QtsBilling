@@ -210,8 +210,8 @@ public sealed class CheckoutJourneyTests(PostgresApiFixture fixture) : IClassFix
         // Provisional capture belongs to an enrolled terminal only: the device host is the one that registers the
         // local service, and the browser host does not, so a browser cannot claim cash it never confirmed.
         var root = InvoiceEditorTests.RepositoryRoot();
-        var deviceStartup = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui\MauiProgram.cs"));
-        var browserStartup = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp\QtsWebApp.Client\Program.cs"));
+        var deviceStartup = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Maui/MauiProgram.cs"));
+        var browserStartup = await File.ReadAllTextAsync(Path.Combine(root, @"QtsWebApp/QtsWebApp.Client/Program.cs"));
         Assert.Contains("ILocalPosService, DeviceLocalPosService", deviceStartup, StringComparison.Ordinal);
         Assert.DoesNotContain("ILocalPosService", browserStartup, StringComparison.Ordinal);
     }

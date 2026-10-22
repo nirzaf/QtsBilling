@@ -54,7 +54,7 @@ public sealed class RegisterWorkbenchTests(PostgresApiFixture fixture) : IClassF
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the register screen but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = File.ReadAllText(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();

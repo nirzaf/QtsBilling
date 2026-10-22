@@ -347,15 +347,15 @@ public sealed class InvoiceLifecycleJourneyTests : IClassFixture<PostgresApiFixt
         var root = InvoiceEditorTests.RepositoryRoot();
 
         // The workbench is part of the document, not a second place an operator must be told about.
-        var editor = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Invoices\InvoiceEditor.razor"));
+        var editor = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Invoices/InvoiceEditor.razor"));
         Assert.Contains("<InvoiceActions", editor, StringComparison.Ordinal);
         Assert.DoesNotContain("Href=\"@($\"/api/v1/invoices", editor, StringComparison.Ordinal);
 
         var markup = string.Concat(
             editor,
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Invoices\InvoiceActions.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Invoices\InvoiceActions.razor.cs")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Invoices\InvoiceRules.cs")));
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Invoices/InvoiceActions.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Invoices/InvoiceActions.razor.cs")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Invoices/InvoiceRules.cs")));
 
         // No field asks a person for a key the database handed out, and nothing reaches a public resource.
         Assert.DoesNotContain("Invoice id", markup, StringComparison.Ordinal);
@@ -384,7 +384,7 @@ public sealed class InvoiceLifecycleJourneyTests : IClassFixture<PostgresApiFixt
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the settlement workbench but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = await File.ReadAllTextAsync(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();

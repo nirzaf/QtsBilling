@@ -155,7 +155,7 @@ public sealed class PurchasingJourneyTests : IClassFixture<PostgresApiFixture>
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the purchasing screens but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = await File.ReadAllTextAsync(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();
@@ -167,14 +167,14 @@ public sealed class PurchasingJourneyTests : IClassFixture<PostgresApiFixture>
         // quietly reading an empty set.
         var markupPaths = new List<string>
         {
-            Path.Combine(root, @"QtsBilling.Ui\Pages\Purchasing\PurchasingRules.cs"),
-            Path.Combine(root, @"QtsBilling.Ui\Pages\Purchasing\PurchaseDocument.cs"),
+            Path.Combine(root, @"QtsBilling.Ui/Pages/Purchasing/PurchasingRules.cs"),
+            Path.Combine(root, @"QtsBilling.Ui/Pages/Purchasing/PurchaseDocument.cs"),
         };
 
         foreach (var page in pages)
         {
-            markupPaths.Add(Path.Combine(root, @"QtsBilling.Ui\Pages\Purchasing", $"{page.Name}.razor"));
-            markupPaths.Add(Path.Combine(root, @"QtsBilling.Ui\Pages\Purchasing", $"{page.Name}.razor.cs"));
+            markupPaths.Add(Path.Combine(root, @"QtsBilling.Ui/Pages/Purchasing", $"{page.Name}.razor"));
+            markupPaths.Add(Path.Combine(root, @"QtsBilling.Ui/Pages/Purchasing", $"{page.Name}.razor.cs"));
         }
 
         foreach (var path in markupPaths)

@@ -46,8 +46,8 @@ public sealed class InvoiceEditorTests : IClassFixture<PostgresApiFixture>
     }
 
     [Theory]
-    [InlineData(@"QtsWebApp\QtsWebApp.Client\Program.cs")]
-    [InlineData(@"QtsBilling.Maui\MauiProgram.cs")]
+    [InlineData(@"QtsWebApp/QtsWebApp.Client/Program.cs")]
+    [InlineData(@"QtsBilling.Maui/MauiProgram.cs")]
     public void T02_05_every_host_that_renders_the_invoice_pages_registers_their_clients(string startupFile)
     {
         var source = File.ReadAllText(Path.Combine(RepositoryRoot(), startupFile));
@@ -80,7 +80,7 @@ public sealed class InvoiceEditorTests : IClassFixture<PostgresApiFixture>
     [Fact]
     public void T02_05_the_browser_client_registers_no_database_service()
     {
-        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), @"QtsWebApp\QtsWebApp.Client\Program.cs"));
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), @"QtsWebApp/QtsWebApp.Client/Program.cs"));
 
         Assert.DoesNotContain("EntityFrameworkCore", source, StringComparison.Ordinal);
         Assert.DoesNotContain("Npgsql", source, StringComparison.Ordinal);

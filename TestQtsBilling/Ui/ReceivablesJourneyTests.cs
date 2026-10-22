@@ -132,7 +132,7 @@ public sealed class ReceivablesJourneyTests : IClassFixture<PostgresApiFixture>
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the receivables screen but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = await File.ReadAllTextAsync(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();
@@ -142,9 +142,9 @@ public sealed class ReceivablesJourneyTests : IClassFixture<PostgresApiFixture>
         // The markup asks for no identifier a person could not know and reaches for no public resource, and the
         // routes the screen uses are the server's own statement/open-item reads.
         var markup = string.Concat(
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Finance\Receivables.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Finance\Receivables.razor.cs")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Finance\ReceivablesRules.cs")));
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Finance/Receivables.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Finance/Receivables.razor.cs")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Finance/ReceivablesRules.cs")));
 
         Assert.DoesNotContain("Customer id", markup, StringComparison.Ordinal);
         Assert.DoesNotContain("Payment id", markup, StringComparison.Ordinal);

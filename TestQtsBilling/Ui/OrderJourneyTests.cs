@@ -269,7 +269,7 @@ public sealed class OrderJourneyTests(PostgresApiFixture fixture) : IClassFixtur
         Assert.Empty(offenders);
 
         var startup = await File.ReadAllTextAsync(Path.Combine(
-            InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp\QtsWebApp\Program.cs"));
+            InvoiceEditorTests.RepositoryRoot(), @"QtsWebApp/QtsWebApp/Program.cs"));
         Assert.DoesNotContain("AddSmtp", startup, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("IEmailSender", startup, StringComparison.OrdinalIgnoreCase);
 
@@ -318,7 +318,7 @@ public sealed class OrderJourneyTests(PostgresApiFixture fixture) : IClassFixtur
         var missing = injected.Where(client => scope.ServiceProvider.GetService(client) is null).Select(type => type.Name).ToArray();
         Assert.True(missing.Length == 0, $"the server host renders the order screens but registers none for: {string.Join(", ", missing)}");
 
-        foreach (var startup in new[] { @"QtsWebApp\QtsWebApp.Client\Program.cs", @"QtsBilling.Maui\MauiProgram.cs" })
+        foreach (var startup in new[] { @"QtsWebApp/QtsWebApp.Client/Program.cs", @"QtsBilling.Maui/MauiProgram.cs" })
         {
             var source = await File.ReadAllTextAsync(Path.Combine(root, startup));
             var unnamed = injected.Select(type => type.Name).Where(name => !source.Contains(name, StringComparison.Ordinal)).ToArray();
@@ -327,11 +327,11 @@ public sealed class OrderJourneyTests(PostgresApiFixture fixture) : IClassFixtur
 
         // The markup asks for no identifier a person must type and reaches for no public resource.
         var markup = string.Concat(
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Orders\Quotes.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Orders\QuoteEditor.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Orders\QuoteEditor.razor.cs")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Orders\SalesOrders.razor")),
-            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui\Pages\Orders\SalesOrders.razor.cs")));
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Orders/Quotes.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Orders/QuoteEditor.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Orders/QuoteEditor.razor.cs")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Orders/SalesOrders.razor")),
+            await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Orders/SalesOrders.razor.cs")));
 
         Assert.DoesNotContain("Quote id", markup, StringComparison.Ordinal);
         Assert.DoesNotContain("Order id", markup, StringComparison.Ordinal);
