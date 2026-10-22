@@ -66,10 +66,10 @@ public static class ShellNavigation
 
         // Purchasing: suppliers, what is owed to them, and what arrived.
         new("Suppliers", "suppliers", Icons.Material.Filled.LocalShipping, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
-        new("Purchase orders", "purchasing/orders", Icons.Material.Filled.Description, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
-            "Arrives with task 26."),
-        new("Receiving", "purchasing/receiving", Icons.Material.Filled.Inventory, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
-            "Arrives with task 26."),
+        // Procurement is one journey in three screens: the order, the delivery that makes it stock, and - in
+        // task 27 - the supplier's bill that makes it a payable. Each row reaches a route that exists.
+        new("Purchase orders", "purchasing/orders", Icons.Material.Filled.Description, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
+        new("Receiving", "purchasing/receiving", Icons.Material.Filled.Inventory, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),
         new("Payables and supplier credits", "purchasing/payables", Icons.Material.Filled.Payment, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Planned,
             "Arrives with task 27."),
 

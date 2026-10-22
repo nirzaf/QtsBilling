@@ -987,6 +987,103 @@ Check("a conversion key is one intention's key and fits the header bound",
         && QtsBilling.Ui.Pages.Orders.OrderRules.NewConversionKey("QT-2026-0007").StartsWith("convert-QT-2026-0007-", StringComparison.Ordinal)
         && QtsBilling.Ui.Pages.Orders.OrderRules.NewCommandKey("quote-draft").Length <= 64);
 
+// 14. The procurement workbench (specification task 26): three shipped shared pages that read nothing during the
+//     prerender, state that an order is a commitment rather than a receipt, and never offer a field that could
+//     overwrite a received quantity. The ledger link a goods receipt carries is stated from the server's own
+//     projection, so the screen cannot name an entry that was never posted.
+var purchaseBranchId = Guid.CreateVersion7();
+var purchaseOrderId = Guid.CreateVersion7();
+var stubPurchasing = new StubPurchasingApiClient(purchaseBranchId, purchaseOrderId);
+var purchasingServices = new ServiceCollection();
+purchasingServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+purchasingServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+purchasingServices.AddMudServices();
+purchasingServices.AddSingleton<NavigationManager, StubNavigationManager>();
+purchasingServices.AddSingleton<IPurchasingApiClient>(stubPurchasing);
+purchasingServices.AddSingleton<ISupplierApiClient>(new StubSupplierApiClient());
+purchasingServices.AddSingleton<IProductApiClient>(new StubProductApiClient());
+purchasingServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(purchaseBranchId));
+purchasingServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+purchasingServices.AddSingleton<IDocumentOutput>(new StubDocumentOutput());
+
+await using var purchasingProvider = purchasingServices.BuildServiceProvider();
+await using var purchasingRenderer = new HtmlRenderer(purchasingProvider, purchasingProvider.GetRequiredService<ILoggerFactory>());
+
+var purchaseListHtml = await purchasingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await purchasingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Purchasing.PurchaseOrders>(ParameterView.Empty)).ToHtmlString());
+
+var purchaseEditorHtml = await purchasingRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var parameters = new Dictionary<string, object?> { ["OrderId"] = purchaseOrderId };
+
+    return (await purchasingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Purchasing.PurchaseOrderEditor>(
+        ParameterView.FromDictionary(parameters))).ToHtmlString();
+});
+
+var receivingQueueHtml = await purchasingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await purchasingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Purchasing.Receiving>(ParameterView.Empty)).ToHtmlString());
+
+var receivingHtml = await purchasingRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var parameters = new Dictionary<string, object?> { ["OrderId"] = purchaseOrderId };
+
+    return (await purchasingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Purchasing.Receiving>(
+        ParameterView.FromDictionary(parameters))).ToHtmlString();
+});
+
+Check("the procurement screens are shared pages with their own routes",
+    typeof(QtsBilling.Ui.Pages.Purchasing.PurchaseOrders).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "purchasing/orders")
+        && typeof(QtsBilling.Ui.Pages.Purchasing.PurchaseOrderEditor).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "purchasing/orders/{OrderId:guid}")
+        && typeof(QtsBilling.Ui.Pages.Purchasing.Receiving).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "purchasing/receiving")
+        && typeof(QtsBilling.Ui.Pages.Purchasing.Receiving).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "purchasing/receiving/{OrderId:guid}"));
+Check("the procurement screens read nothing and post nothing during the prerender",
+    stubPurchasing.Calls == 0 && stubPurchasing.WriteCalls == 0,
+    $"reads {stubPurchasing.Calls}, writes {stubPurchasing.WriteCalls}");
+Check("every procurement screen paints its loading answer rather than a finished document",
+    purchaseListHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && purchaseEditorHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && receivingQueueHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && receivingHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the order list states the commitment rule and the billing rule it will not cross",
+    purchaseListHtml.Contains("Placing an order commits this business to a supplier", StringComparison.Ordinal)
+        && purchaseListHtml.Contains("payables workbench (task 27)", StringComparison.Ordinal)
+        && purchaseEditorHtml.Contains("Placing an order commits this business to a supplier", StringComparison.Ordinal));
+Check("the order screen says a received quantity cannot be typed, and receiving says what a GRN does",
+    purchaseEditorHtml.Contains("no field here lets a person overwrite", StringComparison.Ordinal)
+        && receivingQueueHtml.Contains("quantities land in the named branch", StringComparison.Ordinal));
+Check("an order's lifecycle is stated by its state, and outstanding is never below zero",
+    QtsBilling.Ui.Pages.Purchasing.PurchasingRules.AllowedActions(QtsBilling.Contracts.Purchasing.PurchaseOrderState.Ordered)
+        .Contains(QtsBilling.Ui.Pages.Purchasing.PurchaseOrderAction.Receive)
+        && !QtsBilling.Ui.Pages.Purchasing.PurchasingRules.AllowedActions(QtsBilling.Contracts.Purchasing.PurchaseOrderState.Ordered)
+            .Contains(QtsBilling.Ui.Pages.Purchasing.PurchaseOrderAction.Edit)
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.Outstanding(
+            StubPurchasingApiClient.SampleLine(Guid.CreateVersion7(), 8m, 3m)) == 5m
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.Outstanding(
+            StubPurchasingApiClient.SampleLine(Guid.CreateVersion7(), 8m, 9m)) == 0m
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.Returnable(
+            StubPurchasingApiClient.SampleLine(Guid.CreateVersion7(), 8m, 3m)) == 3m);
+Check("the ledger link a receipt carries is the server's own, and an unposted document says so",
+    QtsBilling.Ui.Pages.Purchasing.PurchasingRules.LedgerText(
+        StubPurchasingApiClient.SampleReceipt("GRN-0001", "JE-0001", ["1200", "2101"])) == "JE-0001 · 1200, 2101"
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.LedgerText(
+            StubPurchasingApiClient.SampleReceipt("GRN-0002", null, null)).Contains("nothing posted", StringComparison.Ordinal));
+Check("a lost receipt answer keeps its key, a proven refusal releases it",
+    !QtsBilling.Ui.Pages.Purchasing.PurchasingRules.CommittedNothing(ApiErrorCodes.InternalError)
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.CommittedNothing(ApiErrorCodes.OverReceipt)
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.CommittedNothing(ApiErrorCodes.SameKeyDifferentPayload)
+        && QtsBilling.Ui.Pages.Purchasing.PurchasingRules.NewKey("receive", "PO-0001").Length <= 64);
+Check("the printable purchase document is composed locally from snapshots and names no location",
+    QtsBilling.Ui.Pages.Purchasing.PurchaseDocument.ForOrder(
+            StubPurchasingApiClient.SampleDetail(purchaseBranchId, purchaseOrderId), "Main branch", reprint: true).Content
+        .Contains("COPY - composed from the stored snapshot", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Purchasing.PurchaseDocument.ForReceipt(
+                StubPurchasingApiClient.SampleReceipt("GRN-0001", "JE-0001", ["1200"]), "Main branch", reprint: false).Content
+            .Contains("Ledger entry", StringComparison.Ordinal));
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -1864,4 +1961,112 @@ internal sealed class StubPricingApiClient : IPricingApiClient
 
     public Task DeactivateDiscountAsync(Guid id, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never retires a discount.");
+}
+
+/// <summary>
+/// The procurement contract as the render smoke sees it (specification task 26). Reads are counted so a page that
+/// reaches for its order during the prerender fails the run, and every money-moving command is refused rather than
+/// simulated: a goods received note is a server fact with a journal behind it, so the smoke never pretends to post
+/// one.
+/// </summary>
+internal sealed class StubPurchasingApiClient(Guid branchId, Guid orderId) : IPurchasingApiClient
+{
+    /// <summary>How often a screen asked for a read, so a prerender that loads is visible as a failure.</summary>
+    public int Calls { get; private set; }
+
+    /// <summary>How often a screen tried to move stock or terms. The smoke must never see this grow.</summary>
+    public int WriteCalls { get; private set; }
+
+    public static PurchaseOrderLineDto SampleLine(Guid id, decimal ordered, decimal received) => new(
+        id, 1, Guid.CreateVersion7(), "Test item", "SKU-1", ordered, received, 60m, 0m, 0m, 0m, ordered * 60m);
+
+    public static PurchaseReceiptDto SampleReceipt(string number, string? journal, IReadOnlyList<string>? accounts) => new(
+        Guid.CreateVersion7(),
+        number,
+        "Receipt",
+        Guid.CreateVersion7(),
+        "PO-0001",
+        Guid.CreateVersion7(),
+        DateTimeOffset.UtcNow,
+        null,
+        [new PurchaseReceiptLineDto(Guid.CreateVersion7(), 1, Guid.CreateVersion7(), Guid.CreateVersion7(), "Test item", "SKU-1", 3m, 60m)],
+        journal,
+        accounts);
+
+    public static PurchaseOrderDetailDto SampleDetail(Guid locationId, Guid id) => new(
+        new PurchaseOrderSummaryDto(
+            id,
+            "PO-0001",
+            PurchaseOrderState.Ordered,
+            Guid.CreateVersion7(),
+            "Van supply",
+            locationId,
+            DateOnly.FromDateTime(DateTime.UtcNow),
+            null,
+            "QAR",
+            600m,
+            0m,
+            0m,
+            600m,
+            "ordered for the smoke",
+            DateTimeOffset.UtcNow),
+        [SampleLine(Guid.CreateVersion7(), 10m, 3m)]);
+
+    public Task<PagedResult<PurchaseOrderSummaryDto>> ListOrdersAsync(
+        PurchaseOrderState? status = null,
+        Guid? supplierId = null,
+        Guid? locationId = null,
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new PagedResult<PurchaseOrderSummaryDto>(
+            [SampleDetail(branchId, orderId).Order], NextCursor: null, pageSize));
+    }
+
+    public Task<PurchaseOrderDetailDto> GetOrderAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(SampleDetail(branchId, id));
+    }
+
+    public Task<IReadOnlyList<PurchaseReceiptDto>> ListReceiptsAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult<IReadOnlyList<PurchaseReceiptDto>>(
+            [SampleReceipt("GRN-0001", "JE-0001", ["1200", "2101"])]);
+    }
+
+    public Task<PurchaseOrderDetailDto> CreateOrderAsync(SavePurchaseOrderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseOrderDetailDto>(Refused());
+
+    public Task<PurchaseOrderDetailDto> UpdateOrderAsync(Guid id, SavePurchaseOrderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseOrderDetailDto>(Refused());
+
+    public Task DeleteOrderAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromException(Refused());
+
+    public Task<PurchaseOrderDetailDto> ConfirmOrderAsync(Guid id, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseOrderDetailDto>(Refused());
+
+    public Task<PurchaseOrderDetailDto> CancelOrderAsync(Guid id, PurchaseOrderActionRequest request, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseOrderDetailDto>(Refused());
+
+    public Task<PurchaseReceiptDto> ReceiveAsync(Guid orderId, PurchaseReceiptRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseReceiptDto>(Refused());
+
+    public Task<PurchaseReceiptDto> ReturnAsync(Guid orderId, PurchaseReceiptRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromException<PurchaseReceiptDto>(Refused());
+
+    private NotSupportedException Refused()
+    {
+        WriteCalls++;
+
+        return new NotSupportedException("The smoke never commits a purchasing document.");
+    }
 }

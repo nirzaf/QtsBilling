@@ -99,7 +99,13 @@ public sealed record PurchaseReceiptDto(
     Guid LocationId,
     DateTimeOffset ReceivedAtUtc,
     string? Note,
-    IReadOnlyList<PurchaseReceiptLineDto> Lines);
+    IReadOnlyList<PurchaseReceiptLineDto> Lines,
+    /// <summary>The ledger entry this document produced, numbered as the accounts name it (task 26, recipe
+    /// step 3). Null only when the document moved no value, so nothing could post.</summary>
+    string? JournalEntryNumber = null,
+    /// <summary>The control accounts the entry touched, so the delivery can be followed into the accounts it
+    /// moved instead of guessed at.</summary>
+    IReadOnlyList<string>? ControlAccountCodes = null);
 
 public sealed record PurchaseOrderActionRequest(string Reason);
 

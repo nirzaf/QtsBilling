@@ -336,6 +336,11 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Accounting.IAccountingApiCli
 builder.Services.AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The procurement screens live in the shared library and this host renders them, so the purchase-order,
+// receiving and return contract must resolve here too (specification task 26).
+builder.Services.AddHttpClient<QtsBilling.Contracts.Purchasing.IPurchasingApiClient, QtsBilling.Contracts.Purchasing.PurchasingApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 // The catalog reference lists and the pricing definitions (specification task 16): the screens maintain records the
 // server already validates, so the same routes are reached rather than a second copy of the rules.
 builder.Services.AddHttpClient<QtsBilling.Contracts.Catalog.IMasterDataApiClient, QtsBilling.Contracts.Catalog.MasterDataApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))

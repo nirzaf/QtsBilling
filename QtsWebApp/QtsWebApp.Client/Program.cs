@@ -30,6 +30,8 @@ builder.Services.AddScoped<IAdministrationUserApiClient, AdministrationUserApiCl
 builder.Services.AddScoped<IDeviceAdministrationApiClient, DeviceAdministrationApiClient>();
 builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>();
 builder.Services.AddScoped<ISupplierApiClient, SupplierApiClient>();
+// Purchase orders, receiving and returns in the browser (specification task 26).
+builder.Services.AddScoped<IPurchasingApiClient, PurchasingApiClient>();
 builder.Services.AddScoped<IMasterDataApiClient, MasterDataApiClient>();
 builder.Services.AddScoped<QtsBilling.Contracts.Pricing.IPricingApiClient, QtsBilling.Contracts.Pricing.PricingApiClient>();
 builder.Services.AddScoped<IProductApiClient, ProductApiClient>();

@@ -215,6 +215,16 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // The procurement screens are shared pages this host routes too (specification task 26): a store receiving
+        // a delivery on a terminal needs the same purchase-order, receipt and return contract as the browser.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Purchasing.IPurchasingApiClient, QtsBilling.Contracts.Purchasing.PurchasingApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(60);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Catalog.IMasterDataApiClient, QtsBilling.Contracts.Catalog.MasterDataApiClient>((services, client) =>
             {

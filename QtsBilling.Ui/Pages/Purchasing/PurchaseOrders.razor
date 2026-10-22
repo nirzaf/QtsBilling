@@ -1,0 +1,127 @@
+@page "/purchasing/orders"
+@namespace QtsBilling.Ui.Pages.Purchasing
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Purchasing
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>Purchase orders - QTS Billing</PageTitle>
+
+@* The purchase-order list (specification task 26, recipe step 1): what is promised to suppliers and what is
+   still owed. Supplier, branch and product are chosen by name; no field asks for an identifier. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Purchase orders</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">What is ordered, what arrived, and what the supplier still owes.</MudText>
+    </div>
+    <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+               OnClick="ToggleCreate" Disabled="@_list.IsBusy" aria-label="New purchase order">
+        @(_creating ? "Close the new order panel" : "New order")
+    </MudButton>
+</MudStack>
+
+@* The two rules this screen never crosses are stated in its header, so they are readable before any list has
+   arrived: an order commits, it does not receive, and a supplier's bill is matched elsewhere. *@
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@PurchasingRules.CommitmentRule @PurchasingRules.BillingRule</MudText>
+
+<ShellStates Kind="State" Body="StateBody" RetryCallback="LoadAsync" RetryLabel="Read the orders again">
+    @if (_creating)
+    {
+        <MudPaper Class="pa-4 mb-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">A new draft</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="4">
+                        <ReferenceSelector Label="Supplier (search by name)" Value="_newSupplier" ValueChanged="NewSupplierChanged"
+                                           Search="SearchSuppliersAsync" HelpText="Chosen from the supplier list, never typed as an identifier." />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <ReferenceSelector Label="Deliver into branch (search by name)" Value="_newLocation" ValueChanged="NewLocationChanged"
+                                           Search="SearchLocationsAsync" HelpText="Stock arrives at this branch when a delivery is recorded." />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudDatePicker Label="Expected by" @bind-Date="_expected" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <ReferenceSelector Label="Product (search by name or SKU)" Value="_newProduct" ValueChanged="NewProductChanged"
+                                           Search="SearchProductsAsync" HelpText="The catalogue's default variant of the chosen product is ordered." />
+                    </MudItem>
+                    <MudItem xs="4" md="2">
+                        <MudNumericField T="decimal" Label="Quantity" @bind-Value="_newLineQuantity" Min="0.001m" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="4" md="2">
+                        <MudNumericField T="decimal" Label="Unit cost" @bind-Value="_newLineCost" Min="0m" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" md="2" Class="d-flex align-end">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" OnClick="CreateAsync"
+                                   Disabled="@(_list.IsBusy || _newSupplier is null || _newLocation is null || _newVariantId is null)">
+                            Create the draft
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                    The draft starts with this one line; further lines, discounts and tax are set on the order screen, and the order is placed only when you say so.
+                </MudText>
+            </MudStack>
+        </MudPaper>
+    }
+
+    <MudPaper Class="pa-3 mb-3" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField Value="_list.Search" Label="Order number or supplier" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="OnSearchChanged" />
+            </MudItem>
+            <MudItem xs="12" sm="4" md="3">
+                <MudSelect T="PurchaseOrderState?" Label="Status" Value="_status" ValueChanged="OnStatusChanged" Variant="Variant.Outlined" Margin="Margin.Dense">
+                    <MudSelectItem T="PurchaseOrderState?" Value="@((PurchaseOrderState?)null)">All statuses</MudSelectItem>
+                    @foreach (var state in Enum.GetValues<PurchaseOrderState>())
+                    {
+                        <MudSelectItem T="PurchaseOrderState?" Value="@((PurchaseOrderState?)state)">@PurchasingRules.StatusText(state)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="4" md="3">
+                <ReferenceSelector Label="Supplier filter (search by name)" Value="_supplierFilter" ValueChanged="SupplierFilterChanged"
+                                   Search="SearchSuppliersAsync" HelpText="Leave empty for every supplier." />
+            </MudItem>
+            <MudItem xs="12" md="2">
+                <MudButton FullWidth="true" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="@_list.IsBusy">Refresh</MudButton>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudTable Items="_list.Rows" Loading="_list.IsBusy" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Purchase orders">
+        <HeaderContent>
+            <MudTh>Order</MudTh><MudTh>Supplier</MudTh><MudTh>Status</MudTh><MudTh>Branch</MudTh>
+            <MudTh>Ordered</MudTh><MudTh>Expected</MudTh><MudTh Style="text-align:right">Total</MudTh>
+            <MudTh Style="text-align:right">Value still owed</MudTh><MudTh>Open</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Order"><MudLink Href="@($"purchasing/orders/{context.Id:D}")" Underline="Underline.Hover">@context.OrderNumber</MudLink></MudTd>
+            <MudTd DataLabel="Supplier">@(string.IsNullOrWhiteSpace(context.SupplierName) ? "the supplier" : context.SupplierName)</MudTd>
+            <MudTd DataLabel="Status"><MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@StatusColor(context.Status)" data-qts-status="@context.Status">@PurchasingRules.StatusText(context.Status)</MudChip></MudTd>
+            <MudTd DataLabel="Branch">@BranchName(context.LocationId)</MudTd>
+            <MudTd DataLabel="Ordered">@InvoiceRules.DateText(context.OrderDate)</MudTd>
+            <MudTd DataLabel="Expected">@(context.ExpectedDate is { } expected ? InvoiceRules.DateText(expected) : "-")</MudTd>
+            <MudTd DataLabel="Total" Style="text-align:right">@PurchasingRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+            <MudTd DataLabel="Value still owed" Style="text-align:right" data-qts-figure="outstanding">@OutstandingValueText(context)</MudTd>
+            <MudTd DataLabel="Open">
+                <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"purchasing/orders/{context.Id:D}")" aria-label="@($"Open {context.OrderNumber}")">Open</MudButton>
+                @if (context.Status is PurchaseOrderState.Ordered or PurchaseOrderState.PartiallyReceived)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"purchasing/receiving/{context.Id:D}")" aria-label="@($"Record a delivery against {context.OrderNumber}")">Receive</MudButton>
+                }
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">No purchase orders match these filters.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Justify="Justify.FlexEnd" Spacing="2" Class="mt-3">
+        <MudButton Variant="Variant.Outlined" OnClick="PreviousAsync" Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="NextAsync" Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+    </MudStack>
+</ShellStates>

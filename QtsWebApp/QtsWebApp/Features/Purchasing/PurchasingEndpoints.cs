@@ -1304,6 +1304,29 @@ public static class PurchasingEndpoints
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        // A receipt is the moment stock and the ledger both move, so the document names the entry it produced and
+        // the accounts it touched (task 26, recipe step 3). The operator follows the delivery into the accounts
+        // instead of asking which journal ought to exist.
+        var posted = await db.JournalEntries.AsNoTracking()
+            .Where(entry => entry.BusinessId == businessId
+                && entry.SourceType == JournalSourceType.Purchase
+                && entry.SourceId == receipt.Id)
+            .Select(entry => new { entry.Id, entry.EntryNumber })
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var ledgerEntryNumber = posted?.EntryNumber;
+
+        IReadOnlyList<string> controlAccountCodes = posted is null
+            ? []
+            : await (from line in db.JournalLines.AsNoTracking()
+                     where line.BusinessId == businessId && line.JournalEntryId == posted.Id
+                     join account in db.Accounts.AsNoTracking() on line.AccountId equals account.Id
+                     orderby account.Code
+                     select account.Code)
+                .ToListAsync(cancellationToken)
+                .ConfigureAwait(false);
+
         return new PurchaseReceiptDto(
             receipt.Id,
             receipt.ReceiptNumber,
@@ -1313,7 +1336,9 @@ public static class PurchasingEndpoints
             receipt.LocationId,
             receipt.ReceivedAtUtc,
             receipt.Note,
-            lines);
+            lines,
+            ledgerEntryNumber,
+            controlAccountCodes);
     }
 
     // ---------------------------------------------------------------- shared helpers

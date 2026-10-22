@@ -1,0 +1,183 @@
+@page "/purchasing/receiving"
+@page "/purchasing/receiving/{OrderId:guid}"
+@namespace QtsBilling.Ui.Pages.Purchasing
+@using QtsBilling.Contracts.Purchasing
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>Receiving - QTS Billing</PageTitle>
+
+@* Receiving and returns for one purchase order (specification task 26, recipe steps 2 and 3): the quantities are
+   read from the order, the documents posted here are the only thing that moves stock, and an ambiguous answer is
+   resolved by re-sending the same document rather than posting a second delivery. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Receiving @(_detail?.Order.OrderNumber)</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@(_detail is null ? "Record what arrived, or what goes back." : $"{_detail.Order.SupplierName ?? "the supplier"} · {BranchText(_detail.Order.LocationId)} · {PurchasingRules.StatusText(_detail.Order.Status)}")</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        @if (!IsQueue)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" Href="@($"purchasing/orders/{OrderId:D}")">Back to the order</MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="@_busy">Read it back</MudButton>
+    </MudStack>
+</MudStack>
+
+@* What a receipt is, stated before any order has loaded: it is the document that makes stock and the ledger move,
+   and it is the only thing here that does. *@
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@PurchasingRules.ReceiptRule @PurchasingRules.NoManualStockRule</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="RefreshAsync" RetryLabel="Read it back">
+    @if (IsQueue)
+    {
+        @* The store's work queue: every placed order that still owes something, chosen by number and supplier so
+           nobody has to carry an order identifier around (R07). *@
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Orders awaiting a delivery</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Choose the order the goods came in against.</MudText>
+                <MudTable Items="_openOrders" Dense="true" Hover="true" Loading="_busy" aria-label="Orders awaiting a delivery">
+                    <HeaderContent>
+                        <MudTh>Order</MudTh><MudTh>Supplier</MudTh><MudTh>Status</MudTh><MudTh>Branch</MudTh>
+                        <MudTh Style="text-align:right">Order value</MudTh><MudTh>Receive</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Order"><MudLink Href="@($"purchasing/receiving/{context.Id:D}")" Underline="Underline.Hover">@context.OrderNumber</MudLink></MudTd>
+                        <MudTd DataLabel="Supplier">@(string.IsNullOrWhiteSpace(context.SupplierName) ? "the supplier" : context.SupplierName)</MudTd>
+                        <MudTd DataLabel="Status">@PurchasingRules.StatusText(context.Status)</MudTd>
+                        <MudTd DataLabel="Branch">@BranchText(context.LocationId)</MudTd>
+                        <MudTd DataLabel="Order value" Style="text-align:right">@PurchasingRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                        <MudTd DataLabel="Receive">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"purchasing/receiving/{context.Id:D}")"
+                                       aria-label="@($"Record a delivery against {context.OrderNumber}")">Record a delivery</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+            </MudStack>
+        </MudPaper>
+    }
+    else if (_detail is { } detail)
+    {
+        @if (!string.IsNullOrWhiteSpace(_error))
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+                <MudText Typo="Typo.body2">@_error</MudText>
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="RefreshAsync" Disabled="@_busy">Read the order back</MudButton>
+            </MudAlert>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(_notice))
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+        }
+
+        @if (!IsOpen)
+        {
+            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">
+                @(detail.Order.Status == PurchaseOrderState.Draft
+                    ? "This order has not been placed yet, so nothing can be received against it. Place it first: a promise to a supplier and a delivery into a store are separate facts."
+                    : "This order is closed to further deliveries. Whatever was already received keeps its stock, its cost and its journal.")
+            </MudAlert>
+        }
+
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">@(_mode == DeliveryMode.Receipt ? "Record a delivery" : "Record a return")</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@(_mode == DeliveryMode.Receipt ? PurchasingRules.ReceiptRule : PurchasingRules.ReturnRule)</MudText>
+
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Variant="@(_mode == DeliveryMode.Receipt ? Variant.Filled : Variant.Outlined)" Color="Color.Primary"
+                               OnClick="ChooseReceipt" Disabled="@_busy" aria-label="Record a delivery">Deliveries in</MudButton>
+                    <MudButton Variant="@(_mode == DeliveryMode.Receipt ? Variant.Outlined : Variant.Filled)" Color="Color.Warning"
+                               OnClick="ChooseReturn" Disabled="@_busy" aria-label="Record a return">Returns out</MudButton>
+                </MudStack>
+
+                <MudTable Items="detail.Lines" Dense="true" Hover="true" aria-label="Order lines and their quantities">
+                    <HeaderContent>
+                        <MudTh>Item</MudTh><MudTh Style="text-align:right">Ordered</MudTh><MudTh Style="text-align:right">Received</MudTh>
+                        <MudTh Style="text-align:right">Outstanding</MudTh><MudTh Style="text-align:right">Unit cost</MudTh>
+                        <MudTh Style="text-align:right">@(_mode == DeliveryMode.Receipt ? "Arriving now" : "Going back now")</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Item">@context.ProductName @(string.IsNullOrWhiteSpace(context.Sku) ? null : $"· {context.Sku}")</MudTd>
+                        <MudTd DataLabel="Ordered" Style="text-align:right">@PurchasingRules.QuantityText(context.QuantityOrdered)</MudTd>
+                        <MudTd DataLabel="Received" Style="text-align:right" data-qts-figure="received">@PurchasingRules.QuantityText(context.QuantityReceived)</MudTd>
+                        <MudTd DataLabel="Outstanding" Style="text-align:right" data-qts-figure="outstanding">@PurchasingRules.QuantityText(PurchasingRules.Outstanding(context))</MudTd>
+                        <MudTd DataLabel="Unit cost" Style="text-align:right">@PurchasingRules.Money(context.UnitCost)</MudTd>
+                        <MudTd DataLabel="@(_mode == DeliveryMode.Receipt ? "Arriving now" : "Going back now")">
+                            <MudNumericField T="decimal" Label="@(null)" Value="QuantityFor(context)" ValueChanged="@(value => SetQuantity(context, value))"
+                                             Min="0m" Max="@CeilingFor(context)" Step="0.001m" Disabled="@(_busy || AwaitingAnswer)"
+                                             aria-label="@($"Quantity of {context.ProductName} {(_mode == DeliveryMode.Receipt ? "arriving" : "going back")}")" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">at most @PurchasingRules.QuantityText(CeilingFor(context))</MudText>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="8">
+                        <MudTextField Label="Note on this document" @bind-Value="_note" Variant="Variant.Outlined" MaxLength="1000" Disabled="@(_busy || AwaitingAnswer)"
+                                      HelperText="@NoteHint" />
+                    </MudItem>
+                    <MudItem xs="12" md="4" Class="d-flex align-center">
+                        <MudTextField Label="Delivery or returns reference" @bind-Value="_reference" Variant="Variant.Outlined" MaxLength="200" Disabled="@(_busy || AwaitingAnswer)"
+                                      HelperText="The way the van, the supplier or the credit note will be recognised later." />
+                    </MudItem>
+                </MudGrid>
+
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                    <MudButton Color="@(_mode == DeliveryMode.Receipt ? Color.Primary : Color.Warning)" Variant="Variant.Filled"
+                               OnClick="SubmitAsync" Disabled="@(_busy || !IsOpen || TotalQuantity <= 0m)">
+                        @(AwaitingAnswer ? "Ask the server about this same document…" : (_mode == DeliveryMode.Receipt ? "Record the delivery" : "Record the return"))
+                    </MudButton>
+                    @if (AwaitingAnswer)
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="AbandonAsync" Disabled="@_busy">Stop waiting and read the order back</MudButton>
+                    }
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@KeyHint</MudText>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mt-3" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Documents already recorded</MudText>
+                <MudTable Items="_receipts" Dense="true" Hover="true" aria-label="Receipts and returns">
+                    <HeaderContent>
+                        <MudTh>Document</MudTh><MudTh>Kind</MudTh><MudTh>Recorded</MudTh><MudTh>Ledger</MudTh><MudTh>Lines</MudTh><MudTh>Note</MudTh><MudTh>Print</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Document">@context.ReceiptNumber</MudTd>
+                        <MudTd DataLabel="Kind">
+                            <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@(PurchasingRules.IsReturn(context.Kind) ? Color.Warning : Color.Success)">
+                                @PurchasingRules.KindText(context.Kind)
+                            </MudChip>
+                        </MudTd>
+                        <MudTd DataLabel="Recorded">@InvoiceRules.InstantText(context.ReceivedAtUtc, Presentation)</MudTd>
+                        <MudTd DataLabel="Ledger" data-qts-figure="journal">@PurchasingRules.LedgerText(context)</MudTd>
+                        <MudTd DataLabel="Lines">
+                            @foreach (var line in context.Lines)
+                            {
+                                <MudText Typo="Typo.caption" Class="d-block">@line.ProductName · @PurchasingRules.QuantityText(line.Quantity) @PurchasingRules.Money(line.UnitCost)</MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Note">@(string.IsNullOrWhiteSpace(context.Note) ? "-" : context.Note)</MudTd>
+                        <MudTd DataLabel="Print">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => PrintAsync(context))" Disabled="@(_busy || !Output.CanPresentDocuments)"
+                                       aria-label="@($"Print {context.ReceiptNumber}")">Print</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">Nothing has been recorded against this order yet.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+                @if (!Output.CanPresentDocuments)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">This host has no local print facility; the figures above are the documents' own.</MudText>
+                }
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-0">@PurchasingRules.BillingRule</MudAlert>
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>
