@@ -2082,6 +2082,109 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         });
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DepositRefund", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<string>("BankReference")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)")
+                        .HasColumnName("bank_reference");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<Guid?>("CashRegisterSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cash_register_session_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid>("JournalEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journal_entry_id");
+
+                    b.Property<string>("Method")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("method");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<Guid>("PaymentId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("payment_id");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("character varying(512)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("RefundedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("refunded_by_user_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "BusinessId");
+
+                    b.HasIndex("BusinessId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_deposit_refunds_business_idempotency_key");
+
+                    b.HasIndex("BusinessId", "JournalEntryId");
+
+                    b.HasIndex("BusinessId", "PaymentId");
+
+                    b.HasIndex("JournalEntryId", "BusinessId");
+
+                    b.HasIndex("PaymentId", "BusinessId");
+
+                    b.ToTable("deposit_refunds", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_deposit_refunds_amount_positive", "amount > 0");
+
+                            t.HasCheckConstraint("ck_deposit_refunds_settlement_named", "((method = 'cash' AND cash_register_session_id IS NOT NULL) OR (method <> 'cash' AND bank_reference IS NOT NULL AND length(bank_reference) > 0))");
+                        });
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceEnrolmentChallenge", b =>
                 {
                     b.Property<Guid>("Id")
@@ -3871,8 +3974,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasAlternateKey("Id", "BusinessId");
-
                     b.HasIndex("BusinessId", "CustomerId");
 
                     b.HasIndex("BusinessId", "SupplierId");
@@ -4081,9 +4182,13 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("timestamptz")
                         .HasColumnName("created_at_utc");
 
-                    b.Property<Guid>("InvoiceId")
+                    b.Property<Guid?>("InvoiceId")
                         .HasColumnType("uuid")
                         .HasColumnName("invoice_id");
+
+                    b.Property<Guid?>("OpenItemId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("open_item_id");
 
                     b.Property<Guid>("PaymentId")
                         .HasColumnType("uuid")
@@ -4097,15 +4202,21 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasIndex("BusinessId", "InvoiceId");
 
+                    b.HasIndex("BusinessId", "OpenItemId");
+
                     b.HasIndex("BusinessId", "PaymentId");
 
                     b.HasIndex("InvoiceId", "BusinessId");
+
+                    b.HasIndex("OpenItemId", "BusinessId");
 
                     b.HasIndex("PaymentId", "BusinessId");
 
                     b.ToTable("payment_allocations", null, t =>
                         {
                             t.HasCheckConstraint("ck_payment_allocations_amount_positive", "allocated_amount > 0");
+
+                            t.HasCheckConstraint("ck_payment_allocations_exactly_one_target", "((invoice_id IS NOT NULL AND open_item_id IS NULL) OR (invoice_id IS NULL AND open_item_id IS NOT NULL))");
                         });
                 });
 
@@ -8209,6 +8320,29 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsRequired();
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DepositRefund", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalEntry", null)
+                        .WithMany()
+                        .HasForeignKey("JournalEntryId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Payment", null)
+                        .WithMany()
+                        .HasForeignKey("PaymentId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.DeviceEnrolmentChallenge", b =>
                 {
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
@@ -8724,8 +8858,13 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .WithMany()
                         .HasForeignKey("InvoiceId", "BusinessId")
                         .HasPrincipalKey("Id", "BusinessId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.OpenItem", null)
+                        .WithMany()
+                        .HasForeignKey("OpenItemId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.Payment", null)
                         .WithMany()

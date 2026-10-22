@@ -133,18 +133,66 @@ public sealed class Payment : TenantEntity
     public string? BounceReason { get; set; }
 }
 
-/// <summary>An append-only allocation of a customer receipt to one invoice.</summary>
+/// <summary>
+/// An append-only application of a customer receipt to one settleable document. Exactly one target is named
+/// (specification task 25, recipe step 2): an issued invoice, or an opening receivable the native import brought
+/// in - never both, and never neither, because an allocation that belongs to no document would silently erase
+/// the deposit it came from. The row is never updated or deleted: a correction is a new linked event.
+/// </summary>
 public sealed class PaymentAllocation : Entity, ITenantScoped
 {
     public Guid BusinessId { get; set; }
 
     public Guid PaymentId { get; set; }
 
-    public Guid InvoiceId { get; set; }
+    /// <summary>The invoice this money settles; null when an opening receivable was settled instead.</summary>
+    public Guid? InvoiceId { get; set; }
+
+    /// <summary>The imported opening receivable this money settles; null when an invoice was settled.</summary>
+    public Guid? OpenItemId { get; set; }
 
     public decimal AllocatedAmount { get; set; }
 
     public DateTimeOffset AllocatedAtUtc { get; set; }
+}
+
+/// <summary>
+/// An authorised refund of money a customer left on deposit and that was never applied to a document
+/// (specification task 25, recipe step 4). The receipt it returns, the amount it returns and the reason stay on
+/// the row forever, the reversal journal is linked by identity, and the ledger - never this row's parent - decides
+/// what the customer still has unapplied. Refunding and allocating draw on the same remaining figure, so both
+/// take the receipt row lock and the attempt that arrives second finds nothing left to take.
+/// </summary>
+public sealed class DepositRefund : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid PaymentId { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public string Currency { get; set; } = "QAR";
+
+    /// <summary>Mandatory: who authorised money going back out, and why.</summary>
+    public string Reason { get; set; } = string.Empty;
+
+    /// <summary>How the money left: a cash drawer movement or a confirmed bank settlement.</summary>
+    public string Method { get; set; } = string.Empty;
+
+    public Guid? CashRegisterSessionId { get; set; }
+
+    public string? BankReference { get; set; }
+
+    public Guid JournalEntryId { get; set; }
+
+    public DateTimeOffset OccurredAtUtc { get; set; }
+
+    public Guid RefundedByUserId { get; set; }
+
+    /// <summary>The command's stable key, so a replayed attempt returns this same refund instead of a second one.</summary>
+    public string IdempotencyKey { get; set; } = string.Empty;
+
+    public string PayloadHash { get; set; } = string.Empty;
 }
 
 /// <summary>Cash drawer session register for a location.</summary>

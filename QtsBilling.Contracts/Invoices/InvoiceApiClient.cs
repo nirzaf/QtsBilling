@@ -33,6 +33,20 @@ public interface IPaymentApiClient
 {
     Task<CustomerPaymentDto> CreateCustomerPaymentAsync(Guid customerId, CreateCustomerPaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     Task<CustomerPaymentDto> AllocateAsync(Guid paymentId, AllocateCustomerPaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The customer's account as at a business date (task 25, recipe step 1): the posted events in order with the
+    /// balance after each, the money still unapplied on deposit and the documents still open. <paramref name="asOf"/>
+    /// is the customer's own trading date; an earlier date replays the account as it stood then, so a later receipt
+    /// cannot appear in a statement printed before it arrived.
+    /// </summary>
+    Task<CustomerStatementDto> GetStatementAsync(Guid customerId, DateOnly? asOf = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Documents this customer has not fully settled - issued invoices and opening receivables together.</summary>
+    Task<IReadOnlyList<CustomerOpenItemDto>> GetOpenItemsAsync(Guid customerId, DateOnly? asOf = null, CancellationToken cancellationToken = default);
+
+    /// <summary>Hands unapplied deposit money back to the customer under a stable key, with its reason and settlement route.</summary>
+    Task<DepositRefundDto> RefundUnallocatedAsync(Guid paymentId, RefundUnallocatedRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
 }
 
 /// <summary>Typed access to the native invoice lifecycle. This client contains no persistence concerns.</summary>
@@ -140,18 +154,41 @@ public sealed class InvoiceApiClient(HttpClient http) : IInvoiceApiClient
 public sealed class PaymentApiClient(HttpClient http) : IPaymentApiClient
 {
     public Task<CustomerPaymentDto> CreateCustomerPaymentAsync(Guid customerId, CreateCustomerPaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
-        => SendAsync($"/api/v1/customers/{customerId:D}/payments", request, idempotencyKey, cancellationToken);
+        => SendAsync<CustomerPaymentDto>($"/api/v1/customers/{customerId:D}/payments", request, idempotencyKey, cancellationToken);
 
     public Task<CustomerPaymentDto> AllocateAsync(Guid paymentId, AllocateCustomerPaymentRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
-        => SendAsync($"/api/v1/payments/{paymentId:D}/allocate", request, idempotencyKey, cancellationToken);
+        => SendAsync<CustomerPaymentDto>($"/api/v1/payments/{paymentId:D}/allocate", request, idempotencyKey, cancellationToken);
 
-    private async Task<CustomerPaymentDto> SendAsync(string route, object body, string idempotencyKey, CancellationToken cancellationToken)
+    public async Task<CustomerStatementDto> GetStatementAsync(Guid customerId, DateOnly? asOf = null, CancellationToken cancellationToken = default)
+    {
+        var query = asOf is { } date ? $"?asOf={date:yyyy-MM-dd}" : string.Empty;
+        using var response = await http.GetAsync($"/api/v1/customers/{customerId:D}/statement{query}", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ApiHttp.ReadRequiredAsync<CustomerStatementDto>(response, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<IReadOnlyList<CustomerOpenItemDto>> GetOpenItemsAsync(Guid customerId, DateOnly? asOf = null, CancellationToken cancellationToken = default)
+    {
+        var query = asOf is { } date ? $"?asOf={date:yyyy-MM-dd}" : string.Empty;
+        using var response = await http.GetAsync($"/api/v1/customers/{customerId:D}/open-items{query}", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await ApiHttp.ReadRequiredAsync<IReadOnlyList<CustomerOpenItemDto>>(response, cancellationToken).ConfigureAwait(false)
+            ?? [];
+    }
+
+    public Task<DepositRefundDto> RefundUnallocatedAsync(Guid paymentId, RefundUnallocatedRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        InvoiceApiClient.ValidateIdempotencyKey(idempotencyKey);
+        return SendAsync<DepositRefundDto>($"/api/v1/payments/{paymentId:D}/refund-unallocated", request, idempotencyKey, cancellationToken);
+    }
+
+    private async Task<T> SendAsync<T>(string route, object body, string idempotencyKey, CancellationToken cancellationToken) where T : class
     {
         InvoiceApiClient.ValidateIdempotencyKey(idempotencyKey);
         using var message = new HttpRequestMessage(HttpMethod.Post, route) { Content = JsonContent.Create(body, options: ContractJson.Options) };
         message.Headers.TryAddWithoutValidation("Idempotency-Key", idempotencyKey);
         using var response = await http.SendAsync(message, cancellationToken).ConfigureAwait(false);
         await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
-        return await ApiHttp.ReadRequiredAsync<CustomerPaymentDto>(response, cancellationToken).ConfigureAwait(false);
+        return await ApiHttp.ReadRequiredAsync<T>(response, cancellationToken).ConfigureAwait(false);
     }
 }

@@ -195,18 +195,139 @@ public sealed record PaymentTransitionDto(
     DateTimeOffset? BouncedAtUtc,
     string? BounceReason);
 
-public sealed record InvoiceAllocationRequest(Guid InvoiceId, decimal Amount);
+/// <summary>
+/// One application of a customer's money to exactly one settleable document (specification task 25, recipe step 2):
+/// either an issued invoice or an opening receivable the native import brought in. Both identifiers are nullable so
+/// the choice is visible on the wire, and the server accepts a target that names exactly one of them - never both
+/// (one payment could then be counted against two documents) and never neither (the money would leave the deposit
+/// and settle nothing). The shape replaces an invoice-only allocation because an imported opening is real
+/// receivable money: refusing to settle it would push operators to invent a fake invoice for it, which is how a
+/// customer ends up charged twice.
+/// </summary>
+public sealed record AllocationTarget(Guid? InvoiceId, Guid? OpenItemId, decimal Amount)
+{
+    /// <summary>What this target settles, as an operator would name it.</summary>
+    public string TargetKind => InvoiceId is not null ? "invoice" : OpenItemId is not null ? "opening" : "nothing";
+}
+
+/// <summary>
+/// Money a customer left on deposit and had handed back unapplied (task 25, recipe step 4). Each row is an
+/// immutable event with its own reversal journal, reason, settlement route and stable command key.
+/// </summary>
+public sealed record DepositRefundDto(
+    Guid Id,
+    Guid PaymentId,
+    decimal Amount,
+    string Currency,
+    string Reason,
+    string Method,
+    string? BankReference,
+    Guid? CashRegisterSessionId,
+    string? JournalEntryNumber,
+    DateTimeOffset OccurredAtUtc,
+    decimal RemainingUnapplied);
+
+/// <summary>Command: give unapplied deposit money back to the customer.</summary>
+/// <param name="Amount">At most the receipt's remaining unapplied figure; the server refuses beyond it.</param>
+/// <param name="Reason">Mandatory, audited with the operator who authorised it.</param>
+/// <param name="Method"><c>cash</c> names a drawer with an open session; <c>bankTransfer</c> names the settlement reference the bank used.</param>
+public sealed record RefundUnallocatedRequest(
+    decimal Amount,
+    string Reason,
+    string Method,
+    Guid? RegisterId,
+    string? BankReference);
+
+/// <summary>
+/// One line of a customer's statement: a document that raised money owed, or an event that moved it back. The
+/// running balance is the server's own arithmetic over the immutable events, never a figure a screen recomputes.
+/// </summary>
+/// <param name="Kind">Which fact this row is: <c>opening</c>, <c>invoice</c>, <c>receipt</c>, <c>application</c>, <c>credit_note</c> or <c>refund</c>.</param>
+/// <param name="Reference">The number the customer knows the document by, never a key they cannot read.</param>
+/// <param name="DebitAmount">Money this event added to what the customer owes.</param>
+/// <param name="CreditAmount">Money this event took back from what the customer owes.</param>
+/// <param name="BalanceAfter">The customer's balance immediately after this event, as of the requested date.</param>
+public sealed record CustomerStatementLineDto(
+    Guid Id,
+    string Kind,
+    DateOnly DocumentDate,
+    DateOnly? DueDate,
+    string Reference,
+    string? Note,
+    decimal DebitAmount,
+    decimal CreditAmount,
+    decimal BalanceAfter,
+    string Currency);
+
+/// <summary>
+/// A customer's account as at a chosen business date (task 25, recipe step 5): the movements in order, the
+/// balance the customer carried at the start and at the end, the money still sitting unapplied on deposit, and
+/// the documents that are open. Statement totals tie to the posted events and the configured receivable control,
+/// so a figure on paper can be traced to the ledger row that produced it.
+/// </summary>
+public sealed record CustomerStatementDto(
+    Guid CustomerId,
+    string CustomerName,
+    string Currency,
+    DateOnly AsOfDate,
+    DateTimeOffset GeneratedAtUtc,
+    decimal OpeningBalance,
+    decimal MovementDebit,
+    decimal MovementCredit,
+    decimal ClosingBalance,
+    decimal UnappliedDeposits,
+    int OpenDocumentCount,
+    bool Truncated,
+    IReadOnlyList<CustomerStatementLineDto> Lines,
+    IReadOnlyList<CustomerDepositDto>? Deposits = null,
+    int? SettlementScale = null,
+    string? TimeZoneId = null);
+
+/// <summary>
+/// One document the customer still has not fully settled - an issued invoice or an imported opening receivable -
+/// with what it was raised at, what has been applied to it and what is left. The remaining figure is derived from
+/// the applications, never patched onto the original, so a document's history stays exactly as it was written.
+/// </summary>
+public sealed record CustomerOpenItemDto(
+    string TargetKind,
+    Guid Id,
+    string Reference,
+    DateOnly DocumentDate,
+    DateOnly? DueDate,
+    decimal OriginalAmount,
+    decimal AppliedAmount,
+    decimal RemainingAmount,
+    string Currency,
+    bool PastDue,
+    string? Note);
 
 public sealed record CreateCustomerPaymentRequest(
     string Method,
     decimal Amount,
     DateOnly ReceivedDate,
     string? Reference,
-    IReadOnlyList<InvoiceAllocationRequest>? Allocations);
+    IReadOnlyList<AllocationTarget>? Allocations);
 
-public sealed record AllocateCustomerPaymentRequest(IReadOnlyList<InvoiceAllocationRequest> Allocations);
+public sealed record AllocateCustomerPaymentRequest(IReadOnlyList<AllocationTarget> Allocations);
 
-public sealed record CustomerPaymentAllocationDto(Guid InvoiceId, decimal Amount);
+public sealed record CustomerPaymentAllocationDto(Guid? InvoiceId, Guid? OpenItemId, decimal Amount);
+
+/// <summary>
+/// Money a customer has on deposit with this business: a receipt that was taken in their name and the part of it
+/// that has not been applied to any document yet. The unapplied remainder is a liability the business holds for
+/// them - it is not revenue, and it is not a negative receivable dressed up as a paid invoice (task 25, recipe
+/// step 3). The refunds listed against it are the immutable record of what has already been handed back.
+/// </summary>
+public sealed record CustomerDepositDto(
+    Guid PaymentId,
+    string Method,
+    string Status,
+    decimal Amount,
+    decimal UnallocatedAmount,
+    string Currency,
+    string? Reference,
+    DateTimeOffset ReceivedAtUtc,
+    IReadOnlyList<DepositRefundDto> Refunds);
 
 public sealed record CustomerPaymentDto(
     Guid Id,

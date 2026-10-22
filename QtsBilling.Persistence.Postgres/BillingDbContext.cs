@@ -114,6 +114,9 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<PaymentAllocation> PaymentAllocations => Set<PaymentAllocation>();
 
+    /// <summary>Append-only refunds of money a customer left unapplied on deposit (specification task 25).</summary>
+    public DbSet<DepositRefund> DepositRefunds => Set<DepositRefund>();
+
     public DbSet<CashRegister> CashRegisters => Set<CashRegister>();
 
     public DbSet<CashRegisterMovement> CashRegisterMovements => Set<CashRegisterMovement>();

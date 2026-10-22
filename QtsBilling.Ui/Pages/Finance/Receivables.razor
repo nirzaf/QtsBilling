@@ -1,0 +1,325 @@
+@page "/finance/receivables"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Customers
+@using QtsBilling.Contracts.Invoices
+@using QtsBilling.Contracts.Sales
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Models
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>Receivables - QTS Billing</PageTitle>
+
+@* The receivables workbench (specification task 25): one customer's account read as at a business date, the
+   documents still owing - issued invoices and imported opening balances together - the money held on deposit,
+   and the two actions that move them: apply a deposit to exactly one document, or hand unapplied money back.
+   Every figure is the server's; this screen posts intentions and reads the account back. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Receivables</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Statements, deposits and what still owes - per customer, as at one business date.</MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReadAsync" Disabled="@(_busy || _customer is null)">Read the account</MudButton>
+</MudStack>
+
+@if (!_canRead)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined">Your current role cannot view customer receivables.</MudAlert>
+}
+else
+{
+    <MudPaper Class="pa-3 mb-3" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="5">
+                <ReferenceSelector Label="Customer (search by name)"
+                                   Value="@_customer"
+                                   ValueChanged="CustomerChangedAsync"
+                                   Search="SearchCustomersAsync"
+                                   Disabled="@_busy"
+                                   HelpText="Chosen from the server's customer list - a customer id is never typed here." />
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudDatePicker Label="Statement as at" @bind-Date="_asOf" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@_busy" />
+            </MudItem>
+            <MudItem xs="12" md="4" Class="d-flex align-center">
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@ReceivablesRules.AsOfRule</MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    @if (_loading)
+    {
+        <MudProgressLinear Indeterminate="true" Color="Color.Primary" />
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="ReadAsync" Disabled="@_busy">Read the account back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (_statement is not null)
+    {
+        <MudStack Spacing="3">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Balance brought in</MudText>
+                        <MudText Typo="Typo.h6" data-qts-figure="opening">@ReceivablesRules.Money(_statement.OpeningBalance, _statement)</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Charged in the period</MudText>
+                        <MudText Typo="Typo.h6">@ReceivablesRules.Money(_statement.MovementDebit, _statement)</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Settled in the period</MudText>
+                        <MudText Typo="Typo.h6">@ReceivablesRules.Money(_statement.MovementCredit, _statement)</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="2">
+                    <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Owing as at @_statement.AsOfDate.ToString("yyyy-MM-dd")</MudText>
+                        <MudText Typo="Typo.h6" Color="@(_statement.ClosingBalance > 0m ? Color.Error : Color.Success)" data-qts-figure="closing">@ReceivablesRules.Money(_statement.ClosingBalance, _statement)</MudText>
+                    </MudPaper>
+                </MudItem>
+                <MudItem xs="12" sm="6" md="3">
+                    <MudPaper Class="pa-3" Outlined="true" Elevation="0">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Held on deposit, unapplied</MudText>
+                        <MudText Typo="Typo.h6" Color="Color.Info" data-qts-figure="unapplied">@ReceivablesRules.Money(_statement.UnappliedDeposits, _statement)</MudText>
+                        <MudText Typo="Typo.caption">@_statement.Currency · the business's money to spend, not a settled debt</MudText>
+                    </MudPaper>
+                </MudItem>
+            </MudGrid>
+
+            @if (_statement.Truncated)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-0">
+                    This account has more history than one screen shows: the balance carried in is the arithmetic over the
+                    earlier events, so the total still ties to the ledger.
+                </MudAlert>
+            }
+
+            <MudText Typo="Typo.body2" Color="Color.Secondary">@ReceivablesRules.DepositRule</MudText>
+
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">The account, event by event</MudText>
+                    <MudTable Items="_statement.Lines" Dense="true" Hover="true" FixedHeader="true" Height="420px" aria-label="Statement lines">
+                        <HeaderContent>
+                            <MudTh>Date</MudTh><MudTh>Document</MudTh><MudTh>What</MudTh><MudTh>Note</MudTh>
+                            <MudTh Style="text-align:right">Charged</MudTh><MudTh Style="text-align:right">Settled</MudTh><MudTh Style="text-align:right">Balance</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Date">@context.DocumentDate.ToString("yyyy-MM-dd")</MudTd>
+                            <MudTd DataLabel="Document">@context.Reference</MudTd>
+                            <MudTd DataLabel="What">@ReceivablesRules.KindText(context.Kind)</MudTd>
+                            <MudTd DataLabel="Note">@(string.IsNullOrWhiteSpace(context.Note) ? "—" : context.Note)</MudTd>
+                            <MudTd DataLabel="Charged" Style="text-align:right">@(context.DebitAmount > 0m ? ReceivablesRules.Money(context.DebitAmount, _statement) : "—")</MudTd>
+                            <MudTd DataLabel="Settled" Style="text-align:right">@(context.CreditAmount > 0m ? ReceivablesRules.Money(context.CreditAmount, _statement) : "—")</MudTd>
+                            <MudTd DataLabel="Balance" Style="text-align:right">@ReceivablesRules.Money(context.BalanceAfter, _statement)</MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudText Typo="Typo.body2" Class="pa-4">@ReceivablesRules.EmptyAccountText(_statement.CustomerName)</MudText>
+                        </NoRecordsContent>
+                    </MudTable>
+                </MudStack>
+            </MudPaper>
+
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">Documents still owing</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@ReceivablesRules.OpenItemRule</MudText>
+                    <MudTable Items="_openItems" Dense="true" Hover="true" aria-label="Open documents">
+                        <HeaderContent>
+                            <MudTh>Document</MudTh><MudTh>Business date</MudTh><MudTh>Due</MudTh>
+                            <MudTh Style="text-align:right">Raised</MudTh><MudTh Style="text-align:right">Settled</MudTh>
+                            <MudTh Style="text-align:right">Remaining</MudTh><MudTh>Settle from deposit</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Document">@ReceivablesRules.DocumentText(context)</MudTd>
+                            <MudTd DataLabel="Business date">@context.DocumentDate.ToString("yyyy-MM-dd")</MudTd>
+                            <MudTd DataLabel="Due">
+                                @(context.DueDate is { } due ? due.ToString("yyyy-MM-dd") : "—")
+                                @if (context.PastDue)
+                                {
+                                    <MudChip T="string" Size="Size.Small" Color="Color.Warning" Variant="Variant.Text">past due</MudChip>
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Raised" Style="text-align:right">@ReceivablesRules.Money(context.OriginalAmount, _statement)</MudTd>
+                            <MudTd DataLabel="Settled" Style="text-align:right">@ReceivablesRules.Money(context.AppliedAmount, _statement)</MudTd>
+                            <MudTd DataLabel="Remaining" Style="text-align:right">@ReceivablesRules.Money(context.RemainingAmount, _statement)</MudTd>
+                            <MudTd DataLabel="Settle from deposit">
+                                @if (_canApply && DepositWithBalance is not null)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="@(() => StartApply(context))" Disabled="@Applying"
+                                               aria-label="@($"Apply deposit to {ReceivablesRules.DocumentText(context)}")">Apply deposit</MudButton>
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">No unapplied deposit on this account to apply.</MudText>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudText Typo="Typo.body2" Class="pa-4">Nothing is outstanding on this account as at the chosen date.</MudText>
+                        </NoRecordsContent>
+                    </MudTable>
+                </MudStack>
+            </MudPaper>
+
+            <MudPaper Class="pa-4" Outlined="true">
+                <MudStack Spacing="2">
+                    <MudText Typo="Typo.h6">Money held on deposit</MudText>
+                    <MudTable Items="_statement.Deposits ?? []" Dense="true" Hover="true" aria-label="Customer deposits">
+                        <HeaderContent>
+                            <MudTh>Receipt</MudTh><MudTh>Received</MudTh><MudTh>Method</MudTh>
+                            <MudTh Style="text-align:right">Taken in</MudTh><MudTh Style="text-align:right">Still unapplied</MudTh>
+                            <MudTh>Refunds given back</MudTh><MudTh>Hand back</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Receipt">@(string.IsNullOrWhiteSpace(context.Reference) ? "receipt on account" : context.Reference)</MudTd>
+                            <MudTd DataLabel="Received">@InvoiceRules.DateText(DateOnly.FromDateTime(context.ReceivedAtUtc.UtcDateTime))</MudTd>
+                            <MudTd DataLabel="Method">@context.Method</MudTd>
+                            <MudTd DataLabel="Taken in" Style="text-align:right">@ReceivablesRules.Money(context.Amount, _statement)</MudTd>
+                            <MudTd DataLabel="Still unapplied" Style="text-align:right">@ReceivablesRules.Money(context.UnallocatedAmount, _statement)</MudTd>
+                            <MudTd DataLabel="Refunds given back">
+                                @if (context.Refunds.Count == 0)
+                                {
+                                    <MudText Typo="Typo.caption">None</MudText>
+                                }
+                                else
+                                {
+                                    @foreach (var refund in context.Refunds)
+                                    {
+                                        <MudText Typo="Typo.caption">@ReceivablesRules.Money(refund.Amount, _statement) · @refund.Method · @refund.Reason</MudText>
+                                    }
+                                }
+                            </MudTd>
+                            <MudTd DataLabel="Hand back">
+                                @if (_canRefund && context.UnallocatedAmount > 0m)
+                                {
+                                    <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Error" OnClick="@(() => StartRefund(context))" Disabled="@Applying"
+                                               aria-label="@($"Refund {ReceivablesRules.Money(context.UnallocatedAmount, _statement)} of unapplied deposit")">Refund unapplied</MudButton>
+                                }
+                                else if (!_canRefund)
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">@InvoiceAccess.Missing(InvoiceAction.ClearTender)</MudText>
+                                }
+                            </MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudText Typo="Typo.body2" Class="pa-4">No money is sitting unapplied on this account.</MudText>
+                        </NoRecordsContent>
+                    </MudTable>
+                </MudStack>
+            </MudPaper>
+        </MudStack>
+    }
+    else if (_customer is null)
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+            Choose a customer by name to read their account. No identifier is asked for, and nothing here changes money
+            until an action is confirmed.
+        </MudAlert>
+    }
+
+    @if (ApplyingTo is { } target)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Settle @ReceivablesRules.DocumentText(target) from the deposit</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@ReceivablesRules.ExactlyOneTargetRule @ReceivablesRules.DepositRule</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="6">
+                        <MudSelect T="Guid" Label="Which deposit" @bind-Value="_depositId" Variant="Variant.Outlined" Disabled="@Applying">
+                            @foreach (var deposit in DepositsWithBalance)
+                            {
+                                <MudSelectItem T="Guid" Value="@deposit.PaymentId">@ReceivablesRules.MoneyText(deposit.UnallocatedAmount, _statement) from @(string.IsNullOrWhiteSpace(deposit.Reference) ? "receipt on account" : deposit.Reference)</MudSelectItem>
+                            }
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="6">
+                        <MudNumericField T="decimal" Label="Amount to apply" @bind-Value="_applyAmount" Min="0.01m"
+                                         Max="@ApplyCeiling" Step="@ApplyStep" Variant="Variant.Outlined" Disabled="@Applying"
+                                         Format="@($"0.{new string('0', _statement?.SettlementScale ?? 2)}")" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            At most @ReceivablesRules.MoneyText(ApplyCeiling, _statement) - the smaller of what the document still owes and what the deposit holds.
+                        </MudText>
+                    </MudItem>
+                </MudGrid>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Color="Color.Primary" Variant="Variant.Filled" OnClick="ApplyAsync" Disabled="@(_busy || ApplyCeiling <= 0m)">
+                        @(Applying ? "Ask the server about this same application…" : "Apply the deposit")
+                    </MudButton>
+                    @if (Applying)
+                    {
+                        <MudButton Variant="Variant.Text" OnClick="AbandonApply">Stop waiting and read the account back</MudButton>
+                    }
+                    <MudButton Variant="Variant.Text" OnClick="CancelApply" Disabled="@_busy">Leave the document owing</MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+
+    @if (Refunding is { } receipt)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudStack Spacing="2">
+                <MudText Typo="Typo.h6">Hand unapplied deposit money back</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@ReceivablesRules.RefundRule</MudText>
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" sm="4">
+                        <MudNumericField T="decimal" Label="Amount to hand back" @bind-Value="_refundAmount" Min="0.01m"
+                                         Max="@receipt.UnallocatedAmount" Step="@ApplyStep" Variant="Variant.Outlined" Disabled="@Applying" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">At most @ReceivablesRules.MoneyText(receipt.UnallocatedAmount, _statement).</MudText>
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudSelect T="string" Label="How the money leaves" Value="_refundMethod" ValueChanged="OnRefundMethodChanged" Variant="Variant.Outlined" Disabled="@Applying">
+                            <MudSelectItem T="string" Value="@("cash")">Cash out of a drawer</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("bankTransfer")">Bank settlement</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        @if (_refundMethod == "cash")
+                        {
+                            <MudSelect T="Guid?" Label="Drawer" @bind-Value="_registerId" Variant="Variant.Outlined" Disabled="@Applying">
+                                @foreach (var register in OpenRegisters)
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)register.Id)">@register.Name</MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@CashRegisterHint</MudText>
+                        }
+                        else
+                        {
+                            <MudTextField Label="Bank settlement reference" @bind-Value="_bankReference" Variant="Variant.Outlined" MaxLength="128" Disabled="@Applying" />
+                        }
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudTextField Label="Reason the money is being handed back" @bind-Value="_refundReason" Variant="Variant.Outlined" MaxLength="512" Disabled="@Applying"
+                                      HelperText="Mandatory: it is audited with who authorised the refund." />
+                    </MudItem>
+                </MudGrid>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudButton Color="Color.Error" Variant="Variant.Filled" OnClick="RefundAsync" Disabled="@(_busy || string.IsNullOrWhiteSpace(_refundReason))">
+                        @(Applying ? "Ask the server about this same refund…" : "Refund the unapplied deposit")
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="CancelRefund" Disabled="@_busy">Leave the money on deposit</MudButton>
+                </MudStack>
+            </MudStack>
+        </MudPaper>
+    }
+}

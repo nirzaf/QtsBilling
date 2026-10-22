@@ -90,17 +90,43 @@ public static class ReportEndpoints
                         || invoice.Status == InvoiceStatus.Paid)))
             .Select(sale => new { sale.CustomerId, sale.PostedAtUtc, sale.TotalAmount })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
-        var openImportedReceivables = await db.OpenItems.AsNoTracking()
+        var openImportedReceivablesRaw = await db.OpenItems.AsNoTracking()
             .Where(item => item.BusinessId == businessId
                 && item.Kind == OpenItemKind.Receivable
                 && item.Currency == business!.BaseCurrency)
             .Select(item => new
             {
+                item.Id,
                 item.CustomerId,
                 DueDate = item.DueDate ?? item.DocumentDate,
-                Balance = item.OriginalAmount,
+                item.OriginalAmount,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // An opening balance is now settleable from a customer's deposit (specification task 25), so the aging must
+        // report what is still owing on it rather than the amount the import recorded. Left as the original, the
+        // receivable report would count money twice: once as cash the customer already paid in, once as a debt they
+        // still owe - and the control account would no longer agree with the list.
+        var appliedToOpenings = openImportedReceivablesRaw.Count == 0
+            ? new Dictionary<Guid, decimal>()
+            : (await db.PaymentAllocations.AsNoTracking()
+                .Where(allocation => allocation.BusinessId == businessId
+                    && allocation.OpenItemId != null
+                    && openImportedReceivablesRaw.Select(item => item.Id).Contains(allocation.OpenItemId.Value))
+                .GroupBy(allocation => allocation.OpenItemId!.Value)
+                .Select(group => new { Id = group.Key, Applied = group.Sum(item => item.AllocatedAmount) })
+                .ToListAsync(cancellationToken).ConfigureAwait(false))
+                .ToDictionary(row => row.Id, row => row.Applied);
+
+        var openImportedReceivables = openImportedReceivablesRaw
+            .Select(item => new
+            {
+                item.CustomerId,
+                item.DueDate,
+                Balance = Math.Max(0m, item.OriginalAmount - appliedToOpenings.GetValueOrDefault(item.Id)),
+            })
+            .Where(item => item.Balance > 0m)
+            .ToList();
 
         var customerIds = openInvoices.Where(invoice => invoice.CustomerId.HasValue)
             .Select(invoice => invoice.CustomerId!.Value)

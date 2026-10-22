@@ -158,7 +158,8 @@ public static class InvoiceEndpoints
                     {
                         var allocationRows = await db.PaymentAllocations.AsNoTracking()
                             .Where(allocation => allocation.BusinessId == businessId && allocation.PaymentId == payment.Id)
-                            .OrderBy(allocation => allocation.InvoiceId)
+                            .OrderBy(allocation => allocation.AllocatedAtUtc)
+                            .ThenBy(allocation => allocation.Id)
                             .ToListAsync(cancellationToken)
                             .ConfigureAwait(false);
                         var allocatedTotal = LedgerWriter.Round(allocationRows.Sum(allocation => allocation.AllocatedAmount));
@@ -167,7 +168,14 @@ public static class InvoiceEndpoints
                             throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "The customer receipt allocations do not reconcile to the payment amount.", "Reconcile the customer payment before clearing it.");
                         }
 
-                        var invoiceIds = allocationRows.Select(allocation => allocation.InvoiceId).Distinct().Order().ToArray();
+                        // A receipt's applications may settle issued invoices, imported opening receivables, or both
+                        // (task 25). Each kind is re-validated under its own lock before this tender becomes
+                        // collected money, so a document that moved while the cheque was in the post cannot be
+                        // settled twice by two receipts that were both written against the old balance.
+                        var invoiceAllocationRows = allocationRows.Where(row => row.InvoiceId is not null).ToArray();
+                        var openingAllocationRows = allocationRows.Where(row => row.OpenItemId is not null).ToArray();
+
+                        var invoiceIds = invoiceAllocationRows.Select(allocation => allocation.InvoiceId!.Value).Distinct().Order().ToArray();
                         var lockedInvoices = invoiceIds.Length == 0
                             ? new List<Invoice>()
                             : await db.Invoices
@@ -180,9 +188,33 @@ public static class InvoiceEndpoints
                             throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "A customer receipt invoice no longer exists.", "The receipt cannot be cleared until its allocations are reconciled.");
                         }
 
-                        foreach (var allocation in allocationRows)
+                        var openingIds = openingAllocationRows.Select(allocation => allocation.OpenItemId!.Value).Distinct().Order().ToArray();
+                        var lockedOpenings = openingIds.Length == 0
+                            ? new List<OpenItem>()
+                            : await db.OpenItems
+                                .FromSql($"SELECT * FROM open_items WHERE business_id = {businessId} AND id = ANY({openingIds}) ORDER BY id FOR UPDATE")
+                                .ToListAsync(cancellationToken)
+                                .ConfigureAwait(false);
+                        if (lockedOpenings.Count != openingIds.Length)
                         {
-                            var allocatedInvoice = invoiceById[allocation.InvoiceId];
+                            throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "An opening balance this receipt was applied to no longer exists.", "The receipt cannot be cleared until its applications are reconciled.");
+                        }
+
+                        var openingById = lockedOpenings.ToDictionary(candidate => candidate.Id);
+                        var appliedToOpenings = openingIds.Length == 0
+                            ? new Dictionary<Guid, decimal>()
+                            : (await db.PaymentAllocations.AsNoTracking()
+                                .Where(allocation => allocation.BusinessId == businessId
+                                    && allocation.OpenItemId != null
+                                    && openingIds.Contains(allocation.OpenItemId.Value))
+                                .GroupBy(allocation => allocation.OpenItemId!.Value)
+                                .Select(group => new { Id = group.Key, Applied = group.Sum(item => item.AllocatedAmount) })
+                                .ToListAsync(cancellationToken)
+                                .ConfigureAwait(false)).ToDictionary(row => row.Id, row => row.Applied);
+
+                        foreach (var allocation in invoiceAllocationRows)
+                        {
+                            var allocatedInvoice = invoiceById[allocation.InvoiceId!.Value];
                             if (allocatedInvoice.CustomerId != payment.CustomerId
                                 || allocatedInvoice.Currency != payment.Currency
                                 || allocatedInvoice.BalanceDue < allocation.AllocatedAmount
@@ -191,6 +223,19 @@ public static class InvoiceEndpoints
                                 throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "A customer receipt allocation is no longer valid.", "Reconcile the invoice before clearing this receipt.");
                             }
                             invoiceAllocations.Add((allocatedInvoice, allocation.AllocatedAmount));
+                        }
+
+                        foreach (var allocation in openingAllocationRows)
+                        {
+                            var opening = openingById[allocation.OpenItemId!.Value];
+                            var applied = LedgerWriter.Round(appliedToOpenings.GetValueOrDefault(opening.Id));
+                            if (opening.Kind != OpenItemKind.Receivable
+                                || opening.CustomerId != payment.CustomerId
+                                || opening.Currency != payment.Currency
+                                || applied > opening.OriginalAmount)
+                            {
+                                throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict, "An application against this opening balance is no longer valid.", "Reconcile the opening balance before clearing this receipt; the imported original amount is never re-raised.");
+                            }
                         }
                         accounts.TryGetValue("2105", out var depositAccount);
                         if (payment.UnallocatedAmount > 0

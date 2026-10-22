@@ -58,13 +58,30 @@ public static class CustomerCreditLimitGuard
             .SumAsync(sale => (decimal?)sale.TotalAmount, cancellationToken)
             .ConfigureAwait(false) ?? 0m;
 
-        var openingBalance = await db.OpenItems.AsNoTracking()
+        var openingRaised = await db.OpenItems.AsNoTracking()
             .Where(item => item.BusinessId == businessId
                 && item.CustomerId == customerId
                 && item.Kind == OpenItemKind.Receivable
                 && item.Currency == currency)
             .SumAsync(item => (decimal?)item.OriginalAmount, cancellationToken)
             .ConfigureAwait(false) ?? 0m;
+
+        // An opening that a deposit has already settled is no longer exposure. Counting the imported amount again
+        // would refuse a sale the customer has already paid for (specification task 25, recipe step 2).
+        var openingApplied = await db.PaymentAllocations.AsNoTracking()
+            .Where(allocation => allocation.BusinessId == businessId && allocation.OpenItemId != null)
+            .Join(db.OpenItems.AsNoTracking(),
+                allocation => allocation.OpenItemId!.Value,
+                item => item.Id,
+                (allocation, item) => new { allocation, item })
+            .Where(row => row.item.BusinessId == businessId
+                && row.item.CustomerId == customerId
+                && row.item.Kind == OpenItemKind.Receivable
+                && row.item.Currency == currency)
+            .SumAsync(row => (decimal?)row.allocation.AllocatedAmount, cancellationToken)
+            .ConfigureAwait(false) ?? 0m;
+
+        var openingBalance = Math.Max(0m, decimal.Round(openingRaised - openingApplied, 4, MidpointRounding.AwayFromZero));
 
         var currentExposure = decimal.Round(invoiceBalance + saleBalance + openingBalance, 4, MidpointRounding.AwayFromZero);
         var projectedExposure = decimal.Round(currentExposure + proposedExposure, 4, MidpointRounding.AwayFromZero);

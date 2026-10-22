@@ -140,9 +140,52 @@ public partial class BillingDbContext
                 .HasForeignKey(e => new { e.InvoiceId, e.BusinessId })
                 .HasPrincipalKey(invoice => new { invoice.Id, invoice.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<OpenItem>()
+                .WithMany()
+                .HasForeignKey(e => new { e.OpenItemId, e.BusinessId })
+                .HasPrincipalKey(openItem => new { openItem.Id, openItem.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
             b.HasIndex(e => new { e.BusinessId, e.PaymentId });
             b.HasIndex(e => new { e.BusinessId, e.InvoiceId });
+            b.HasIndex(e => new { e.BusinessId, e.OpenItemId });
             b.ToTable(t => t.HasCheckConstraint("ck_payment_allocations_amount_positive", "allocated_amount > 0"));
+
+            // Exactly one target (specification task 25, recipe step 2): an application must say which document it
+            // settles, and it cannot settle two at once. Rows written before this option existed keep their invoice
+            // and satisfy the same rule, so no posted allocation is rewritten or reinterpreted.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_payment_allocations_exactly_one_target",
+                "((invoice_id IS NOT NULL AND open_item_id IS NULL) OR (invoice_id IS NULL AND open_item_id IS NOT NULL))"));
+        });
+
+        modelBuilder.Entity<DepositRefund>(b =>
+        {
+            b.ToTable("deposit_refunds");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Amount).HasPrecision(18, 4);
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.Reason).HasMaxLength(512).IsRequired();
+            b.Property(e => e.Method).HasMaxLength(32).IsRequired();
+            b.Property(e => e.BankReference).HasMaxLength(128);
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64).IsRequired();
+            b.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
+            b.HasOne<Payment>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PaymentId, e.BusinessId })
+                .HasPrincipalKey(payment => new { payment.Id, payment.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(entry => new { entry.Id, entry.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.PaymentId });
+            b.HasIndex(e => new { e.BusinessId, e.JournalEntryId });
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique()
+                .HasDatabaseName("ux_deposit_refunds_business_idempotency_key");
+            b.ToTable(t => t.HasCheckConstraint("ck_deposit_refunds_amount_positive", "amount > 0"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_deposit_refunds_settlement_named",
+                "((method = 'cash' AND cash_register_session_id IS NOT NULL) OR (method <> 'cash' AND bank_reference IS NOT NULL AND length(bank_reference) > 0))"));
         });
 
         modelBuilder.Entity<CashRegister>(b =>
