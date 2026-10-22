@@ -384,6 +384,11 @@ builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.IDocumentOutput, Qt
 builder.Services.AddHttpClient<IInventoryApiClient, InventoryApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// Expense workbench (specification task 28): the shared expense screens render here too when the circuit is
+// interactive-server, so the typed client must resolve in the server process as well.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Expenses.IExpenseApiClient, QtsBilling.Contracts.Expenses.ExpenseApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

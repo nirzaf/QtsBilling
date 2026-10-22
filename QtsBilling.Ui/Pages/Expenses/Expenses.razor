@@ -1,0 +1,121 @@
+@page "/expenses"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Expenses
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>Expenses - QTS Billing</PageTitle>
+
+@* The expense workbench (specification task 28): what money has already left the business, classified and posted
+   as one balanced ledger entry. LocalCore never takes a card payment here - an expense records a fact, and a
+   reversal is a new reasoned entry that leaves the original on the record. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Expenses</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Money that has already left the business - classified, posted once, corrected only by a reversal.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" Disabled="@_list.IsBusy">
+            Refresh
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" Href="expenses/new"
+                   StartIcon="@Icons.Material.Filled.Add" Disabled="@(!_canManage)">
+            Record an expense
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">@ExpenseRules.PostingRule</MudAlert>
+
+@if (!string.IsNullOrWhiteSpace(_problem))
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<MudPaper Class="pa-3 mb-3" Outlined="true">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField @bind-Value="_searchText" Label="Search description"
+                          HelperText="By description text. Runs on the server across the whole file."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          IconSize="Size.Medium" Immediate="true" DebounceInterval="350"
+                          OnDebounceIntervalElapsed="SearchChanged"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker Label="From" @bind-Date="_from" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudDatePicker Label="To" @bind-Date="_to" Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudSelect T="Guid?" Label="Category" Value="@_categoryId" ValueChanged="CategoryChanged"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All categories</MudSelectItem>
+                @foreach (var category in _categories)
+                {
+                    <MudSelectItem T="Guid?" Value="@category.Id">@category.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<ShellStates Kind="_list.State" Body="_list.Message" RetryCallback="ReloadAsync">
+    <MudTable Items="@_list.Rows" Loading="@_list.IsBusy" Dense="true" Hover="true" Striped="true" Bordered="true"
+              Breakpoint="Breakpoint.Sm" aria-label="Expenses">
+        <HeaderContent>
+            <MudTh>Date</MudTh><MudTh>Description</MudTh><MudTh>Category</MudTh>
+            <MudTh Style="text-align:right">Amount</MudTh><MudTh>Paid via</MudTh>
+            <MudTh>Journal</MudTh><MudTh>State</MudTh><MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Date">@InvoiceRules.DateText(context.OccurredOn)</MudTd>
+            <MudTd DataLabel="Description">@context.Description</MudTd>
+            <MudTd DataLabel="Category">@(context.ExpenseCategoryName ?? "uncategorised")</MudTd>
+            <MudTd DataLabel="Amount" Style="text-align:right">@ExpenseRules.MoneyText(context.Amount, context.Currency)</MudTd>
+            <MudTd DataLabel="Paid via">@ExpenseRules.PaidViaText(context.PaidVia)</MudTd>
+            <MudTd DataLabel="Journal">@(context.JournalEntryNumber ?? "not posted")</MudTd>
+            <MudTd DataLabel="State">
+                @if (ExpenseRules.IsReversed(context))
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Warning">Reversed</MudChip>
+                }
+                else
+                {
+                    <MudChip T="string" Size="Size.Small" Color="Color.Success">Posted</MudChip>
+                }
+            </MudTd>
+            <MudTd DataLabel="Actions">
+                <MudStack Row="true" Spacing="1">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" Href="@($"expenses/{context.Id:D}")"
+                               aria-label="@($"Open {context.Description}")">Open</MudButton>
+                    @if (_canManage && ExpenseRules.CanReverse(context))
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Error" Href="@($"expenses/{context.Id:D}?reverse=1")"
+                                   aria-label="@($"Reverse {context.Description}")">Reverse</MudButton>
+                    }
+                </MudStack>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-4 d-block">No expenses match this filter.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    @if (_list.CanGoNext)
+    {
+        <MudButton Variant="Variant.Outlined" OnClick="_list.NextPageAsync" Disabled="@_list.IsBusy" Class="mt-3">
+            Next page
+        </MudButton>
+    }
+    @if (_list.CanGoPrevious)
+    {
+        <MudButton Variant="Variant.Text" OnClick="_list.PreviousPageAsync" Disabled="@_list.IsBusy" Class="mt-3 ms-2">
+            Previous page
+        </MudButton>
+    }
+</ShellStates>

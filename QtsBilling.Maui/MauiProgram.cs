@@ -249,6 +249,15 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // Expense workbench (specification task 28): the shared expense screens render on the terminal too.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Expenses.IExpenseApiClient, QtsBilling.Contracts.Expenses.ExpenseApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Sync.ISyncApiClient, QtsBilling.Contracts.Sync.SyncApiClient>((services, client) =>
             {

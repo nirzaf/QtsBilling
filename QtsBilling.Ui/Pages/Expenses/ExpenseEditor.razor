@@ -1,0 +1,189 @@
+@page "/expenses/new"
+@page "/expenses/{Id:guid}"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Expenses
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Pages.Invoices
+
+<PageTitle>@(IsNew ? "Record an expense" : "Expense") - QTS Billing</PageTitle>
+
+@* Recording an expense, or reading one that already posted (specification task 28). Posting is one balanced
+   entry; a reversal is a new reasoned entry that leaves the original on the record. The paid total and the
+   net/tax split shown here are an estimate until the server confirms them. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">@(IsNew ? "Record an expense" : "Expense")</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@(_expense is null ? "Classified money that has already left the business." : $"{_expense.Description} · {_expense.Currency}")</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" Href="expenses">Back to expenses</MudButton>
+        @if (!IsNew)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" Disabled="@_busy">Read it back</MudButton>
+        }
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">@ExpenseRules.PostingRule</MudAlert>
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">@ExpenseRules.TaxRule</MudAlert>
+
+@if (!string.IsNullOrWhiteSpace(_error))
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+        <MudText Typo="Typo.body2">@_error</MudText>
+        @if (_errorRetry)
+        {
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="SubmitAsync" Disabled="@_busy">Try again under the same key</MudButton>
+        }
+    </MudAlert>
+}
+
+@if (!string.IsNullOrWhiteSpace(_notice))
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="ReloadAsync">
+    <MudPaper Class="pa-4 mb-4" Outlined="true">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <MudDatePicker Label="Date" @bind-Date="_occurredOn" Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!IsNew || _busy)" />
+            </MudItem>
+            <MudItem xs="12" md="5">
+                <MudSelect T="Guid?" Label="Category" Value="@_categoryId" ValueChanged="CategoryIdChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!IsNew || _busy)" Clearable="true">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Uncategorised (uses 5000)</MudSelectItem>
+                    @foreach (var category in _categories)
+                    {
+                        <MudSelectItem T="Guid?" Value="@category.Id">@category.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="3">
+                <MudSelect T="string" Label="Paid via" Value="@_paidVia" ValueChanged="PaidViaChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!IsNew || _busy)">
+                    @foreach (var method in ExpenseRules.PaidViaOptions)
+                    {
+                        <MudSelectItem T="string" Value="@method">@ExpenseRules.PaidViaText(method)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="8">
+                <MudTextField @bind-Value="_description" Label="Description" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Disabled="@(!IsNew || _busy)" Required="true"
+                              HelperText="What the money paid for - this is the audited description on the journal." />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField @bind-Value="_reference" Label="Reference" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Disabled="@(!IsNew || _busy)" HelperText="Optional receipt or supplier reference." />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudNumericField T="decimal" @bind-Value="_amount" Label="Amount paid" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Disabled="@(!IsNew || _busy)" Required="true" Min="0.01m" HideSpinButtons="false"
+                                 HelperText="The cash or bank total that left the business." />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudNumericField T="decimal" @bind-Value="_taxPercent" Label="Tax rate %" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Disabled="@(!IsNew || _busy)" Min="0m" Max="99.9999m"
+                                 HelperText="Percent: 15 means 15%." />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudNumericField T="decimal" @bind-Value="_taxAmount" Label="Tax amount" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Disabled="@(!IsNew || _busy)" Min="0m"
+                                 HelperText="What the rate produces; the server checks they reconcile." />
+            </MudItem>
+            <MudItem xs="6" md="3">
+                <MudSelect T="string" Label="Tax mode" Value="@_taxMode" ValueChanged="TaxModeChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Disabled="@(!IsNew || _busy)">
+                    <MudSelectItem T="string" Value="@("Exclusive")">Exclusive of tax</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Inclusive")">Inclusive of tax</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("Exempt")">Exempt</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+        </MudGrid>
+
+        @if (IsNew)
+        {
+            <MudDivider Class="my-3" />
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    Preview (estimate): net @ExpenseRules.Money(_preview.Net) · tax @ExpenseRules.Money(_preview.Tax) · paid @ExpenseRules.MoneyText(_preview.Paid, null) · credits @ExpenseRules.CreditAccountText(_paidVia)
+                </MudText>
+            </MudStack>
+            <MudStack Row="true" Spacing="2" Class="mt-3">
+                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="SubmitAsync" Disabled="@_busy"
+                           StartIcon="@Icons.Material.Filled.Save">Post the expense</MudButton>
+            </MudStack>
+        }
+        else if (_expense is { } expense)
+        {
+            <MudDivider Class="my-3" />
+            <MudGrid Spacing="2">
+                <MudItem xs="12" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Amount</MudText>
+                    <MudText Typo="Typo.h6">@ExpenseRules.MoneyText(expense.Amount, expense.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Tax (@ExpenseRules.TaxModeText(expense.TaxMode))</MudText>
+                    <MudText Typo="Typo.h6">@ExpenseRules.MoneyText(expense.TaxAmount, expense.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Paid via</MudText>
+                    <MudText Typo="Typo.h6">@ExpenseRules.PaidViaText(expense.PaidVia)</MudText>
+                </MudItem>
+                <MudItem xs="12" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Journal</MudText>
+                    <MudText Typo="Typo.h6">@(expense.JournalEntryNumber ?? "not posted")</MudText>
+                </MudItem>
+            </MudGrid>
+        }
+    </MudPaper>
+
+    @if (_expense is { } posted)
+    {
+        <MudPaper Class="pa-4" Outlined="true">
+            <MudText Typo="Typo.h6" Class="mb-2">Correction</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@ExpenseRules.ReversalRule</MudText>
+
+            @if (ExpenseRules.IsReversed(posted))
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined">
+                    This expense was reversed on @posted.ReversedAtUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm")
+                    by a mirror entry (@posted.ReversalEntryNumber). The original stays on the record.
+                </MudAlert>
+            }
+            else if (!_canManage)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Your current role cannot reverse an expense.</MudText>
+            }
+            else if (!_reversing)
+            {
+                <MudButton Variant="Variant.Outlined" Color="Color.Error" OnClick="BeginReverse"
+                           StartIcon="@Icons.Material.Filled.Undo" Disabled="@_busy">Reverse this expense</MudButton>
+            }
+            else
+            {
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_reverseReason" Label="Reason" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      Required="true" HelperText="Audited with the actor and time - required for every reversal." />
+                    </MudItem>
+                    <MudItem xs="12" md="6">
+                        <MudTextField @bind-Value="_reverseNote" Label="Note" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                      HelperText="Optional free text kept with the reversal." />
+                    </MudItem>
+                    <MudItem xs="12">
+                        <MudStack Row="true" Spacing="2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Error" OnClick="ReverseAsync" Disabled="@_busy"
+                                       StartIcon="@Icons.Material.Filled.Undo">Confirm the reversal</MudButton>
+                            <MudButton Variant="Variant.Text" OnClick="CancelReverse" Disabled="@_busy">Cancel</MudButton>
+                        </MudStack>
+                    </MudItem>
+                </MudGrid>
+            }
+        </MudPaper>
+    }
+</ShellStates>
