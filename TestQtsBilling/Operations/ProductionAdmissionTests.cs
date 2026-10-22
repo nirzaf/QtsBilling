@@ -4,7 +4,7 @@ namespace TestQtsBilling.Operations;
 
 /// <summary>
 /// Task 21 acceptance: a read-only admission is proved read-only, a failed gate stops before every
-/// subsequent effect, the old caller-supplied codeword pair cannot authorize anything, and a valid
+/// subsequent effect, a caller-supplied codeword without a signed manifest cannot authorize anything, and a valid
 /// manifest authorizes exactly one target and one execution order.
 /// </summary>
 public sealed class ProductionAdmissionTests
@@ -22,9 +22,9 @@ public sealed class ProductionAdmissionTests
     }
 
     [Fact]
-    public void T21_02_two_identical_caller_codewords_without_a_signed_manifest_are_refused()
+    public void T21_02_a_caller_codeword_without_a_signed_manifest_is_refused()
     {
-        var result = AdmissionScriptHarness.Run("two_codewords_without_manifest");
+        var result = AdmissionScriptHarness.Run("codeword_without_manifest");
 
         Assert.Equal(1, result.ExitCode);
         Assert.Empty(result.Mutations);

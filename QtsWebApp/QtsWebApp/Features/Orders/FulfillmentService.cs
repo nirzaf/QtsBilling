@@ -115,6 +115,11 @@ public static class FulfillmentEndpoints
         app.MapGet("/api/v1/sales-orders/{id:guid}/deliveries", ListDeliveriesAsync)
             .WithTags("Orders")
             .RequireAuthorization(Permissions.SalesPost, Permissions.OrdersManage);
+        // The workbench's own read model (specification task 23, recipe step 1): every quantity a fulfillment
+        // command moves is shown separately, because no screen can derive it from a memory of the last one.
+        app.MapGet("/api/v1/sales-orders/{id:guid}/fulfillment", FulfillmentViewAsync)
+            .WithTags("Orders")
+            .RequireAuthorization(Permissions.SalesPost, Permissions.OrdersManage);
         return app;
     }
 
@@ -726,6 +731,153 @@ public static class FulfillmentEndpoints
         var items = new List<SalesOrderDeliveryDto>(rows.Count);
         foreach (var row in rows) items.Add(await ToDeliveryDtoAsync(db, row, cancellationToken).ConfigureAwait(false));
         return Results.Ok(new PagedResult<SalesOrderDeliveryDto>(items, hasMore ? CursorPaging.Encode(rows[^1].Id) : null, size));
+    }
+
+    /// <summary>
+    /// The fulfillment position of one order (specification task 23, recipe step 1): ordered, delivered,
+    /// cancelled, released, reserved, invoiced and on-hand per line, kept as separate quantities because each is
+    /// moved by a different command and adding them together would hide which one moved. Strictly a read: an
+    /// active reservation past its expiry is reported as such here and settled by the next command, never written
+    /// by a GET.
+    /// </summary>
+    private static async Task<IResult> FulfillmentViewAsync(
+        Guid id,
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        CancellationToken cancellationToken)
+    {
+        if (!TryGetActor(principal, out var businessId, out var userId)) return BusinessScope.MissingMembership();
+
+        var order = await db.SalesOrders.AsNoTracking()
+            .SingleOrDefaultAsync(row => row.BusinessId == businessId && row.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (order is null) return NotFoundOrder();
+        if (!await BusinessScope.CanAccessLocationAsync(db, userId, businessId, order.LocationId, cancellationToken).ConfigureAwait(false)) return ForbiddenLocation();
+
+        var orderLines = await db.SalesOrderLines.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.OrderId == id)
+            .OrderBy(row => row.LineNo)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var reservations = await db.InventoryReservations.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.OrderId == id)
+            .OrderByDescending(row => row.Id)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var now = DateTimeOffset.UtcNow;
+        var active = reservations.FirstOrDefault(row => row.Status == InventoryReservationStatus.Active);
+        var reservation = active is null ? null : await ToReservationDtoAsync(db, active, cancellationToken).ConfigureAwait(false);
+
+        var deliveries = await db.SalesOrderDeliveries.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.OrderId == id)
+            .OrderBy(row => row.DeliveryNumber)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var deliveryDtos = new List<SalesOrderDeliveryDto>(deliveries.Count);
+
+        foreach (var delivery in deliveries)
+        {
+            deliveryDtos.Add(await ToDeliveryDtoAsync(db, delivery, cancellationToken).ConfigureAwait(false));
+        }
+
+        var invoicedByLine = deliveryDtos.SelectMany(row => row.Lines)
+            .GroupBy(line => line.OrderLineId)
+            .ToDictionary(group => group.Key, group => group.Sum(line => line.QuantityInvoiced));
+
+        var variants = await GetStockVariantsAsync(db, businessId, orderLines, cancellationToken).ConfigureAwait(false);
+
+        var variantIds = orderLines.Where(line => line.VariantId.HasValue).Select(line => line.VariantId!.Value).Distinct().ToArray();
+        var balances = variantIds.Length == 0
+            ? new Dictionary<Guid, decimal>()
+            : await db.InventoryBalances.AsNoTracking()
+                .Where(row => row.BusinessId == businessId && row.LocationId == order.LocationId && variantIds.Contains(row.VariantId))
+                .ToDictionaryAsync(row => row.VariantId, row => row.OnHand, cancellationToken).ConfigureAwait(false);
+
+        var lineDtos = orderLines.Select(line =>
+        {
+            var outstanding = Math.Round(line.QuantityOrdered - line.QuantityFulfilled - line.QuantityCancelled, 6, MidpointRounding.AwayFromZero);
+            var stock = line.VariantId is { } variantId ? variants.GetValueOrDefault(variantId) : null;
+            var tracksStock = stock?.TrackStock ?? false;
+            var onHand = line.VariantId is { } stocked ? balances.GetValueOrDefault(stocked) : (decimal?)null;
+            var reserved = reservation?.Lines.FirstOrDefault(candidate => candidate.OrderLineId == line.Id);
+            var reservedOutstanding = reserved is null
+                ? 0m
+                : Math.Max(0m, Math.Round(reserved.QuantityReserved - reserved.QuantityConsumed - reserved.QuantityReleased, 6, MidpointRounding.AwayFromZero));
+            var released = active is null ? 0m : reserved?.QuantityReleased ?? 0m;
+
+            string? blockReason = null;
+
+            if (outstanding <= 0m)
+            {
+                blockReason = "Nothing is outstanding on this line - a delivered or cancelled quantity is never delivered again.";
+            }
+            else if (order.Status is not (SalesOrderStatus.Confirmed or SalesOrderStatus.PartiallyFulfilled))
+            {
+                blockReason = $"The order is {order.Status}, so it is not open for dispatch.";
+            }
+            else if (stock is not null && (!stock.VariantIsActive || !stock.ProductIsActive))
+            {
+                blockReason = "The catalog record behind this line is out of service, so nothing may be dispatched against it.";
+            }
+            else if (tracksStock && onHand is null)
+            {
+                blockReason = "This branch has no stock record for the variant, so there is nothing to dispatch from it.";
+            }
+            else if (tracksStock && onHand is { } available && available <= 0m)
+            {
+                blockReason = "No stock is on hand at this branch; transfer it in or count it before dispatching.";
+            }
+            else if (active is not null && active.ExpiresAtUtc <= now)
+            {
+                blockReason = "The reservation on this order has passed its expiry, so the next command settles it before anything is dispatched.";
+            }
+
+            return new FulfillmentLineDto(
+                line.Id,
+                line.LineKey,
+                line.LineNo,
+                line.Description,
+                line.SkuSnapshot,
+                line.VariantId,
+                tracksStock,
+                line.QuantityOrdered,
+                line.QuantityFulfilled,
+                line.QuantityCancelled,
+                outstanding,
+                reservedOutstanding,
+                released,
+                invoicedByLine.GetValueOrDefault(line.Id),
+                onHand,
+                blockReason is null,
+                blockReason);
+        }).ToList();
+
+        var locationName = await db.BusinessLocations.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.Id == order.LocationId)
+            .Select(row => row.Name).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false);
+        var customerName = order.CustomerId is { } customerId
+            ? await db.Customers.AsNoTracking()
+                .Where(row => row.BusinessId == businessId && row.Id == customerId)
+                .Select(row => row.Name).FirstOrDefaultAsync(cancellationToken).ConfigureAwait(false)
+            : null;
+
+        return Results.Ok(new OrderFulfillmentDto(
+            order.Id,
+            order.OrderNumber,
+            order.Status.ToString(),
+            order.Version,
+            order.LocationId,
+            locationName ?? "(this branch is no longer listed)",
+            customerName,
+            order.Currency,
+            order.TotalAmount,
+            order.OrderDate,
+            order.PromisedDeliveryDate,
+            order.RemainderCancellationReason,
+            reservation,
+            lineDtos,
+            deliveryDtos));
     }
 
     private static async Task ExpireOrderReservationsAsync(BillingDbContext db, Guid businessId, Guid orderId, Guid userId, DateTimeOffset now, CancellationToken cancellationToken)

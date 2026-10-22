@@ -970,9 +970,111 @@ public partial class BillingDbContext
                 .HasPrincipalKey(payment => new { payment.Id, payment.BusinessId }).OnDelete(DeleteBehavior.Restrict);
             b.HasOne<SupplierBill>().WithMany().HasForeignKey(e => new { e.SupplierBillId, e.BusinessId })
                 .HasPrincipalKey(bill => new { bill.Id, bill.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<OpenItem>()
+                .WithMany()
+                .HasForeignKey(e => new { e.OpenItemId, e.BusinessId })
+                .HasPrincipalKey(openItem => new { openItem.Id, openItem.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.AllocatedAmount).HasPrecision(18, 4);
             b.HasIndex(e => new { e.BusinessId, e.SupplierBillId });
-            b.HasIndex(e => new { e.SupplierPaymentId, e.SupplierBillId }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.OpenItemId });
+            b.HasIndex(e => new { e.SupplierPaymentId, e.SupplierBillId }).IsUnique().HasFilter("supplier_bill_id IS NOT NULL");
+            b.HasIndex(e => new { e.SupplierPaymentId, e.OpenItemId }).IsUnique().HasFilter("open_item_id IS NOT NULL");
             b.ToTable(t => t.HasCheckConstraint("ck_supplier_payment_allocations_amount_positive", "allocated_amount > 0"));
+
+            // Exactly one target (specification task 27, recipe step 2): a settlement says which document it pays -
+            // an issued bill or an imported opening payable - and never both or neither. Every row written before this
+            // option existed named a bill and satisfies the same rule, so no posted allocation is reinterpreted.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_supplier_payment_allocations_exactly_one_target",
+                "((supplier_bill_id IS NOT NULL AND open_item_id IS NULL) OR (supplier_bill_id IS NULL AND open_item_id IS NOT NULL))"));
+        });
+
+        modelBuilder.Entity<SupplierCreditNote>(b =>
+        {
+            b.ToTable("supplier_credit_notes");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.CreditNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Reason).HasMaxLength(512).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.BaseAmount).HasPrecision(18, 4);
+            b.Property(e => e.TaxAmount).HasPrecision(18, 4);
+            b.Property(e => e.ValueAmount).HasPrecision(18, 4);
+            b.Property(e => e.AppliedAmount).HasPrecision(18, 4);
+            b.Property(e => e.BalanceDue).HasPrecision(18, 4);
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64);
+            b.Property(e => e.PayloadHash).HasMaxLength(64);
+            b.HasOne<SupplierBill>().WithMany().HasForeignKey(e => new { e.SupplierBillId, e.BusinessId })
+                .HasPrincipalKey(bill => new { bill.Id, bill.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<Supplier>().WithMany().HasForeignKey(e => new { e.SupplierId, e.BusinessId })
+                .HasPrincipalKey(supplier => new { supplier.Id, supplier.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BusinessLocation>().WithMany().HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(location => new { location.Id, location.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PurchaseReceipt>().WithMany().HasForeignKey(e => new { e.SourcePurchaseReceiptId, e.BusinessId })
+                .HasPrincipalKey(receipt => new { receipt.Id, receipt.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>().WithMany().HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(journal => new { journal.Id, journal.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CreditNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.SupplierBillId });
+            b.HasIndex(e => new { e.BusinessId, e.SupplierId, e.IssuedAtUtc });
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey })
+                .IsUnique().HasFilter("idempotency_key IS NOT NULL")
+                .HasDatabaseName("ux_supplier_credit_notes_business_idempotency_key");
+
+            // The posted figures are the credit's own; the usable balance is derived from what has used it, so a
+            // remaining credit is a stated figure with an account behind it rather than a negative payable (task 27).
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_supplier_credit_notes_amounts",
+                "base_amount >= 0 AND tax_amount >= 0 AND value_amount > 0 AND value_amount = base_amount + tax_amount AND applied_amount >= 0 AND balance_due >= 0 AND balance_due = value_amount - applied_amount"));
+        });
+
+        modelBuilder.Entity<SupplierCreditNoteLine>(b =>
+        {
+            b.ToTable("supplier_credit_note_lines");
+            HasBusinessFk(b);
+            b.Property(e => e.ProductNameSnapshot).HasMaxLength(200).IsRequired();
+            b.Property(e => e.Quantity).HasPrecision(18, 6);
+            b.Property(e => e.UnitCost).HasPrecision(18, 6);
+            b.Property(e => e.BaseAmount).HasPrecision(18, 4);
+            b.Property(e => e.TaxRate).HasPrecision(12, 6);
+            b.Property(e => e.TaxAmount).HasPrecision(18, 4);
+            b.Property(e => e.ValueAmount).HasPrecision(18, 4);
+            b.HasOne<SupplierCreditNote>().WithMany().HasForeignKey(e => new { e.SupplierCreditNoteId, e.BusinessId })
+                .HasPrincipalKey(credit => new { credit.Id, credit.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<SupplierBillLine>().WithMany().HasForeignKey(e => new { e.SupplierBillLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<PurchaseReceiptLine>().WithMany().HasForeignKey(e => new { e.PurchaseReceiptLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<ProductVariant>().WithMany().HasForeignKey(e => new { e.VariantId, e.BusinessId })
+                .HasPrincipalKey(variant => new { variant.Id, variant.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.SupplierCreditNoteId, e.LineNo }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.SupplierBillLineId });
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_credit_note_lines_amounts",
+                "quantity > 0 AND unit_cost >= 0 AND base_amount >= 0 AND tax_rate >= 0 AND tax_rate < 1 AND tax_amount >= 0 AND value_amount = base_amount + tax_amount"));
+        });
+
+        modelBuilder.Entity<SupplierCreditApplication>(b =>
+        {
+            b.ToTable("supplier_credit_applications");
+            HasBusinessFk(b);
+            b.Property(e => e.Amount).HasPrecision(18, 4);
+            b.HasOne<SupplierCreditNote>().WithMany().HasForeignKey(e => new { e.SupplierCreditNoteId, e.BusinessId })
+                .HasPrincipalKey(credit => new { credit.Id, credit.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<SupplierBill>().WithMany().HasForeignKey(e => new { e.SupplierBillId, e.BusinessId })
+                .HasPrincipalKey(bill => new { bill.Id, bill.BusinessId }).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<OpenItem>()
+                .WithMany()
+                .HasForeignKey(e => new { e.OpenItemId, e.BusinessId })
+                .HasPrincipalKey(openItem => new { openItem.Id, openItem.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.SupplierCreditNoteId });
+            b.HasIndex(e => new { e.BusinessId, e.SupplierBillId });
+            b.HasIndex(e => new { e.BusinessId, e.OpenItemId });
+            b.ToTable(t => t.HasCheckConstraint("ck_supplier_credit_applications_amount_positive", "amount > 0"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_supplier_credit_applications_exactly_one_target",
+                "((supplier_bill_id IS NOT NULL AND open_item_id IS NULL) OR (supplier_bill_id IS NULL AND open_item_id IS NOT NULL))"));
         });
     }
 

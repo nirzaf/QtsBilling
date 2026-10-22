@@ -78,4 +78,25 @@ public static class ApiErrorCodes
 
     /// <summary>The stock carries no value, so its cost cannot be determined (specification D06).</summary>
     public const string ValuationRequired = "VALUATION_REQUIRED";
+
+    /// <summary>
+    /// A supplier credit was asked for against a bill that is not a posted payable - a draft, or a void. The credit
+    /// reverses a recorded obligation, so only an obligation the ledger already carries can be reversed
+    /// (specification task 27, T27.01).
+    /// </summary>
+    public const string SupplierBillNotIssued = "SUPPLIER_BILL_NOT_ISSUED";
+
+    /// <summary>
+    /// More than the remaining quantity or value of a bill line was credited, counted against every credit already
+    /// issued for that line. The whole request is refused, so a credit cannot quietly become a second one
+    /// (specification task 27, T27.02 and T27.03).
+    /// </summary>
+    public const string OverCredit = "OVER_CREDIT";
+
+    /// <summary>
+    /// The supplier's own invoice number is already on file for that supplier. A duplicate reference is the double
+    /// payment the three-way match exists to prevent, so the second bill is refused rather than posted and matched
+    /// later (specification task 27, recipe step 1).
+    /// </summary>
+    public const string DuplicateSupplierReference = "DUPLICATE_SUPPLIER_REFERENCE";
 }

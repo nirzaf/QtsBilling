@@ -9,6 +9,14 @@ public sealed class FulfillmentApiClient(HttpClient http) : IFulfillmentApiClien
 {
     private const string Route = "/api/v1/sales-orders";
 
+    public async Task<OrderFulfillmentDto> GetFulfillmentAsync(Guid orderId, CancellationToken cancellationToken = default)
+    {
+        using var response = await http.GetAsync($"{Route}/{orderId}/fulfillment", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        return await ApiHttp.ReadRequiredAsync<OrderFulfillmentDto>(response, cancellationToken).ConfigureAwait(false);
+    }
+
     public Task<InventoryReservationDto> ReserveAsync(Guid orderId, ReserveSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
         => SendCreateAsync<InventoryReservationDto>($"{Route}/{orderId}/reservations", request, idempotencyKey, cancellationToken);
 

@@ -17,7 +17,7 @@ param(
     [Parameter(Mandatory)]
     [ValidateSet(
         "gate1_no_mutations",
-        "two_codewords_without_manifest",
+        "codeword_without_manifest",
         "server_a_database_b",
         "bad_report_hash",
         "missing_device",
@@ -173,7 +173,7 @@ if ($Scenario -eq "bad_report_hash") {
 elseif ($Scenario -eq "missing_device") {
     $null = New-ApprovalManifest @{ approvedDeviceIds = @() }
 }
-elseif ($Scenario -ne "two_codewords_without_manifest") {
+elseif ($Scenario -ne "codeword_without_manifest") {
     $null = New-ApprovalManifest
 }
 
@@ -181,7 +181,6 @@ $env:QTS_POSTGRES_CONNECTION = $script:Connection
 $env:QTS_CUTOVER_APPROVAL_KEY = $script:ApprovalKeyHex
 $env:QTS_CUTOVER_APPROVAL_KEY_ID = $script:ApprovalKeyId
 $env:QTS_CUTOVER_CODEWORD = $script:Codeword
-$env:QTS_CUTOVER_PRESENTED_CODEWORD = $script:Codeword
 
 # Controlled database double. Only read queries are answered; the single update in Execute is the
 # identity reset and is recorded by Reset-OwnerIdentity below.
@@ -308,7 +307,7 @@ function Reset-OwnerIdentity {
 }
 
 $mode = if ($Scenario -eq "valid_preflight") { "Admission" } else { "Execute" }
-$manifest = if ($Scenario -eq "two_codewords_without_manifest") { "" } else { $manifestPath }
+$manifest = if ($Scenario -eq "codeword_without_manifest") { "" } else { $manifestPath }
 
 $context = New-CutoverContext `
     -Mode_ $mode `

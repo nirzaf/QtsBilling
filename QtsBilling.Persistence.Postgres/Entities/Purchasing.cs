@@ -206,12 +206,21 @@ public sealed class SupplierPayment : TenantEntity
     public Guid JournalEntryId { get; set; }
 }
 
-/// <summary>Append-only allocation of a supplier settlement to an AP open item.</summary>
+/// <summary>
+/// Append-only allocation of a supplier settlement to one AP open item: an issued bill, or an imported opening
+/// payable settled without inventing a bill for it (specification task 27, recipe step 2).
+/// </summary>
 public sealed class SupplierPaymentAllocation : Entity, ITenantScoped
 {
     public Guid BusinessId { get; set; }
     public Guid SupplierPaymentId { get; set; }
-    public Guid SupplierBillId { get; set; }
+
+    /// <summary>Null when the target is an opening payable rather than a bill.</summary>
+    public Guid? SupplierBillId { get; set; }
+
+    /// <summary>Exactly one of the two targets is set - a database check, not a convention.</summary>
+    public Guid? OpenItemId { get; set; }
+
     public decimal AllocatedAmount { get; set; }
 }
 
@@ -236,4 +245,109 @@ public sealed class ExpenseReversal : TenantEntity
     public string? IdempotencyKey { get; set; }
 
     public string? PayloadHash { get; set; }
+}
+
+/// <summary>
+/// A supplier's own correction of an issued bill (specification task 27). The header records which bill it reverses,
+/// the posted return whose goods physically went back when there is one, and the value at the <em>bill's</em> price;
+/// the amounts are immutable once posted and the unused balance is derived from the applications against it. A credit
+/// never removes stock by itself - that is a return document's job - so crediting a returned delivery cannot take the
+/// same quantity out of inventory twice.
+/// </summary>
+public sealed class SupplierCreditNote : TenantEntity
+{
+    public Guid SupplierBillId { get; set; }
+
+    public Guid SupplierId { get; set; }
+
+    public Guid LocationId { get; set; }
+
+    /// <summary>The posted return this credit follows. Null for a value-only credit, which changes price, not stock.</summary>
+    public Guid? SourcePurchaseReceiptId { get; set; }
+
+    public string CreditNumber { get; set; } = string.Empty;
+
+    /// <summary>Mandatory and audited: whoever reconciles the account reads why the supplier owes a credit.</summary>
+    public string Reason { get; set; } = string.Empty;
+
+    public string Currency { get; set; } = "QAR";
+
+    /// <summary>The value before tax, at the bill line's own figures.</summary>
+    public decimal BaseAmount { get; set; }
+
+    public decimal TaxAmount { get; set; }
+
+    /// <summary>What the credit takes back from the payable: base plus the input tax that travels with it.</summary>
+    public decimal ValueAmount { get; set; }
+
+    /// <summary>Documents this credit has already paid for. The usable balance is derived, never typed.</summary>
+    public decimal AppliedAmount { get; set; }
+
+    public decimal BalanceDue { get; set; }
+
+    public Guid JournalEntryId { get; set; }
+
+    public DateTimeOffset IssuedAtUtc { get; set; }
+
+    public Guid IssuedByUserId { get; set; }
+
+    public string? IdempotencyKey { get; set; }
+
+    public string? PayloadHash { get; set; }
+}
+
+/// <summary>
+/// One credited line of a supplier credit note. It names the bill line it reverses and, where the goods went back,
+/// the receipt line carrying the cost the stock was capitalised at - the two prices differ by design, and the
+/// difference is the variance the entry records rather than a rounding mystery.
+/// </summary>
+public sealed class SupplierCreditNoteLine : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid SupplierCreditNoteId { get; set; }
+
+    public int LineNo { get; set; }
+
+    public Guid SupplierBillLineId { get; set; }
+
+    public Guid? PurchaseReceiptLineId { get; set; }
+
+    public Guid VariantId { get; set; }
+
+    public string ProductNameSnapshot { get; set; } = string.Empty;
+
+    public decimal Quantity { get; set; }
+
+    public decimal UnitCost { get; set; }
+
+    public decimal BaseAmount { get; set; }
+
+    public decimal TaxRate { get; set; }
+
+    public decimal TaxAmount { get; set; }
+
+    public decimal ValueAmount { get; set; }
+}
+
+/// <summary>
+/// Use of a credit's remaining value against another open bill or an imported opening payable. The credit reduced
+/// the payable when it was issued; these rows say which document the benefit settled, so the ledger is never debited
+/// twice for one credit and an opening's imported amount is never rewritten (D17).
+/// </summary>
+public sealed class SupplierCreditApplication : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid SupplierCreditNoteId { get; set; }
+
+    public Guid? SupplierBillId { get; set; }
+
+    public Guid? OpenItemId { get; set; }
+
+    public decimal Amount { get; set; }
+
+    public DateTimeOffset AppliedAtUtc { get; set; }
+
+    public Guid AppliedByUserId { get; set; }
 }

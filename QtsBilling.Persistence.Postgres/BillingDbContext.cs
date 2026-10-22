@@ -26,6 +26,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(PurchaseReceiptLine),
         typeof(SupplierPayment),
         typeof(SupplierPaymentAllocation),
+        typeof(SupplierCreditNoteLine),
+        typeof(SupplierCreditApplication),
         typeof(ExpenseReversal),
         typeof(CashRegisterMovement),
         typeof(AuditEvent),
@@ -146,6 +148,13 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<SupplierPaymentAllocation> SupplierPaymentAllocations => Set<SupplierPaymentAllocation>();
 
     public DbSet<ExpenseReversal> ExpenseReversals => Set<ExpenseReversal>();
+
+    /// <summary>Supplier credits against an issued bill, with their lines and the documents they settled.</summary>
+    public DbSet<SupplierCreditNote> SupplierCreditNotes => Set<SupplierCreditNote>();
+
+    public DbSet<SupplierCreditNoteLine> SupplierCreditNoteLines => Set<SupplierCreditNoteLine>();
+
+    public DbSet<SupplierCreditApplication> SupplierCreditApplications => Set<SupplierCreditApplication>();
 
     public DbSet<Account> Accounts => Set<Account>();
 
@@ -362,6 +371,19 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
                 case SupplierPayment payment when entry.State is EntityState.Modified or EntityState.Deleted:
                     throw new InvalidOperationException(
                         $"Supplier payment {payment.Id} is immutable financial history and cannot be changed or deleted.");
+
+                case SupplierCreditNote credit when entry.State == EntityState.Deleted:
+                    throw new InvalidOperationException(
+                        $"Supplier credit {credit.CreditNumber} is a posted document and cannot be deleted; reverse it with a new linked credit instead.");
+
+                case SupplierCreditNote credit when entry.State == EntityState.Modified:
+                    // The credit's own figures are the posted fact; only which documents have used it may still move.
+                    EnsureOnlyAllowedPropertiesChanged(
+                        entry,
+                        nameof(SupplierCreditNote.AppliedAmount),
+                        nameof(SupplierCreditNote.BalanceDue));
+                    _ = credit;
+                    break;
 
                 case Sale sale when entry.State == EntityState.Modified:
                     EnsureOnlyAllowedPropertiesChanged(

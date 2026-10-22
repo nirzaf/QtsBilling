@@ -1,0 +1,362 @@
+@page "/orders/fulfillment"
+@page "/orders/fulfillment/{OrderId:guid}"
+@namespace QtsBilling.Ui.Pages.Orders
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Invoices
+@using QtsBilling.Contracts.Orders
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Fulfillment - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Fulfillment</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">@BusinessContext</MudText>
+    </div>
+    <MudStack Row="true" Spacing="1">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Inventory" Href="orders/sales-orders">
+            Sales orders
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="ReloadAsync" Disabled="@_busy">Reload</MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    The rule this screen exists to keep visible (specification task 23, recipe steps 1 and 4): a reservation, a
+    dispatch and a financial recognition are three different facts about the same quantity, each moved by its own
+    command with its own key.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    @FulfillmentRules.SeparationNote
+</MudAlert>
+
+@if (_committed is not null)
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3">@_committed</MudAlert>
+}
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="ReloadAsync">
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string" Label="Which orders to list" Value="@_statusFilter" ValueChanged="StatusFilterChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Which orders to list">
+                    <MudSelectItem T="string" Value="@("Confirmed")">Confirmed, nothing delivered</MudSelectItem>
+                    <MudSelectItem T="string" Value="@("PartiallyFulfilled")">Partly delivered</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" Label="Order number" Value="@_search" ValueChanged="SearchChangedAsync"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChangedAsync"
+                              Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              aria-label="Order number" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@OrderRules.SearchHelp("order")</MudText>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudStack Row="true" Spacing="1" Class="pt-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousPageAsync"
+                               Disabled="@(_orders.IsBusy || !_orders.CanGoPrevious)">Previous</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextPageAsync"
+                               Disabled="@(_orders.IsBusy || !_orders.CanGoNext)">Next</MudButton>
+                </MudStack>
+            </MudItem>
+        </MudGrid>
+
+        <MudTable Items="_orders.Rows" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                  aria-label="Open sales orders" Class="mt-2">
+            <HeaderContent>
+                <MudTh>Order</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Branch</MudTh>
+                <MudTh>Customer</MudTh>
+                <MudTh>Total</MudTh>
+                <MudTh>Fulfill</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Order">@context.OrderNumber</MudTd>
+                <MudTd DataLabel="Status">@OrderRules.OrderStatusText(context.Status)</MudTd>
+                <MudTd DataLabel="Branch">@(context.LocationName ?? "a branch no longer listed")</MudTd>
+                <MudTd DataLabel="Customer">@(context.CustomerName ?? "no customer named")</MudTd>
+                <MudTd DataLabel="Total">@FulfillmentRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                <MudTd DataLabel="Fulfill">
+                    <MudLink Href="@($"/orders/fulfillment/{context.Id}")" Underline="Underline.Hover">Open</MudLink>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Class="pa-4">No order is open for fulfillment with this filter.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    </MudPaper>
+
+    @if (_view is { } view)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <div>
+                    <MudText Typo="Typo.h5">@view.OrderNumber</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@OrderSummary(view)</MudText>
+                </div>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                             Color="@(view.Status == "PartiallyFulfilled" ? Color.Warning : Color.Info)">
+                        @OrderRules.OrderStatusText(view.Status)
+                    </MudChip>
+                    <MudText Typo="Typo.body2">version @view.Version</MudText>
+                </MudStack>
+            </MudStack>
+
+            @if (view.RemainderCancellationReason is { Length: > 0 } cancelled)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2">
+                    The remainder was cancelled (@cancelled) - what was cancelled is never dispatched later.
+                </MudAlert>
+            }
+
+            <MudTable Items="view.Lines" Dense="true" Striped="true" Breakpoint="Breakpoint.Md"
+                      aria-label="Order quantities" Class="mt-3">
+                <HeaderContent>
+                    <MudTh>Line</MudTh>
+                    <MudTh>Ordered</MudTh>
+                    <MudTh>Delivered</MudTh>
+                    <MudTh>Cancelled</MudTh>
+                    <MudTh>Outstanding</MudTh>
+                    <MudTh>Reserved</MudTh>
+                    <MudTh>Released</MudTh>
+                    <MudTh>Invoiced</MudTh>
+                    <MudTh>On hand</MudTh>
+                    <MudTh>Deliver now</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Line">
+                        @($"{context.LineNo}. {context.Description}")
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@FulfillmentRules.DeliverableSentence(context)</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Ordered">@FulfillmentRules.Money(context.Ordered)</MudTd>
+                    <MudTd DataLabel="Delivered">@FulfillmentRules.Money(context.Delivered)</MudTd>
+                    <MudTd DataLabel="Cancelled">@(context.Cancelled > 0m ? FulfillmentRules.Money(context.Cancelled) : "-")</MudTd>
+                    <MudTd DataLabel="Outstanding">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                 Color="@(context.Outstanding > 0m ? Color.Info : Color.Default)">
+                            @FulfillmentRules.Money(context.Outstanding)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Reserved">@FulfillmentRules.Money(context.ReservedOutstanding)</MudTd>
+                    <MudTd DataLabel="Released">@(context.Released > 0m ? FulfillmentRules.Money(context.Released) : "-")</MudTd>
+                    <MudTd DataLabel="Invoiced">@FulfillmentRules.Money(context.Invoiced)</MudTd>
+                    <MudTd DataLabel="On hand">@(context.OnHand is { } onHand ? FulfillmentRules.Money(onHand) : "n/a")</MudTd>
+                    <MudTd DataLabel="Deliver now">
+                        <MudNumericField T="decimal" Value="@DeliverQuantity(context)"
+                                         ValueChanged="@((decimal value) => SetDeliverQuantity(context, value))"
+                                         Min="0m" Max="@context.Outstanding" Step="1m"
+                                         Disabled="@(!CanEditDeliver)"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         aria-label="@($"Quantity to deliver on line {context.LineNo}")" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudGrid Spacing="3" Class="mt-4">
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.h6">Reservation</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">@ReservationSentence</MudText>
+
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+                        <MudNumericField T="int" @bind-Value="_reserveDays" Label="Hold for (days)" Min="1" Max="120"
+                                         Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Hold for days" />
+                        <MudButton Variant="Variant.Outlined" OnClick="ReserveAsync" Disabled="@(!CanReserve)">
+                            @(_awaitingReservation ? "Retry the reservation" : "Reserve the stock")
+                        </MudButton>
+                        @if (HasActiveReservation)
+                        {
+                            <MudButton Variant="Variant.Outlined" Color="Color.Warning" OnClick="BeginRelease">
+                                Release the reservation
+                            </MudButton>
+                        }
+                    </MudStack>
+
+                    @if (_releasing)
+                    {
+                        <MudTextField T="string" Value="@_reason" ValueChanged="@((string value) => _reason = value ?? string.Empty)"
+                                      Label="Why is it being released? (required)" MaxLength="500" Class="mt-2"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Release reason" />
+                        <MudStack Row="true" Spacing="2" Class="mt-2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Warning" OnClick="ReleaseAsync"
+                                       Disabled="@(_busy || string.IsNullOrWhiteSpace(_reason))">
+                                Confirm release
+                            </MudButton>
+                            <MudButton Variant="Variant.Text" OnClick="CancelRelease">Cancel</MudButton>
+                        </MudStack>
+                    }
+                </MudItem>
+
+                <MudItem xs="12" md="6">
+                    <MudText Typo="Typo.h6">Dispatch</MudText>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Start" Wrap="Wrap.Wrap">
+                        <MudDatePicker Date="_deliveryDate" DateChanged="DeliveryDateChangedAsync"
+                                       Label="Delivery date (business date)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                        <MudTextField T="string" Value="@_deliveryNote" ValueChanged="@((string value) => _deliveryNote = value ?? string.Empty)"
+                                      Label="Note on the delivery (optional)" MaxLength="2000"
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" Class="flex-grow-1"
+                                      aria-label="Delivery note" />
+                    </MudStack>
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="DeliverAsync" Disabled="@(!CanDeliver)">
+                            @(_awaitingDelivery ? "Ask about this same delivery" : "Deliver the chosen quantities")
+                        </MudButton>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@DispatchSentence</MudText>
+                    </MudStack>
+                    @if (!_canDispatch)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" role="status">@DispatchAuthorityNote</MudText>
+                    }
+                </MudItem>
+            </MudGrid>
+
+            @if (_awaitingReservation || _awaitingDelivery || _awaitingInvoice)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3" role="alert">
+                    @UnresolvedCommandNote
+                </MudAlert>
+                <MudStack Row="true" Spacing="2" Class="mt-2">
+                    <MudButton Variant="Variant.Outlined" OnClick="ReloadAsync" Disabled="@_busy">
+                        Re-read this order from the server
+                    </MudButton>
+                    <MudButton Variant="Variant.Text" OnClick="AbandonCommands" Disabled="@_busy">
+                        Drop the held keys and start fresh
+                    </MudButton>
+                </MudStack>
+            }
+
+            <MudText Typo="Typo.h6" Class="mt-5">Deliveries and their recognition</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">@FulfillmentRules.RecognitionNote</MudText>
+
+            @if (view.Deliveries.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary" role="status">
+                    Nothing has left this branch for the order yet, so there is nothing to invoice from it.
+                </MudText>
+            }
+            else
+            {
+                @foreach (var delivery in view.Deliveries)
+                {
+                    <MudPaper Outlined="true" Class="pa-4 mt-3">
+                        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                            <MudText Typo="Typo.subtitle1">@DeliverySummary(view, delivery)</MudText>
+                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                    journal @(delivery.JournalEntryNumber ?? "not yet posted")
+                                </MudText>
+                                <MudButton Size="Size.Small" Variant="Variant.Outlined"
+                                           OnClick="@(() => ToggleNoteAsync(delivery))"
+                                           aria-label="@($"Delivery note for {delivery.DeliveryNumber}")">
+                                    Delivery note
+                                </MudButton>
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                           OnClick="@(() => BeginInvoiceAsync(delivery))"
+                                           Disabled="@(!CanInvoiceFrom(delivery))">
+                                    Invoice the delivered quantities
+                                </MudButton>
+                            </MudStack>
+                        </MudStack>
+
+                        <MudTable Items="delivery.Lines" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                                  aria-label="Delivered lines" Class="mt-2">
+                            <HeaderContent>
+                                <MudTh>Item</MudTh>
+                                <MudTh>Delivered</MudTh>
+                                <MudTh>Cost value</MudTh>
+                                <MudTh>Invoiced</MudTh>
+                                <MudTh>Invoiceable</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Item">@DescriptionFor(view, context.OrderLineId)</MudTd>
+                                <MudTd DataLabel="Delivered">@FulfillmentRules.Money(context.Quantity)</MudTd>
+                                <MudTd DataLabel="Cost value">@FulfillmentRules.MoneyText(context.CostValue, view.Currency)</MudTd>
+                                <MudTd DataLabel="Invoiced">@FulfillmentRules.Money(context.QuantityInvoiced)</MudTd>
+                                <MudTd DataLabel="Invoiceable">
+                                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                             Color="@(FulfillmentRules.InvoiceableQuantity(context) > 0m ? Color.Info : Color.Default)">
+                                        @FulfillmentRules.Money(FulfillmentRules.InvoiceableQuantity(context))
+                                    </MudChip>
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        @if (_notedDelivery?.Id == delivery.Id)
+                        {
+                            <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-2" role="status">
+                                COPY - @FulfillmentRules.DeliveryNoteCopy
+                            </MudAlert>
+                            <MudSimpleTable Dense="true" aria-label="Delivery note">
+                                <tbody>
+                                    <tr><td>@delivery.DeliveryNumber</td><td>@delivery.DeliveryDate:yyyy-MM-dd</td></tr>
+                                    @foreach (var line in delivery.Lines)
+                                    {
+                                        <tr>
+                                            <td>@($"{FulfillmentRules.Money(line.Quantity)} x {DescriptionFor(view, line.OrderLineId)}")</td>
+                                            <td>@FulfillmentRules.MoneyText(line.CostValue, view.Currency)</td>
+                                        </tr>
+                                    }
+                                    @if (delivery.Note is { Length: > 0 } deliveryNote)
+                                    {
+                                        <tr><td>Note</td><td>@deliveryNote</td></tr>
+                                    }
+                                </tbody>
+                            </MudSimpleTable>
+                        }
+
+                        @if (_invoicing?.Id == delivery.Id)
+                        {
+                            <MudGrid Spacing="2" Class="mt-3">
+                                <MudItem xs="12" sm="4">
+                                    <MudDatePicker Date="_issueDate" DateChanged="IssueDateChangedAsync"
+                                                   Label="Issue date" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12" sm="4">
+                                    <MudDatePicker Date="_dueDate" DateChanged="DueDateChangedAsync"
+                                                   Label="Due date (optional)" Variant="Variant.Outlined" Margin="Margin.Dense" />
+                                </MudItem>
+                                <MudItem xs="12" sm="4">
+                                    <MudTextField T="string" Value="@_invoiceNote" ValueChanged="@((string value) => _invoiceNote = value ?? string.Empty)"
+                                                  Label="Note (optional)" MaxLength="2000"
+                                                  Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Invoice note" />
+                                </MudItem>
+                                @foreach (var line in delivery.Lines.Where(candidate => FulfillmentRules.InvoiceableQuantity(candidate) > 0m))
+                                {
+                                    <MudItem xs="12" sm="6">
+                                        <MudNumericField T="decimal" Value="@InvoiceQuantity(line)"
+                                                         ValueChanged="@((decimal value) => SetInvoiceQuantity(line, value))"
+                                                         Label="@($"Invoice - {DescriptionFor(view, line.OrderLineId)}")"
+                                                         Min="0m" Max="@FulfillmentRules.InvoiceableQuantity(line)" Step="1m"
+                                                         Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                         aria-label="@($"Quantity to invoice for {DescriptionFor(view, line.OrderLineId)}")" />
+                                    </MudItem>
+                                }
+                            </MudGrid>
+
+                            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-2">
+                                <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateInvoiceAsync"
+                                           Disabled="@(!CanCreateInvoice)">
+                                    @(_awaitingInvoice ? "Ask about this same invoice" : "Create the invoice")
+                                </MudButton>
+                                <MudButton Variant="Variant.Text" OnClick="CancelInvoice">Cancel</MudButton>
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">@InvoiceSentence</MudText>
+                            </MudStack>
+                        }
+                    </MudPaper>
+                }
+            }
+
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-3">@FulfillmentRules.ImmutabilityNote</MudText>
+        </MudPaper>
+    }
+</ShellStates>

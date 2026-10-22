@@ -257,6 +257,12 @@ public interface ISalesOrderApiClient
 
 public interface IFulfillmentApiClient
 {
+    /// <summary>
+    /// The order's fulfillment position: ordered, reserved, delivered, released, invoiced and on-hand per line,
+    /// each kept separate because a different command moves each one (specification task 23, recipe step 1).
+    /// </summary>
+    Task<OrderFulfillmentDto> GetFulfillmentAsync(Guid orderId, CancellationToken cancellationToken = default);
+
     Task<InventoryReservationDto> ReserveAsync(Guid orderId, ReserveSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
     Task ReleaseReservationsAsync(Guid orderId, ReleaseSalesOrderReservationRequest request, CancellationToken cancellationToken = default);
     Task<SalesOrderDeliveryDto> DeliverAsync(Guid orderId, DeliverSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default);
