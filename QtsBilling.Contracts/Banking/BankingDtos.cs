@@ -148,4 +148,3 @@ public sealed record BankStatementReviewDto(
     IReadOnlyList<BankReconciliationEventDto> Events,
     string? AccountingPeriodName,
     bool AccountingPeriodClosed);
-
