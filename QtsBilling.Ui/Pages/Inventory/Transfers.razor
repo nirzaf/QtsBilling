@@ -1,0 +1,350 @@
+@page "/inventory/transfers"
+@page "/inventory/transfers/{Id:guid}"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Inventory
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Transfers - QTS Billing</PageTitle>
+
+@* Valued movement of stock between two branches (specification task 29). A draft moves nothing, dispatch
+   takes it from the source and parks its value in transit, and receipt at the far end is the only thing that
+   stocks the destination - once, at the cost recorded when it left. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Inter-location transfers</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Draft, dispatch and receive stock between branches at the cost the source held.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Place" Href="inventory/stock">
+            Stock
+        </MudButton>
+        @if (IsQueue)
+        {
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                       OnClick="@(() => _showCreate = !_showCreate)">
+                @(_showCreate ? "Hide the new transfer form" : "New transfer")
+            </MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="@_busy">
+            Refresh
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">@StockRules.CustodyRule</MudAlert>
+@if (IsQueue)
+{
+    <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+        A draft moves nothing. Only dispatch takes the stock out of the source, and only receipt puts it on the destination shelf.
+    </MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="RefreshAsync" RetryLabel="Read it back">
+    @if (IsQueue)
+    {
+        @if (_notice is not null && !_showCreate)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+        }
+
+        <MudTable Items="@_transfers" Dense="true" Hover="true" Striped="true" Bordered="true"
+                  Breakpoint="Breakpoint.Sm" aria-label="Inter-location transfers">
+            <HeaderContent>
+                <MudTh>Transfer</MudTh>
+                <MudTh>Route</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh Style="text-align:right">Quantity</MudTh>
+                <MudTh Style="text-align:right">Value</MudTh>
+                <MudTh>Created</MudTh>
+                <MudTh>Actions</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Transfer">@context.TransferNumber</MudTd>
+                <MudTd DataLabel="Route">@context.SourceLocationName to @context.DestinationLocationName</MudTd>
+                <MudTd DataLabel="Status">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@StatusColor(context.Status)">
+                        @StockRules.StateText(context.Status)
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Quantity" Style="text-align:right">@context.TotalQuantity.ToString("0.######")</MudTd>
+                <MudTd DataLabel="Value" Style="text-align:right">@StockRules.QueueValueText(context)</MudTd>
+                <MudTd DataLabel="Created">@At(context.CreatedAtUtc)</MudTd>
+                <MudTd DataLabel="Actions">
+                    <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => OpenDetail(context.Id))"
+                               aria-label="@($"Open transfer {context.TransferNumber}")">
+                        Open
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-4 d-block">No transfer exists in this business yet.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+    }
+    else if (_detail is { } transfer)
+    {
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-3" Wrap="Wrap.Wrap">
+            <div>
+                <MudText Typo="Typo.h5">
+                    @transfer.TransferNumber
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Outlined" Color="@StatusColor(transfer.Status)" Class="ml-2">
+                        @StockRules.StateText(transfer.Status)
+                    </MudChip>
+                </MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @transfer.SourceLocationName to @transfer.DestinationLocationName - created @At(transfer.CreatedAtUtc),
+                    dispatched @At(transfer.DispatchedAtUtc), received @At(transfer.ReceivedAtUtc)
+                </MudText>
+            </div>
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack" Href="inventory/transfers">
+                All transfers
+            </MudButton>
+        </MudStack>
+
+        @if (_notice is not null)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+                @_error
+                @if (_errorRetry)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="ReReadAsync" Class="ms-2" Disabled="@_busy">
+                        Read it back
+                    </MudButton>
+                }
+            </MudAlert>
+        }
+
+        @if (!string.IsNullOrWhiteSpace(transfer.Note))
+        {
+            <MudPaper Class="pa-3 mb-3" Outlined="true">
+                <MudText Typo="Typo.subtitle2">Note</MudText>
+                <MudText Typo="Typo.body2">@transfer.Note</MudText>
+            </MudPaper>
+        }
+
+        <MudPaper Class="pa-3 mb-3" Outlined="true">
+            <MudGrid Spacing="2">
+                <MudItem xs="12" sm="4">
+                    <MudText Typo="Typo.subtitle2">Total quantity</MudText>
+                    <MudText Typo="Typo.body2">@transfer.TotalQuantity.ToString("0.######") unit(s)</MudText>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudText Typo="Typo.subtitle2">Value</MudText>
+                    <MudText Typo="Typo.body2">@ValueText(transfer.TotalValue, transfer.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="12" sm="4">
+                    <MudText Typo="Typo.subtitle2">Ledger</MudText>
+                    <MudText Typo="Typo.body2">
+                        @if (transfer.DispatchJournalEntryId is not null)
+                        {
+                            <text>Dispatch posted to the ledger.</text>
+                        }
+                        else
+                        {
+                            <text>No dispatch journal yet.</text>
+                        }
+                        @if (transfer.ReceiveJournalEntryId is not null)
+                        {
+                            <text> Receipt posted to the ledger.</text>
+                        }
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+        </MudPaper>
+
+        <MudTable Items="@transfer.Lines" Dense="true" Hover="true" Bordered="true" Breakpoint="Breakpoint.Sm"
+                  aria-label="Transfer lines" Class="mb-3">
+            <HeaderContent>
+                <MudTh>#</MudTh><MudTh>Item</MudTh><MudTh>SKU</MudTh>
+                <MudTh Style="text-align:right">Quantity</MudTh>
+                <MudTh Style="text-align:right">Unit cost at dispatch</MudTh>
+                <MudTh Style="text-align:right">Value at dispatch</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="#">@context.LineNo</MudTd>
+                <MudTd DataLabel="Item">@context.VariantName</MudTd>
+                <MudTd DataLabel="SKU">@(context.Sku ?? "-")</MudTd>
+                <MudTd DataLabel="Quantity" Style="text-align:right">@context.Quantity.ToString("0.######")</MudTd>
+                <MudTd DataLabel="Unit cost at dispatch" Style="text-align:right">
+                    @(context.UnitCostAtDispatch is { } cost ? cost.ToString("0.####") : "-")
+                </MudTd>
+                <MudTd DataLabel="Value at dispatch" Style="text-align:right">
+                    @(context.ValueAtDispatch is { } value ? StockRules.NiceMoney(value) : "-")
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">@StockRules.DiscrepancyRule</MudAlert>
+
+        <MudPaper Class="pa-3" Outlined="true">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2">
+                @if (transfer.Status == StockTransferState.Draft)
+                {
+                    @if (_canAdjust)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.LocalShipping"
+                                   OnClick="DispatchAsync" Disabled="@_busy" aria-label="@($"Dispatch transfer {transfer.TransferNumber}")">
+                            Dispatch from @transfer.SourceLocationName
+                        </MudButton>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            Dispatching reduces the source and parks the value in transit. Nothing arrives anywhere yet.
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Warning">
+                            Dispatching and receiving need the '@QtsBilling.Contracts.Identity.Permissions.InventoryAdjust' authority, which this account does not hold in this business.
+                        </MudText>
+                    }
+                }
+                else if (transfer.Status == StockTransferState.Dispatched)
+                {
+                    @if (_canAdjust)
+                    {
+                        <MudButton Variant="Variant.Filled" Color="Color.Success" StartIcon="@Icons.Material.Filled.Inventory"
+                                   OnClick="ReceiveAsync" Disabled="@_busy" aria-label="@($"Receive transfer {transfer.TransferNumber}")">
+                            Receive at @transfer.DestinationLocationName
+                        </MudButton>
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">
+                            The stock is in transit: it left the source and has not arrived. Receipt is what puts it on the destination shelf.
+                        </MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Warning">
+                            Dispatching and receiving need the '@QtsBilling.Contracts.Identity.Permissions.InventoryAdjust' authority, which this account does not hold in this business.
+                        </MudText>
+                    }
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Success">
+                        Received at @transfer.DestinationLocationName on @At(transfer.ReceivedAtUtc). This transfer is closed: its lines, valuation and history stay as posted.
+                    </MudText>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>
+
+@if (IsQueue && _showCreate)
+{
+    <MudPaper Class="pa-4 mt-4" Outlined="true">
+        <MudText Typo="Typo.h6" Class="mb-2">New transfer draft</MudText>
+
+        @if (_notice is not null && !_busy)
+        {
+            <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+        }
+        @if (_error is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+                @_error
+                @if (_errorRetry)
+                {
+                    <MudButton Variant="Variant.Text" Color="Color.Error" OnClick="SubmitAsync" Class="ms-2" Disabled="@_busy">
+                        Ask again about this draft
+                    </MudButton>
+                }
+            </MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="Guid?" Label="Source branch" Value="_sourceId" ValueChanged="SourceChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                           HelperText="The branch giving up the stock">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Choose a source</MudSelectItem>
+                    @foreach (var location in _locations)
+                    {
+                        <MudSelectItem T="Guid?" Value="@location.Id">@location.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="Guid?" Label="Destination branch" Value="_destinationId" ValueChanged="DestinationChanged"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                           HelperText="The branch that must acknowledge receipt">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Choose a destination</MudSelectItem>
+                    @foreach (var location in _locations)
+                    {
+                        <MudSelectItem T="Guid?" Value="@location.Id">@location.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" @bind-Value="_note" Label="Note" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Lines="2" MaxLength="StockRules.MaxNoteLength"
+                              HelperText="Why this stock is moving - kept with the transfer forever" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="5">
+                <MudAutocomplete T="InventoryBalanceDto" Label="Item from the source branch"
+                                 Value="_picked" ValueChanged="PickedChanged" SearchFunc="SearchSourceStock"
+                                 ToStringFunc="@(balance => balance is null ? string.Empty : BalanceText(balance))"
+                                 Clearable="true" ResetValueOnEmptyText="true"
+                                 DebounceInterval="300" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 Disabled="@(_sourceId is null)"
+                                 HelperText="@(_sourceId is null ? "Choose the source branch first" : "Search the source branch's own stock - only what it holds can be dispatched")" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2">
+                <MudNumericField T="decimal" @bind-Value="_pickedQuantity" Label="Quantity" Min="0.001m" Step="1m"
+                                 Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" sm="3" md="2" Class="d-flex align-center">
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Add" OnClick="AddLine"
+                           Disabled="@(_picked is null)" Class="mt-2">
+                    Add line
+                </MudButton>
+            </MudItem>
+        </MudGrid>
+
+        @if (_lines.Count > 0)
+        {
+            <MudTable Items="@_lines" Dense="true" Breakpoint="Breakpoint.Sm" Class="mt-3" aria-label="Draft lines">
+                <HeaderContent>
+                    <MudTh>Item</MudTh><MudTh>SKU</MudTh>
+                    <MudTh Style="text-align:right">Quantity</MudTh><MudTh></MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Item">@context.Stock.VariantName</MudTd>
+                    <MudTd DataLabel="SKU">@(context.Stock.Sku ?? "-")</MudTd>
+                    <MudTd DataLabel="Quantity" Style="text-align:right">@context.Quantity.ToString("0.######")</MudTd>
+                    <MudTd>
+                        <MudIconButton Icon="@Icons.Material.Filled.Delete" Color="Color.Error" Size="Size.Small"
+                                       OnClick="@(() => RemoveLine(context))"
+                                       aria-label="@($"Remove {context.Stock.VariantName} from the draft")" />
+                    </MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+
+        <MudStack Row="true" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Spacing="2" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Save"
+                       OnClick="SubmitAsync" Disabled="@(_busy || _lines.Count == 0)"
+                       aria-label="Create the transfer draft">
+                @(_busy ? "Asking the server…" : "Create draft")
+            </MudButton>
+            @if (AwaitingAnswer)
+            {
+                <MudButton Variant="Variant.Text" OnClick="AbandonAsync" Disabled="@_busy">
+                    Abandon this draft
+                </MudButton>
+            }
+        </MudStack>
+
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2 d-block">@KeyHint</MudText>
+        @if (_lines.Count > 0)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">
+                This draft carries @LineTotal.ToString("0.######") unit(s). Dispatch may still be refused if the source cannot cover it - that refusal leaves the draft exactly as it is.
+            </MudText>
+        }
+    </MudPaper>
+}

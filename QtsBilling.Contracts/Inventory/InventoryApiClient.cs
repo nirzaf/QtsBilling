@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Reports;
 using QtsBilling.Contracts.Serialization;
 
 namespace QtsBilling.Contracts.Inventory;
@@ -17,6 +18,26 @@ public interface IInventoryApiClient
         int pageSize = 50,
         Guid? locationId = null,
         Guid? variantId = null,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>The movement history behind one balance - how it got to what it holds (specification task 29).</summary>
+    Task<PagedResult<InventoryMovementDto>> GetMovementsAsync(
+        Guid? variantId = null,
+        Guid? locationId = null,
+        string? cursor = null,
+        int pageSize = 50,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Balances that do not tie to their movement history, offered as exceptions to investigate (task 29).</summary>
+    Task<InventoryReconciliationDto> GetReconciliationAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The authoritative valued stock at a date, computed from posted movements on the reports route - the one
+    /// answer to "what is it worth" that includes no provisional device estimate (specification task 29).
+    /// </summary>
+    Task<StockSummaryDto> GetStockSummaryAsync(
+        DateOnly? asOf = null,
+        Guid? locationId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>The business locations the device may be assigned to.</summary>
@@ -102,6 +123,71 @@ public sealed class InventoryApiClient : IInventoryApiClient
         return await response.Content
             .ReadFromJsonAsync<PagedResult<InventoryBalanceDto>>(ContractJson.Options, cancellationToken)
             .ConfigureAwait(false) ?? PagedResult<InventoryBalanceDto>.Empty(pageSize);
+    }
+
+    public async Task<PagedResult<InventoryMovementDto>> GetMovementsAsync(
+        Guid? variantId = null,
+        Guid? locationId = null,
+        string? cursor = null,
+        int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        var query = $"?pageSize={Math.Clamp(pageSize, 1, 200)}";
+
+        if (variantId is { } variant)
+        {
+            query += $"&variantId={variant:D}";
+        }
+
+        if (locationId is { } location)
+        {
+            query += $"&locationId={location:D}";
+        }
+
+        if (!string.IsNullOrWhiteSpace(cursor))
+        {
+            query += $"&cursor={Uri.EscapeDataString(cursor)}";
+        }
+
+        using var response = await _http.GetAsync("/api/v1/inventory/movements" + query, cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        return await response.Content
+            .ReadFromJsonAsync<PagedResult<InventoryMovementDto>>(ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false) ?? PagedResult<InventoryMovementDto>.Empty(pageSize);
+    }
+
+    public async Task<InventoryReconciliationDto> GetReconciliationAsync(CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync("/api/v1/inventory/reconciliation", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadFromJsonAsync<InventoryReconciliationDto>(ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("The reconciliation response was empty.");
+    }
+
+    public async Task<StockSummaryDto> GetStockSummaryAsync(
+        DateOnly? asOf = null,
+        Guid? locationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        var query = new List<string>();
+
+        if (asOf is { } date)
+        {
+            query.Add($"asOf={date:yyyy-MM-dd}");
+        }
+
+        if (locationId is { } location)
+        {
+            query.Add($"locationId={location:D}");
+        }
+
+        var suffix = query.Count == 0 ? string.Empty : "?" + string.Join('&', query);
+
+        using var response = await _http.GetAsync("/api/v1/reports/stock-summary" + suffix, cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+        return await response.Content.ReadFromJsonAsync<StockSummaryDto>(ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("The stock-summary response was empty.");
     }
 
     public async Task<IReadOnlyList<BusinessLocationDto>> GetLocationsAsync(CancellationToken cancellationToken = default)

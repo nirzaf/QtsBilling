@@ -26,6 +26,7 @@ using QtsBilling.Contracts.Orders;
 using QtsBilling.Contracts.Pricing;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Purchasing;
+using QtsBilling.Contracts.Reports;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Layout;
 using QtsBilling.Ui.Pages;
@@ -1144,7 +1145,71 @@ Check("a lost payables answer keeps its key while a proven refusal releases it",
             new ApiException(409, ApiErrorCodes.OverCredit, "x"), "this credit").Contains("read the bill back", StringComparison.OrdinalIgnoreCase)
         && QtsBilling.Ui.Pages.Purchasing.PayablesRules.NewKey("settle", Guid.CreateVersion7()).Length <= 64);
 
-// 16. The bank-reconciliation workbench (specification task 31): a shipped shared page that reads nothing during the
+// 16. The stock workbench (specification task 29): the balances screen and the transfers screen are shipped shared
+//     pages that read nothing during the prerender. Both state custody before any figure appears - a transfer is
+//     movement of custody, not a copy - and neither ever offers to repair a movement-backed balance or to invent a
+//     value the server has not posted. A refusal is always answered with the action that clears it, and only a
+//     refusal that proves nothing was written releases the held draft key.
+var stockServices = new ServiceCollection();
+stockServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+stockServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+stockServices.AddMudServices();
+stockServices.AddSingleton<NavigationManager, StubNavigationManager>();
+var stockStubInventory = new StubInventoryApiClient(Guid.CreateVersion7());
+stockServices.AddSingleton<IInventoryApiClient>(stockStubInventory);
+stockServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var stockProvider = stockServices.BuildServiceProvider();
+await using var stockRenderer = new HtmlRenderer(stockProvider, stockProvider.GetRequiredService<ILoggerFactory>());
+
+var stockHtml = await stockRenderer.Dispatcher.InvokeAsync(async () =>
+    (await stockRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Inventory.Stock>(ParameterView.Empty)).ToHtmlString());
+var transfersHtml = await stockRenderer.Dispatcher.InvokeAsync(async () =>
+    (await stockRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Inventory.Transfers>(ParameterView.Empty)).ToHtmlString());
+
+Check("the stock and transfers screens are shared pages with their own routes and honest nav rows",
+    typeof(QtsBilling.Ui.Pages.Inventory.Stock).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "inventory/stock")
+        && typeof(QtsBilling.Ui.Pages.Inventory.Transfers).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "inventory/transfers")
+        && typeof(QtsBilling.Ui.Pages.Inventory.Transfers).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "inventory/transfers/{Id:guid}")
+        && QtsBilling.Ui.Layout.ShellNavigation.Routes
+            .Single(route => route.Href == "inventory/stock").Availability == QtsBilling.Ui.Layout.ShellAvailability.Available
+        && QtsBilling.Ui.Layout.ShellNavigation.Routes
+            .Single(route => route.Href == "inventory/transfers").Availability == QtsBilling.Ui.Layout.ShellAvailability.Available);
+Check("the stock and transfers screens read nothing during the prerender",
+    stockStubInventory.Calls == 0,
+    $"reads {stockStubInventory.Calls}");
+Check("the stock screen states the provisional, custody and value rules before any figure is loaded",
+    stockHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && stockHtml.Contains("never mixed into on-hand", StringComparison.Ordinal)
+        && stockHtml.Contains("inventory-in-transit account", StringComparison.Ordinal)
+        && stockHtml.Contains("valued stock is shown to accounts", StringComparison.OrdinalIgnoreCase));
+Check("the transfers screen states that a draft moves nothing and that custody is not a copy before it is loaded",
+    transfersHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && transfersHtml.Contains("custody, not a copy", StringComparison.Ordinal)
+        && transfersHtml.Contains("A draft moves nothing", StringComparison.Ordinal));
+Check("a stock refusal names the action that clears it, and only a proven refusal releases the held key",
+    QtsBilling.Ui.Pages.Inventory.StockRules.RefusalSentence(
+            new ApiException(409, ApiErrorCodes.InsufficientStock, "short"), "the dispatch")
+        .Contains("refused whole", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Inventory.StockRules.RefusalSentence(
+            new ApiException(403, ApiErrorCodes.Forbidden, "blocked"), "this transfer")
+        .Contains("both locations", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Inventory.StockRules.CommittedNothing(ApiErrorCodes.InsufficientStock)
+    && QtsBilling.Ui.Pages.Inventory.StockRules.CommittedNothing(ApiErrorCodes.SameKeyDifferentPayload)
+    && !QtsBilling.Ui.Pages.Inventory.StockRules.CommittedNothing(ApiErrorCodes.InternalError)
+    && QtsBilling.Ui.Pages.Inventory.StockRules.NewKey("transfer", Guid.CreateVersion7().ToString("N")).Length <= 64);
+Check("a transfer's state and its movements are named for the operator, never as raw codes",
+    QtsBilling.Ui.Pages.Inventory.StockRules.StateText(StockTransferState.Draft) == "draft, not yet dispatched"
+    && QtsBilling.Ui.Pages.Inventory.StockRules.StateText(StockTransferState.Dispatched) == "dispatched, in transit"
+    && QtsBilling.Ui.Pages.Inventory.StockRules.MovementText(StockMovementKind.TransferOut) == "transfer dispatched"
+    && QtsBilling.Ui.Pages.Inventory.StockRules.MovementText(StockMovementKind.TransferIn) == "transfer received"
+    && QtsBilling.Ui.Pages.Inventory.StockRules.ReconciliationRule.Contains("never repairs", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Inventory.StockRules.DiscrepancyRule.Contains("reviewed adjustment", StringComparison.Ordinal));
+
+// 17. The bank-reconciliation workbench (specification task 31): a shipped shared page that reads nothing during the
 //     prerender, states that a reference is not proof and that a difference is answered by a line, and offers a
 //     finalisation only when the statement ties. The figures it quotes are the arithmetic of the read, not a claim.
 var bankingStub = new StubBankingApiClient();
@@ -1478,8 +1543,14 @@ internal sealed class StubInvoiceApiClient(
 /// <summary>Only the location list is needed to render the editor; stock commands stay refused here.</summary>
 internal sealed class StubInventoryApiClient(Guid locationId) : IInventoryApiClient
 {
+    /// <summary>How often the screen asked for data, so a prerender that reads is visible as a failure.</summary>
+    public int Calls { get; private set; }
+
     public Task<IReadOnlyList<BusinessLocationDto>> GetLocationsAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<BusinessLocationDto>>([new BusinessLocationDto(locationId, "Main store", "MAIN", null, true, 1)]);
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<BusinessLocationDto>>([new BusinessLocationDto(locationId, "Main store", "MAIN", null, true, 1)]);
+    }
 
     public Task<PagedResult<InventoryBalanceDto>> GetBalancesAsync(
         string? search = null,
@@ -1488,10 +1559,49 @@ internal sealed class StubInventoryApiClient(Guid locationId) : IInventoryApiCli
         Guid? locationId = null,
         Guid? variantId = null,
         CancellationToken cancellationToken = default)
-        => Task.FromResult(PagedResult<InventoryBalanceDto>.Empty(pageSize));
+    {
+        Calls++;
+        return Task.FromResult(PagedResult<InventoryBalanceDto>.Empty(pageSize));
+    }
+
+    public Task<PagedResult<InventoryMovementDto>> GetMovementsAsync(
+        Guid? variantId = null,
+        Guid? locationId = null,
+        string? cursor = null,
+        int pageSize = 50,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(PagedResult<InventoryMovementDto>.Empty(pageSize));
+    }
+
+    public Task<InventoryReconciliationDto> GetReconciliationAsync(CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new InventoryReconciliationDto(0, 0m, 0m, []));
+    }
+
+    public Task<StockSummaryDto> GetStockSummaryAsync(
+        DateOnly? asOf = null,
+        Guid? locationId = null,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new StockSummaryDto(
+            Guid.CreateVersion7(),
+            asOf ?? DateOnly.FromDateTime(DateTime.UtcNow),
+            "USD",
+            [],
+            0m,
+            0m,
+            false));
+    }
 
     public Task<IReadOnlyList<StockTransferSummaryDto>> GetTransfersAsync(CancellationToken cancellationToken = default)
-        => Task.FromResult<IReadOnlyList<StockTransferSummaryDto>>([]);
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<StockTransferSummaryDto>>([]);
+    }
 
     public Task<StockTransferDetailDto> GetTransferAsync(Guid transferId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never moves stock.");
@@ -2078,12 +2188,6 @@ internal sealed class StubPricingApiClient : IPricingApiClient
         => throw new NotSupportedException("The smoke never retires a discount.");
 }
 
-/// <summary>
-/// The procurement contract as the render smoke sees it (specification task 26). Reads are counted so a page that
-/// reaches for its order during the prerender fails the run, and every money-moving command is refused rather than
-/// simulated: a goods received note is a server fact with a journal behind it, so the smoke never pretends to post
-/// one.
-/// </summary>
 internal sealed class StubBankingApiClient : IBankingApiClient
 {
     public int Calls { get; private set; }
@@ -2184,6 +2288,12 @@ internal sealed class StubBankingApiClient : IBankingApiClient
     }
 }
 
+/// <summary>
+/// The procurement contract as the render smoke sees it (specification task 26). Reads are counted so a page that
+/// reaches for its order during the prerender fails the run, and every money-moving command is refused rather than
+/// simulated: a goods received note is a server fact with a journal behind it, so the smoke never pretends to post
+/// one.
+/// </summary>
 internal sealed class StubPurchasingApiClient(Guid branchId, Guid orderId) : IPurchasingApiClient
 {
     /// <summary>How often a screen asked for a read, so a prerender that loads is visible as a failure.</summary>

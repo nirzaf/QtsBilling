@@ -1,0 +1,215 @@
+@page "/inventory/stock"
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Inventory
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Stock - QTS Billing</PageTitle>
+
+@* What each branch holds, what it is worth, and what is between branches right now (specification task 29).
+   Quantities are movement-backed, value comes from the posted stock summary, and in-transit is what dispatch
+   already valued and receipt has not yet taken. No figure here is repaired or borrowed from an offline device. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Stock</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">On-hand quantity, authoritative value, and the transfers currently between branches.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.SwapHoriz" Href="inventory/transfers">
+            Inter-location transfers
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="RefreshAsync" Disabled="@_list.IsBusy">
+            Refresh
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3">@StockRules.ProvisionalRule</MudAlert>
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">@StockRules.CustodyRule</MudAlert>
+
+@if (!string.IsNullOrWhiteSpace(_message) && _state != ShellStateKind.Content)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert">@_message</MudAlert>
+}
+
+<MudPaper Class="pa-3 mb-3" Outlined="true">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="4" md="3">
+            <MudText Typo="Typo.subtitle2">Between branches right now</MudText>
+            @if (AnyInTransit)
+            {
+                <MudText Typo="Typo.body2">@InTransitQuantity.ToString("0.######") unit(s) valued at @StockRules.NiceMoney(InTransitValue) awaiting receipt</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Nothing is in transit: every dispatched transfer has been received.</MudText>
+            }
+        </MudItem>
+        <MudItem xs="12" sm="4" md="3">
+            <MudText Typo="Typo.subtitle2">Authoritative stock value</MudText>
+            @if (_summary is { } summary)
+            {
+                <MudText Typo="Typo.body2">@StockRules.NiceMoney(summary.TotalValue) @summary.Currency across @summary.TotalQuantity.ToString("0.######") unit(s) as of @summary.AsOf.ToString("yyyy-MM-dd")</MudText>
+            }
+            else if (_canReport)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@(_summaryFailed ? "The stock summary was refused for this session." : "Not read yet.")</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Valued stock is shown to accounts holding the '@QtsBilling.Contracts.Identity.Permissions.ReportsView' authority.</MudText>
+            }
+        </MudItem>
+        <MudItem xs="12" sm="4" md="6">
+            <MudText Typo="Typo.subtitle2">Reconciliation</MudText>
+            @if (!_canReport)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Balance-versus-movement exceptions are shown to accounts holding the '@QtsBilling.Contracts.Identity.Permissions.ReportsView' authority.</MudText>
+            }
+            else if (_reconciliation is { MismatchCount: 0 })
+            {
+                <MudText Typo="Typo.body2" Color="Color.Success">Every balance ties to its movement history.</MudText>
+            }
+            else if (_reconciliation is { } reconciliation)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Error">@reconciliation.MismatchCount exception(s) do not tie - listed below.</MudText>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">Not read yet.</MudText>
+            }
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<MudPaper Class="pa-3 mb-3" Outlined="true">
+    <MudGrid Spacing="2">
+        <MudItem xs="12" sm="6" md="4">
+            <MudSelect T="Guid?" Label="Branch" Value="@_locationId" ValueChanged="LocationChanged"
+                       Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true">
+                <MudSelectItem T="Guid?" Value="@((Guid?)null)">All branches</MudSelectItem>
+                @foreach (var location in _locations)
+                {
+                    <MudSelectItem T="Guid?" Value="@location.Id">@location.Name</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" sm="6" md="4">
+            <MudTextField @bind-Value="_searchBuffer" Label="Search SKU, barcode or name"
+                          HelperText="Bounded search over the whole file - runs on the server."
+                          Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                          IconSize="Size.Medium" Immediate="true" DebounceInterval="350"
+                          OnDebounceIntervalElapsed="SearchChanged"
+                          Variant="Variant.Outlined" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+</MudPaper>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="RefreshAsync" RetryLabel="Read it back">
+    <MudTable Items="@_list.Rows" Loading="@_list.IsBusy" Dense="true" Hover="true" Striped="true" Bordered="true"
+              Breakpoint="Breakpoint.Sm" aria-label="Stock balances">
+        <HeaderContent>
+            <MudTh>Branch</MudTh><MudTh>Item</MudTh><MudTh>SKU</MudTh>
+            <MudTh Style="text-align:right">On hand</MudTh><MudTh>Last movement</MudTh><MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Branch">@context.LocationName</MudTd>
+            <MudTd DataLabel="Item">@context.VariantName</MudTd>
+            <MudTd DataLabel="SKU">@(context.Sku ?? "-")</MudTd>
+            <MudTd DataLabel="On hand" Style="text-align:right">@context.OnHand.ToString("0.######")</MudTd>
+            <MudTd DataLabel="Last movement">@context.LastMovementAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ShowMovementsAsync(context))"
+                           aria-label="@($"Show the movement history of {context.VariantName} at {context.LocationName}")">
+                    Movements
+                </MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-4 d-block">No stock matches this filter.</MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    @if (_list.CanGoNext)
+    {
+        <MudButton Variant="Variant.Outlined" OnClick="NextPageAsync" Disabled="@_list.IsBusy" Class="mt-3">
+            Next page
+        </MudButton>
+    }
+    @if (_list.CanGoPrevious)
+    {
+        <MudButton Variant="Variant.Text" OnClick="PreviousPageAsync" Disabled="@_list.IsBusy" Class="mt-3 ms-2">
+            Previous page
+        </MudButton>
+    }
+</ShellStates>
+
+@if (_movementRow is { } balance)
+{
+    <MudPaper Class="pa-3 mt-4" Outlined="true">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-2" Wrap="Wrap.Wrap">
+            <div>
+                <MudText Typo="Typo.h6">Movement history - @balance.VariantName at @balance.LocationName</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">The posted movements that make up @balance.OnHand.ToString("0.######") unit(s). The balance is never edited: these rows are the record.</MudText>
+            </div>
+            <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Close" OnClick="CloseMovements"
+                       aria-label="Close the movement history">
+                Close
+            </MudButton>
+        </MudStack>
+
+        @if (_movementsError is not null)
+        {
+            <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" role="alert">@_movementsError</MudAlert>
+        }
+        else if (_movementsBusy)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-2 d-block">Reading the movement history…</MudText>
+        }
+        else if (_movements.Count == 0)
+        {
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="pa-2 d-block">No movements are recorded for this item at this branch.</MudText>
+        }
+        else
+        {
+            <MudTable Items="@_movements" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" aria-label="Movements">
+                <HeaderContent>
+                    <MudTh>When</MudTh><MudTh>Kind</MudTh>
+                    <MudTh Style="text-align:right">Quantity</MudTh><MudTh Style="text-align:right">Unit cost</MudTh>
+                    <MudTh>Reference</MudTh><MudTh>Note</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">@context.OccurredAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                    <MudTd DataLabel="Kind">@StockRules.MovementText(context.MovementType)</MudTd>
+                    <MudTd DataLabel="Quantity" Style="text-align:right">@context.QuantityDelta.ToString("0.######")</MudTd>
+                    <MudTd DataLabel="Unit cost" Style="text-align:right">@context.UnitCost.ToString("0.####")</MudTd>
+                    <MudTd DataLabel="Reference">@context.ReferenceType</MudTd>
+                    <MudTd DataLabel="Note">@(context.Memo ?? "-")</MudTd>
+                </RowTemplate>
+            </MudTable>
+        }
+    </MudPaper>
+}
+
+@if (_canReport && _reconciliation is { MismatchCount: > 0 } reconciliation)
+{
+    <MudPaper Class="pa-3 mt-4" Outlined="true">
+        <MudText Typo="Typo.h6">Reconciliation exceptions</MudText>
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="my-2">@StockRules.ReconciliationRule</MudAlert>
+
+        <MudTable Items="@reconciliation.Rows" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm" aria-label="Reconciliation exceptions">
+            <HeaderContent>
+                <MudTh>Branch</MudTh><MudTh>Variant</MudTh>
+                <MudTh Style="text-align:right">Balance says</MudTh><MudTh Style="text-align:right">Movements say</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Branch">@LocationName(context.LocationId)</MudTd>
+                <MudTd DataLabel="Variant">@VariantLabel(context.VariantId)</MudTd>
+                <MudTd DataLabel="Balance says" Style="text-align:right">@context.OnHand.ToString("0.######")</MudTd>
+                <MudTd DataLabel="Movements say" Style="text-align:right">@context.MovementSum.ToString("0.######")</MudTd>
+            </RowTemplate>
+        </MudTable>
+    </MudPaper>
+}
