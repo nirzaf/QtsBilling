@@ -79,6 +79,7 @@ public static class InventoryEndpoints
         ClaimsPrincipal principal,
         BillingDbContext db,
         Guid? locationId,
+        Guid? variantId,
         string? search,
         string? cursor,
         int? pageSize,
@@ -101,6 +102,13 @@ public static class InventoryEndpoints
         if (locationId is { } wantedLocation)
         {
             query = query.Where(row => row.balance.LocationId == wantedLocation);
+        }
+
+        // A catalogue screen asks for one variant's stock in every branch it is held in, so the answer is bounded
+        // by the record on screen rather than by a name an operator retyped (specification task 18, step 2).
+        if (variantId is { } wantedVariant)
+        {
+            query = query.Where(row => row.balance.VariantId == wantedVariant);
         }
 
         if (!string.IsNullOrWhiteSpace(search))

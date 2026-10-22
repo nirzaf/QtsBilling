@@ -1038,12 +1038,12 @@ public static class InvoiceEndpoints
                         "This invoice draft has no issuable recognition mode.",
                         "Recreate the draft with an explicit service or direct-goods mode; source-linked invoices use their dedicated workflow.");
                 }
-                if (mode == InvoiceRecognitionMode.Service && lines.Any(line => line.VariantId is not null)
-                    || mode == InvoiceRecognitionMode.DirectGoods && (invoice.LocationId is null || lines.Any(line => line.VariantId is null || !line.TrackStockSnapshot)))
+                if (!RecognitionLinesMatch(mode, invoice.LocationId,
+                        [.. lines.Select(line => (line.VariantId, line.TrackStockSnapshot))]))
                 {
                     throw new DomainRuleException(StatusCodes.Status409Conflict, ApiErrorCodes.Conflict,
                         "The invoice lines do not match the selected recognition mode.",
-                        "Services cannot consume catalog stock; direct-goods invoices require tracked variants and an active location.");
+                        "A service document carries ad-hoc lines and catalog items that do not move stock; a tracked variant belongs on a direct-goods invoice, which names the branch the goods leave.");
                 }
 
                 var businessSnapshot = await db.Businesses
@@ -2336,21 +2336,50 @@ public static class InvoiceEndpoints
         return new PreparedInvoice(null, lines, issueDate);
     }
 
-    private static IResult? ValidateRecognitionLines(InvoiceRecognitionMode mode, Guid? locationId, IReadOnlyList<PricedLine> lines)
-    {
-        var valid = mode switch
+    /// <summary>
+    /// The one statement of which lines a recognition mode may carry, asked the same way when a draft is saved and
+    /// when it is issued, so the two can never drift apart (specification task 18, T18.01: a catalog item that does
+    /// not move stock is a service the business sells and is invoiced by name, while a stocked variant is recognised
+    /// as cost of goods sold only on a direct-goods document).
+    /// </summary>
+    private static bool RecognitionLinesMatch(
+        InvoiceRecognitionMode mode,
+        Guid? locationId,
+        IReadOnlyList<(Guid? VariantId, bool TrackStock)> lines)
+        => mode switch
         {
-            InvoiceRecognitionMode.Service => lines.All(line => line.VariantId is null),
-            InvoiceRecognitionMode.DirectGoods => locationId is not null && lines.All(line => line.VariantId is not null && line.TrackStockSnapshot),
+            InvoiceRecognitionMode.Service => lines.All(line => line.VariantId is null || !line.TrackStock),
+            InvoiceRecognitionMode.DirectGoods => locationId is not null
+                && lines.All(line => line.VariantId is not null && line.TrackStock),
             _ => false,
         };
-        return valid ? null : ApiResults.ValidationProblem(
+
+    private static IResult? ValidateRecognitionLines(InvoiceRecognitionMode mode, Guid? locationId, IReadOnlyList<PricedLine> lines)
+    {
+        var valid = RecognitionLinesMatch(
+            mode,
+            locationId,
+            [.. lines.Select(line => (line.VariantId, line.TrackStockSnapshot))]);
+
+        if (valid)
+        {
+            return null;
+        }
+
+        var reason = mode switch
+        {
+            InvoiceRecognitionMode.Service => "A service invoice carries ad-hoc lines and catalog items that do not move stock; a tracked variant belongs on a direct-goods document.",
+            InvoiceRecognitionMode.DirectGoods => locationId is null
+                ? "A direct-goods invoice names the branch the goods leave from."
+                : "Direct-goods invoices require catalog variants that track stock.",
+            _ => "Choose Service or DirectGoods. Sale and delivery representations use their source workflows.",
+        };
+
+        return ApiResults.ValidationProblem(
             "Invoice lines do not match the selected recognition mode.",
             new Dictionary<string, string[]>
             {
-                ["recognitionMode"] = [mode == InvoiceRecognitionMode.Service
-                    ? "Service invoices must contain only ad-hoc, non-stock lines."
-                    : "Direct-goods invoices require tracked variants and an active location."],
+                ["recognitionMode"] = [reason],
             });
     }
 

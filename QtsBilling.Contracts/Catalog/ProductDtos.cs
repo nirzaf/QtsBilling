@@ -5,6 +5,9 @@ namespace QtsBilling.Contracts.Catalog;
 /// Catalog records never carry stock: authoritative stock lives in inventory balances
 /// (specification §3.5, F-12). The tax rate and tax type travel with the product so a device can
 /// cache the exact sellable price snapshot the server will re-validate when an offline sale is pushed.
+/// The reference identifiers travel too, because a maintenance screen must be able to show what is
+/// currently chosen and send it back unchanged; a read model that omitted one would silently drop it
+/// on the next save (specification task 18, recipe step 2).
 /// </summary>
 public sealed record ProductDto(
     Guid Id,
@@ -16,7 +19,10 @@ public sealed record ProductDto(
     bool TrackStock,
     long Version,
     decimal TaxRate = 0m,
-    string TaxType = "Exclusive");
+    string TaxType = "Exclusive",
+    Guid? BrandId = null,
+    Guid? ProductGroupId = null,
+    Guid? TaxRateId = null);
 
 /// <summary>
 /// Price and tax snapshot for a variant at a known catalog revision. Offline sales record the

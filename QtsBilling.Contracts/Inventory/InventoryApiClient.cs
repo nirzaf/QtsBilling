@@ -16,6 +16,7 @@ public interface IInventoryApiClient
         string? cursor = null,
         int pageSize = 50,
         Guid? locationId = null,
+        Guid? variantId = null,
         CancellationToken cancellationToken = default);
 
     /// <summary>The business locations the device may be assigned to.</summary>
@@ -70,6 +71,7 @@ public sealed class InventoryApiClient : IInventoryApiClient
         string? cursor = null,
         int pageSize = 50,
         Guid? locationId = null,
+        Guid? variantId = null,
         CancellationToken cancellationToken = default)
     {
         var query = $"?pageSize={pageSize}";
@@ -87,6 +89,11 @@ public sealed class InventoryApiClient : IInventoryApiClient
         if (locationId is { } location)
         {
             query += $"&locationId={location:D}";
+        }
+
+        if (variantId is { } variant)
+        {
+            query += $"&variantId={variant:D}";
         }
 
         using var response = await _http.GetAsync(RouteBase + query, cancellationToken).ConfigureAwait(false);

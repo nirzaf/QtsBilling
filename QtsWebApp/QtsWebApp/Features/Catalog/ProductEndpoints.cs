@@ -104,7 +104,10 @@ public static class ProductEndpoints
                 product.TaxRateId == null
                     ? 0m
                     : db.TaxRates.Where(rate => rate.Id == product.TaxRateId).Select(rate => rate.Rate).FirstOrDefault(),
-                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive"))
+                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive",
+                product.BrandId,
+                product.ProductGroupId,
+                product.TaxRateId))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -1160,7 +1163,10 @@ public static class ProductEndpoints
                 product.TrackStock,
                 product.Version,
                 taxRate,
-                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive"),
+                product.TaxType == TaxType.Inclusive ? "Inclusive" : "Exclusive",
+                product.BrandId,
+                product.ProductGroupId,
+                product.TaxRateId),
             variants);
     }
 
@@ -1193,7 +1199,7 @@ public static class ProductEndpoints
     private static IResult DuplicateBarcode(string barcode)
         => ApiResults.Problem(
             StatusCodes.Status409Conflict,
-            ApiErrorCodes.Conflict,
+            ApiErrorCodes.DuplicateBarcode,
             "This barcode is already used by another variant in this business.",
             $"Barcode '{barcode}' identifies one sellable thing; scan the existing variant instead of adding a second.");
 
@@ -1228,7 +1234,7 @@ public static class ProductEndpoints
         {
             return ApiResults.Problem(
                 StatusCodes.Status409Conflict,
-                ApiErrorCodes.Conflict,
+                ApiErrorCodes.DuplicateBarcode,
                 "This barcode is already used by another variant in this business.");
         }
 
@@ -1236,7 +1242,7 @@ public static class ProductEndpoints
         {
             return ApiResults.Problem(
                 StatusCodes.Status409Conflict,
-                ApiErrorCodes.Conflict,
+                ApiErrorCodes.DuplicateName,
                 "This product already has a variant with that name.",
                 "A variant is identified within its product by name; give it a name the counter can tell apart.");
         }

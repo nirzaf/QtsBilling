@@ -344,6 +344,11 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Catalog.IMasterDataApiClient
 builder.Services.AddHttpClient<QtsBilling.Contracts.Pricing.IPricingApiClient, QtsBilling.Contracts.Pricing.PricingApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The product and variant workbench (specification task 18) reads and writes through the catalog contract the
+// browser and the terminal already use; the server host needs the same registration so the shared page resolves.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Catalog.IProductApiClient, QtsBilling.Contracts.Catalog.ProductApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

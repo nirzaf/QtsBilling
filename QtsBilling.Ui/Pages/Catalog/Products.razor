@@ -1,0 +1,248 @@
+@page "/catalog/products"
+@namespace QtsBilling.Ui.Pages.Catalog
+@implements IAsyncDisposable
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Catalog
+@using QtsBilling.Contracts.Pricing
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Products and variants - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Products and variants</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            What this business sells. Search and paging run on the server, so a term finds a record on any page,
+            and a variant is the thing a sale line actually prices.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync"
+                   Disabled="@(_busy || _list.IsBusy)">
+            Reload
+        </MudButton>
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="BeginCreate" Disabled="@(!_canWrite || _busy)">
+            New product
+        </MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    Three rules the server holds and the screen states first: a SKU or barcode is unique within this business, an
+    edit that arrives after somebody else saved is refused rather than silently won, and a record goes out of
+    service instead of being erased (specification task 17 and task 18, recipe step 3).
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    A SKU or barcode cannot be given to two variants of this business, and the database decides that - not which of
+    two requests read first. Saving needs the version this screen showed you; a refused save leaves what you typed
+    in place. A product taken out of service stays reachable for the documents that already priced it.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+@if (_form.Note is not null && _creating)
+{
+    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert">
+        @_form.Note
+    </MudAlert>
+}
+
+<MudStack Row="true" AlignItems="AlignItems.End" Spacing="3" Wrap="Wrap.Wrap" Class="mb-3">
+    <MudTextField T="string" @bind-Value="_searchText" Label="Search products"
+                  Placeholder="name, SKU or a variant's barcode"
+                  Variant="Variant.Outlined" Margin="Margin.Dense" Style="min-width: 22rem"
+                  Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search" IconSize="Size.Medium"
+                  Immediate="true" DebounceInterval="350"
+                  OnDebounceIntervalElapsed="SearchChanged"
+                  aria-label="Search products by name, SKU or variant barcode" />
+    <MudSwitch T="bool" @bind-Value="_includeInactive" @bind-Value:after="IncludeInactiveChanged"
+               Label="Include out of service" Color="Color.Primary" />
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pb-2">
+        @_list.Rows.Count record(s) on this page
+    </MudText>
+</MudStack>
+
+<ShellStates Kind="_list.State" Body="_list.Message" RetryCallback="ReloadAsync">
+    <MudTable Items="@_list.Rows" Loading="@(_list.IsBusy || _busy)" Dense="true" Hover="true" Striped="true"
+              Bordered="true" Breakpoint="Breakpoint.Sm" aria-label="Products">
+        <HeaderContent>
+            <MudTh>Name</MudTh>
+            <MudTh>SKU</MudTh>
+            <MudTh>Unit</MudTh>
+            <MudTh>Category</MudTh>
+            <MudTh>Sells as</MudTh>
+            <MudTh>Tax</MudTh>
+            <MudTh>State</MudTh>
+            <MudTh>Version</MudTh>
+            <MudTh>Actions</MudTh>
+        </HeaderContent>
+        <RowTemplate>
+            <MudTd DataLabel="Name">
+                <MudButton Variant="Variant.Text" Size="Size.Small" OnClick="@(() => Open(context.Id))">
+                    @context.Name
+                </MudButton>
+            </MudTd>
+            <MudTd DataLabel="SKU">@(context.Sku ?? "-")</MudTd>
+            <MudTd DataLabel="Unit">@context.UnitName</MudTd>
+            <MudTd DataLabel="Category">@context.CategoryName</MudTd>
+            <MudTd DataLabel="Sells as">@context.KindText</MudTd>
+            <MudTd DataLabel="Tax">@context.TaxText</MudTd>
+            <MudTd DataLabel="State">
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Color="@(context.IsActive ? Color.Success : Color.Default)">
+                    @context.StateText
+                </MudChip>
+            </MudTd>
+            <MudTd DataLabel="Version">@context.Version</MudTd>
+            <MudTd DataLabel="Actions">
+                <MudButton Variant="Variant.Outlined" Size="Size.Small"
+                           StartIcon="@Icons.Material.Filled.Edit"
+                           OnClick="@(() => Open(context.Id))"
+                           aria-label="@($"Open {context.Name} to change it")">
+                    Open
+                </MudButton>
+            </MudTd>
+        </RowTemplate>
+        <NoRecordsContent>
+            <MudText Typo="Typo.body2" Class="pa-4">
+                Nothing has been added to this catalog yet. A product needs a name and a unit; its first variant is
+                created with it, because that is what a sale line prices.
+            </MudText>
+        </NoRecordsContent>
+    </MudTable>
+
+    <MudStack Row="true" Spacing="2" Justify="Justify.FlexEnd" Class="mt-3">
+        <MudButton Variant="Variant.Outlined" OnClick="PreviousAsync" Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+        <MudButton Variant="Variant.Outlined" OnClick="NextAsync" Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+    </MudStack>
+</ShellStates>
+
+@if (_creating)
+{
+    <MudPaper Class="pa-4 mt-4" Elevation="2">
+        <MudText Typo="Typo.h6">New product</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            A product always arrives with one default variant, since that is the record a sale line prices and a
+            stock balance counts. Further variants are added on the product's own screen.
+        </MudText>
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_form.Name" Label="Name" MaxLength="200"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Product name" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_form.Sku" Label="SKU" MaxLength="64"
+                              HelperText="Unique within this business. Leave empty to use the name alone."
+                              Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Product SKU" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid?" @bind-Value="_form.UnitId" Label="Unit"
+                           HelperText="The quantity on a document is stated in this unit."
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Unit">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No unit yet - add one on the reference lists</MudSelectItem>
+                    @foreach (var row in ReferenceOf(MasterDataResource.Units))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)row.Id)">@row.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid?" @bind-Value="_form.CategoryId" Label="Category" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" aria-label="Category">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Uncategorised</MudSelectItem>
+                    @foreach (var row in ReferenceOf(MasterDataResource.Categories).Where(r => r.IsActive != false))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)row.Id)">@row.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid?" @bind-Value="_form.BrandId" Label="Brand" Variant="Variant.Outlined"
+                           Margin="Margin.Dense" aria-label="Brand">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No brand</MudSelectItem>
+                    @foreach (var row in ReferenceOf(MasterDataResource.Brands).Where(r => r.IsActive != false))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)row.Id)">@row.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid?" @bind-Value="_form.ProductGroupId" Label="Product group"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Product group">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No group</MudSelectItem>
+                    @foreach (var row in ReferenceOf(MasterDataResource.ProductGroups).Where(r => r.IsActive != false))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)row.Id)">@row.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            <MudItem xs="12" md="4">
+                <MudSelect T="Guid?" @bind-Value="_form.TaxRateId" Label="Tax rate"
+                           HelperText="The rate the posted line will snapshot."
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Tax rate">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">No tax rate - treated as 0 %</MudSelectItem>
+                    @foreach (var rate in _taxRates.Where(r => r.IsActive))
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)rate.Id)">@rate.Name (@CatalogRules.Percent(rate.Rate))</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSelect T="string" @bind-Value="_form.TaxType" Label="How tax sits against the price"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Tax mode">
+                    <MudSelectItem T="string" Value="@CatalogRules.TaxExclusive">Tax is added to the price</MudSelectItem>
+                    <MudSelectItem T="string" Value="@CatalogRules.TaxInclusive">Tax is already inside the price</MudSelectItem>
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudSwitch T="bool" @bind-Value="_form.TrackStock" Label="Quantity is tracked on the shelf"
+                           Color="Color.Primary" Class="pt-2" />
+            </MudItem>
+
+            <MudItem xs="12" md="4">
+                <MudTextField T="string" @bind-Value="_variantName" Label="Default variant name" MaxLength="200"
+                              HelperText="Leave empty to use the product's own name."
+                              Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Default variant name" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudNumericField T="decimal" @bind-Value="_sellingPrice" Label="Selling price per unit"
+                                 Min="0m" Step="0.01m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 aria-label="Selling price per unit" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudNumericField T="decimal?" @bind-Value="_purchasePrice" Label="Purchase price per unit"
+                                 Min="0m" Step="0.01m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                 HelperText="What a receipt starts its moving average from."
+                                 aria-label="Purchase price per unit" />
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.body2" Class="mt-3">@PreviewText()</MudText>
+
+        <MudStack Row="true" Spacing="2" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                       Disabled="@(_busy || !_form.CanSave)">
+                Create product
+            </MudButton>
+            <MudButton Variant="Variant.Text" OnClick="CancelCreate">Cancel</MudButton>
+        </MudStack>
+    </MudPaper>
+}
+
+@code {
+    /// <summary>The preview of the default variant's price, using the same split the posted line will show.</summary>
+    private string PreviewText()
+    {
+        var rate = _taxRates.FirstOrDefault(candidate => candidate.Id == _form.TaxRateId)?.Rate ?? 0m;
+
+        return CatalogRules.Preview(_sellingPrice, rate, _form.TaxType).Sentence;
+    }
+}

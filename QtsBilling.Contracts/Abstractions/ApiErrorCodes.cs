@@ -58,6 +58,12 @@ public static class ApiErrorCodes
     public const string UnbalancedJournal = "UNBALANCED_JOURNAL";
     public const string DuplicatePhone = "DUPLICATE_PHONE";
     public const string DuplicateSku = "DUPLICATE_SKU";
+
+    /// <summary>
+    /// A barcode that another variant in this business already owns. It is its own code because a screen must tell
+    /// an operator to fix a taken key, not to reload a record somebody else changed (specification task 18, T18.02).
+    /// </summary>
+    public const string DuplicateBarcode = "DUPLICATE_BARCODE";
     public const string DuplicateName = "DUPLICATE_NAME";
     public const string DuplicateInvoiceNumber = "DUPLICATE_INVOICE_NUMBER";
     public const string InvoiceNotDraft = "INVOICE_NOT_DRAFT";

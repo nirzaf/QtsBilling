@@ -381,10 +381,48 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             }
         }
 
-        await using (var command = connection.CreateCommand())
+        await DropDatabaseWithRetryAsync(builder.ConnectionString, _databaseName).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Drops one disposable fixture database, ending the backends still attached to it first and retrying for a
+    /// bounded time. Under the parallel test collections a pool belonging to another test class can hold a session
+    /// for a moment, and PostgreSQL then refuses the drop (55006) or the read times out - which used to fail an
+    /// unrelated product test inside the harness teardown. The caller names the database it owns; every caller names
+    /// its own generated fixture database, never a real business one.
+    /// </summary>
+    internal static async Task DropDatabaseWithRetryAsync(string postgresConnectionString, string databaseName)
+    {
+        for (var attempt = 1; ; attempt++)
         {
-            command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\";";
-            await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+            await using var connection = new Npgsql.NpgsqlConnection(postgresConnectionString);
+
+            try
+            {
+                await connection.OpenAsync().ConfigureAwait(false);
+                await using var command = connection.CreateCommand();
+                command.CommandTimeout = 60;
+
+                command.CommandText = """
+                    SELECT pg_terminate_backend(pid)
+                    FROM pg_stat_activity
+                    WHERE datname = @name AND pid <> pg_backend_pid();
+                    """;
+                command.Parameters.AddWithValue("name", databaseName);
+                await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+
+                command.Parameters.Clear();
+                command.CommandText = $"DROP DATABASE IF EXISTS \"{databaseName}\";";
+                await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+
+                return;
+            }
+            catch (Npgsql.NpgsqlException) when (attempt < 4)
+            {
+                // Another class's pool still owns the database, or the session was cut mid-drop. Wait briefly and
+                // try again on a fresh connection; a fourth failure is reported rather than hidden.
+                await Task.Delay(250 * attempt).ConfigureAwait(false);
+            }
         }
     }
 
@@ -680,12 +718,9 @@ public sealed class UpgradeDatabase : IAsyncDisposable
 
         var builder = new Npgsql.NpgsqlConnectionStringBuilder(ConnectionString) { Database = "postgres" };
 
-        await using var connection = new Npgsql.NpgsqlConnection(builder.ConnectionString);
-        await connection.OpenAsync().ConfigureAwait(false);
-
-        await using var command = connection.CreateCommand();
-        command.CommandText = $"DROP DATABASE IF EXISTS \"{_databaseName}\";";
-        await command.ExecuteNonQueryAsync().ConfigureAwait(false);
+        // The same bounded teardown the main fixture uses: this database is disposable and named here, and another
+        // collection's pool can still hold a session while the parallel run is finishing.
+        await PostgresApiFixture.DropDatabaseWithRetryAsync(builder.ConnectionString, _databaseName).ConfigureAwait(false);
     }
 }
 

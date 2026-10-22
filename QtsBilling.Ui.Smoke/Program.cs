@@ -15,17 +15,20 @@ using MudBlazor.Services;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Administration;
+using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Invoices;
+using QtsBilling.Contracts.Pricing;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Purchasing;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Ui.Layout;
 using QtsBilling.Ui.Pages;
 using QtsBilling.Ui.Pages.Administration;
+using QtsBilling.Ui.Pages.Catalog;
 using QtsBilling.Ui.Pages.Invoices;
 using QtsBilling.Ui.Smoke;
 
@@ -546,6 +549,80 @@ Check("an older search cannot repaint the list the operator replaced", stale.Row
 await paged.DisposeAsync();
 await stale.DisposeAsync();
 
+// 11. The product workbench (specification task 18): the catalog list and its editor are shipped pages that read
+//     nothing during the prerender, hold the arithmetic that explains a price in one shared rule file, and state a
+//     keyboard contract a scanner can satisfy without a camera or a network service.
+var stubCatalog = new StubProductApiClient();
+var stubReference = new StubMasterDataApiClient();
+var stubPricing = new StubPricingApiClient();
+var catalogServices = new ServiceCollection();
+catalogServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+catalogServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+catalogServices.AddMudServices();
+catalogServices.AddSingleton<NavigationManager, StubNavigationManager>();
+catalogServices.AddSingleton<IProductApiClient>(stubCatalog);
+catalogServices.AddSingleton<IMasterDataApiClient>(stubReference);
+catalogServices.AddSingleton<IPricingApiClient>(stubPricing);
+catalogServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(Guid.NewGuid()));
+catalogServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([Permissions.ProductsWrite]));
+
+await using var catalogProvider = catalogServices.BuildServiceProvider();
+await using var catalogRenderer = new HtmlRenderer(catalogProvider, catalogProvider.GetRequiredService<ILoggerFactory>());
+
+var productsHtml = await catalogRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await catalogRenderer.RenderComponentAsync<Products>(ParameterView.Empty);
+    return output.ToHtmlString();
+});
+
+var editorHtml = await catalogRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await catalogRenderer.RenderComponentAsync<ProductEditor>(
+        ParameterView.FromDictionary(new Dictionary<string, object?> { ["ProductId"] = Guid.NewGuid() }));
+    return output.ToHtmlString();
+});
+
+Check("the catalog list and its editor are shared pages with their own routes",
+    typeof(Products).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "catalog/products")
+    && typeof(ProductEditor).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/').StartsWith("catalog/products/{", StringComparison.Ordinal)),
+    string.Join("|", typeof(Products).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>().Select(route => route.Template)
+        .Concat(typeof(ProductEditor).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>().Select(route => route.Template))));
+Check("neither catalog page reads anything during the prerender",
+    stubCatalog.Calls == 0 && stubReference.Calls == 0 && stubPricing.Calls == 0,
+    $"catalog {stubCatalog.Calls}, references {stubReference.Calls}, pricing {stubPricing.Calls}");
+Check("both catalog pages show a stated state instead of a blank page",
+    productsHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && editorHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the catalog list asks for a name, SKU or barcode and never for an identifier",
+    productsHtml.Contains("Search products by name, SKU or variant barcode", StringComparison.Ordinal)
+        && !productsHtml.Contains("Product id", StringComparison.Ordinal));
+Check("the catalog list states the three rules a save is refused by",
+    productsHtml.Contains("cannot be given to two variants", StringComparison.Ordinal)
+        && productsHtml.Contains("the database decides", StringComparison.Ordinal)
+        && productsHtml.Contains("stays reachable for the documents", StringComparison.Ordinal));
+Check("the catalog workbench fetches nothing from a network service in its own markup",
+    !productsHtml.Contains("http://", StringComparison.Ordinal) && !productsHtml.Contains("https://", StringComparison.Ordinal)
+        && !editorHtml.Contains("http://", StringComparison.Ordinal) && !editorHtml.Contains("https://", StringComparison.Ordinal));
+
+// The rules the editor renders its numbers from, proven where they live.
+Check("an exclusive price reads as price plus tax", CatalogRules.Preview(100m, 0.15m, CatalogRules.TaxExclusive) is { Base: 100m, Tax: 15m, Gross: 115m });
+Check("an inclusive price reads as the customer's total with tax taken out",
+    CatalogRules.Preview(115m, 0.15m, CatalogRules.TaxInclusive) is { Base: 100m, Tax: 15m, Gross: 115m });
+Check("a rate that is not configured adds nothing", CatalogRules.Preview(50m, 0m, null).Tax == 0m);
+Check("the barcode rule names Enter, a keyboard wedge, and no camera",
+    CatalogRules.BarcodeHelp.Contains("Enter", StringComparison.Ordinal)
+        && CatalogRules.BarcodeHelp.Contains("keyboard wedge", StringComparison.Ordinal)
+        && CatalogRules.BarcodeHelp.Contains("nothing here opens a camera", StringComparison.Ordinal));
+Check("the catalog screen sends quantities elsewhere", CatalogRules.CorrectionRoute.Contains("stock counts", StringComparison.Ordinal)
+    && CatalogRules.CorrectionRoute.Contains("never from this screen", StringComparison.Ordinal));
+Check("retiring a default variant needs a replacement chosen", CatalogRules.NeedsReplacementDefault(true, true)
+    && !CatalogRules.NeedsReplacementDefault(false, true) && !CatalogRules.NeedsReplacementDefault(true, false));
+Check("an archive discloses only the quantity the screen actually read",
+    CatalogRules.ArchiveSentence("Case of 24", 2, "Case", 24m, true).Contains("24.00 unit(s) of Case", StringComparison.Ordinal)
+    && !CatalogRules.ArchiveSentence("Consulting", 1, null, 0m, false).Contains("unit(s)", StringComparison.Ordinal));
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -785,6 +862,7 @@ internal sealed class StubInventoryApiClient(Guid locationId) : IInventoryApiCli
         string? cursor = null,
         int pageSize = 50,
         Guid? locationId = null,
+        Guid? variantId = null,
         CancellationToken cancellationToken = default)
         => Task.FromResult(PagedResult<InventoryBalanceDto>.Empty(pageSize));
 
@@ -820,4 +898,124 @@ internal sealed class StubInventoryApiClient(Guid locationId) : IInventoryApiCli
 
     public Task<StockCountDetailDto> CancelStockCountAsync(Guid countId, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never counts stock.");
+}
+
+/// <summary>
+/// The catalog contract as the render smoke sees it. Every read is counted, so a page that reaches for data during
+/// the prerender fails the run instead of appearing to work (specification task 13's rule, task 18's pages).
+/// </summary>
+internal sealed class StubProductApiClient : IProductApiClient
+{
+    public int Calls { get; private set; }
+
+    public Task<PagedResult<ProductDto>> GetProductsAsync(
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        bool includeInactive = false,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(PagedResult<ProductDto>.Empty(pageSize));
+    }
+
+    public Task<ProductDetailDto> GetProductAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new ProductDetailDto(
+            new ProductDto(id, "Stub product", "STUB-1", null, Guid.NewGuid(), true, true, 3, 0.15m, CatalogRules.TaxExclusive),
+            []));
+    }
+
+    public Task<ProductDetailDto> CreateProductAsync(SaveProductRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductDetailDto> UpdateProductAsync(Guid id, UpdateProductRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductDetailDto> CreateVariantAsync(Guid id, CreateProductVariantRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductVariantDto> UpdateVariantAsync(Guid id, Guid variantId, UpdateVariantRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductDetailDto> ArchiveVariantAsync(Guid id, Guid variantId, ArchiveVariantRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductDetailDto> ArchiveProductAsync(Guid id, ArchiveProductRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+
+    public Task<ProductDetailDto> RestoreProductAsync(Guid id, RestoreProductRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes the catalog.");
+}
+
+/// <summary>Reference lists are read-only here, with one entry each so a picker has something to name.</summary>
+internal sealed class StubMasterDataApiClient : IMasterDataApiClient
+{
+    public int Calls { get; private set; }
+
+    public Task<IReadOnlyList<MasterDataDto>> ListAsync(
+        MasterDataResource resource,
+        bool? includeInactive = null,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<MasterDataDto>>(
+            [new MasterDataDto(Guid.NewGuid(), $"Stub {IMasterDataApiClient.RouteOf(resource)}", null, null, null, true, 1)]);
+    }
+
+    public Task<MasterDataDto> CreateAsync(MasterDataResource resource, SaveMasterDataRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes reference data.");
+
+    public Task<MasterDataDto> UpdateAsync(MasterDataResource resource, Guid id, SaveMasterDataRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes reference data.");
+
+    public Task DeactivateAsync(MasterDataResource resource, Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never retires reference data.");
+}
+
+/// <summary>One tax rate, read only, so the editor's price preview has a real rate to split on.</summary>
+internal sealed class StubPricingApiClient : IPricingApiClient
+{
+    public int Calls { get; private set; }
+
+    public Task<IReadOnlyList<TaxRateDto>> ListTaxRatesAsync(bool? includeInactive = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<TaxRateDto>>(
+            [new TaxRateDto(Guid.NewGuid(), "VAT 15", 0.15m, true, true, DateTimeOffset.UtcNow, DateTimeOffset.UtcNow)]);
+    }
+
+    public Task<TaxRateDto> GetTaxRateAsync(Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never reads one rate.");
+
+    public Task<TaxRateDto> CreateTaxRateAsync(SaveTaxRateRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes a rate.");
+
+    public Task<TaxRateDto> UpdateTaxRateAsync(Guid id, SaveTaxRateRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes a rate.");
+
+    public Task DeactivateTaxRateAsync(Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never retires a rate.");
+
+    public Task<IReadOnlyList<DiscountDto>> ListDiscountsAsync(
+        bool? includeInactive = null,
+        string? scope = null,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<DiscountDto>>([]);
+    }
+
+    public Task<DiscountDto> GetDiscountAsync(Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never reads one discount.");
+
+    public Task<DiscountDto> CreateDiscountAsync(SaveDiscountRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes a discount.");
+
+    public Task<DiscountDto> UpdateDiscountAsync(Guid id, SaveDiscountRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never writes a discount.");
+
+    public Task DeactivateDiscountAsync(Guid id, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never retires a discount.");
 }

@@ -72,8 +72,7 @@ public static class ShellNavigation
             "Arrives with task 27."),
 
         // Inventory: what is held, where, and what it is worth.
-        new("Products and variants", "catalog/products", Icons.Material.Filled.Category, GroupInventory, Permissions.ProductsWrite, ShellAvailability.Planned,
-            "Arrives with task 18."),
+        new("Products and variants", "catalog/products", Icons.Material.Filled.Category, GroupInventory, Permissions.ProductsWrite, ShellAvailability.Available),
         new("Stock and transfers", "inventory/stock", Icons.Material.Filled.Place, GroupInventory, Permissions.ProductsRead, ShellAvailability.Planned,
             "Arrives with task 29."),
         new("Stock counts", "inventory/counts", Icons.Material.Filled.FactCheck, GroupInventory, Permissions.InventoryAdjust, ShellAvailability.Planned,
