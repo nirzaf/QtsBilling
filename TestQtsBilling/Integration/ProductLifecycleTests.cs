@@ -35,7 +35,7 @@ public sealed class ProductLifecycleTests(PostgresApiFixture fixture) : IClassFi
             TrackStock: false, "Single", 40m, 20m));
         var version = product.Product.Version;
 
-        // 1. Two creates that both pass their own pre-check: the SKU index decides, and the loser is refused.
+        // 1. Two creates that both pass their own pre-check: the database decides, and the loser is refused.
         var skuRace = await Task.WhenAll(
             TryVariant(catalog, product.Product.Id, new CreateProductVariantRequest(
                 $"T17 twin one {suffix}", $"T17-SKU-{suffix}", null, 41m, null, version)),
@@ -45,8 +45,25 @@ public sealed class ProductLifecycleTests(PostgresApiFixture fixture) : IClassFi
         Assert.Equal(1, skuRace.Count(result => result.Ok));
         var skuLosers = skuRace.Where(result => !result.Ok).ToArray();
         Assert.Single(skuLosers);
-        Assert.Equal(ApiErrorCodes.DuplicateSku, skuLosers[0].Failure!.Code);
 
+        // Which refusal the loser meets is a matter of interleaving, not of what the database guarantees: a loser
+        // that read before the winner committed is refused by the SKU index, and a loser that read after it is
+        // refused by the version the winner advanced. Both say the same thing - the variant was not added - so the
+        // race is asserted on that, and the SKU-specific code is proved below without a race in it.
+        Assert.True(skuLosers[0].Failure!.IsConflict, $"the losing create answered {skuLosers[0].Failure!.Code}");
+        Assert.Contains(skuLosers[0].Failure!.Code, new[] { ApiErrorCodes.DuplicateSku, ApiErrorCodes.OptimisticConcurrencyFailure });
+
+        await _fixture.WithFreshContextAsync(async db =>
+            Assert.Equal(1, await db.ProductVariants.AsNoTracking().CountAsync(
+                variant => variant.BusinessId == _fixture.BusinessA.BusinessId && variant.Sku == $"T17-SKU-{suffix}")));
+
+        // And the refusal the race may not have had time to produce is proved against a settled catalog: the SKU is
+        // taken, so a create read at the current version names that key rather than a scheduling accident.
+        var settled = await catalog.GetProductAsync(product.Product.Id);
+        var repeat = await Assert.ThrowsAsync<ApiException>(() => catalog.CreateVariantAsync(
+            product.Product.Id, new CreateProductVariantRequest(
+                $"T17 repeat {suffix}", $"T17-SKU-{suffix}", null, 45m, null, settled.Product.Version)));
+        Assert.Equal(ApiErrorCodes.DuplicateSku, repeat.Code);
         await _fixture.WithFreshContextAsync(async db =>
             Assert.Equal(1, await db.ProductVariants.AsNoTracking().CountAsync(
                 variant => variant.BusinessId == _fixture.BusinessA.BusinessId && variant.Sku == $"T17-SKU-{suffix}")));
