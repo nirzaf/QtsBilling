@@ -143,7 +143,11 @@ public sealed record SalesQuoteDto(
     DateTimeOffset? AcceptedAtUtc,
     string? Note,
     IReadOnlyList<OrderLineDto> Lines,
-    IReadOnlyList<QuoteRevisionDto> Revisions);
+    IReadOnlyList<QuoteRevisionDto> Revisions,
+    /// <summary>The branch's name as the server holds it, so a document is read by name and not by identifier.</summary>
+    string? LocationName = null,
+    /// <summary>The customer's name as posted; null when the quote was written without one.</summary>
+    string? CustomerName = null);
 
 public sealed record SalesQuoteSummaryDto(
     Guid Id,
@@ -157,7 +161,9 @@ public sealed record SalesQuoteSummaryDto(
     string Currency,
     decimal TotalAmount,
     int CurrentRevision,
-    long Version);
+    long Version,
+    string? LocationName = null,
+    string? CustomerName = null);
 
 public sealed record SalesOrderRevisionDto(
     Guid Id,
@@ -200,7 +206,11 @@ public sealed record SalesOrderDto(
     string? RemainderCancellationReason,
     string? Note,
     IReadOnlyList<OrderLineDto> Lines,
-    IReadOnlyList<SalesOrderRevisionDto> Revisions);
+    IReadOnlyList<SalesOrderRevisionDto> Revisions,
+    /// <summary>The branch's name as the server holds it.</summary>
+    string? LocationName = null,
+    /// <summary>The customer's name as posted; null when the order was written without one.</summary>
+    string? CustomerName = null);
 
 public sealed record SalesOrderSummaryDto(
     Guid Id,
@@ -214,7 +224,9 @@ public sealed record SalesOrderSummaryDto(
     string Currency,
     decimal TotalAmount,
     int CurrentRevision,
-    long Version);
+    long Version,
+    string? LocationName = null,
+    string? CustomerName = null);
 
 public sealed record QuoteConversionResultDto(SalesQuoteDto Quote, SalesOrderDto Order);
 

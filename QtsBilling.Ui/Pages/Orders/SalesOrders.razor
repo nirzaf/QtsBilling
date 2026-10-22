@@ -1,0 +1,366 @@
+@page "/orders/sales-orders"
+@page "/orders/sales-orders/{OrderId:guid}"
+@namespace QtsBilling.Ui.Pages.Orders
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Orders
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Sales orders - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Sales orders</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @BusinessContext An order is a commitment to deliver; it is not a sale, and it moves no stock by itself.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="1">
+        @if (_order is not null)
+        {
+            <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.List" Href="orders/sales-orders">
+                All orders
+            </MudButton>
+        }
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="ReloadAsync" Disabled="@_busy">Reload</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    @OrderRules.CommitmentNote
+</MudAlert>
+
+@if (_committed is not null)
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3">@_committed</MudAlert>
+}
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="ReloadAsync">
+    @if (_order is { } order)
+    {
+        <MudPaper Class="pa-4 mb-4" Elevation="3">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <div>
+                    <MudText Typo="Typo.h5">Order @order.OrderNumber</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">
+                        @OrderBranch(order) -
+                        @(order.CustomerName ?? "no customer named"),
+                        ordered @order.OrderDate:yyyy-MM-dd,
+                        @if (order.PromisedDeliveryDate is { } promised)
+                        {
+                            @($"promised {promised:yyyy-MM-dd}")
+                        }
+                        else
+                        {
+                            @("no promised delivery date")
+                        }
+                    </MudText>
+                </div>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@StatusColor(order.Status)">
+                        @OrderRules.OrderStatusText(order.Status)
+                    </MudChip>
+                    <MudText Typo="Typo.body2">
+                        @OrderRules.MoneyText(order.TotalAmount, order.Currency) - version @order.Version, revision @order.CurrentRevision
+                    </MudText>
+                </MudStack>
+            </MudStack>
+
+            @if (order.SourceQuoteId is { } sourceQuoteId)
+            {
+                <MudText Typo="Typo.body2" Class="mt-2">
+                    <MudLink Href="@($"/orders/quotes/{sourceQuoteId}")" Underline="Underline.Hover">
+                        The accepted quote this order was created from
+                    </MudLink>
+                    - its terms came from that revision and were not re-priced here.
+                </MudText>
+            }
+
+            @if (order.RemainderCancellationReason is { Length: > 0 } cancelledReason)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3">
+                    The outstanding remainder was cancelled: @cancelledReason
+                </MudAlert>
+            }
+
+            <MudTable Items="order.Lines" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                      aria-label="Order lines" Class="mt-3">
+                <HeaderContent>
+                    <MudTh>#</MudTh>
+                    <MudTh>Description</MudTh>
+                    <MudTh>Ordered</MudTh>
+                    <MudTh>Delivered</MudTh>
+                    <MudTh>Cancelled</MudTh>
+                    <MudTh>Outstanding</MudTh>
+                    <MudTh>Line total</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="#">@context.LineNo</MudTd>
+                    <MudTd DataLabel="Description">
+                        @context.Description
+                        @if (context.SkuSnapshot is { Length: > 0 } sku)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@sku</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Ordered">@OrderRules.Money(context.Quantity)</MudTd>
+                    <MudTd DataLabel="Delivered">@(context.QuantityFulfilled is { } fulfilled ? OrderRules.Money(fulfilled) : "-")</MudTd>
+                    <MudTd DataLabel="Cancelled">@(context.QuantityCancelled is { } cut && cut > 0m ? OrderRules.Money(cut) : "-")</MudTd>
+                    <MudTd DataLabel="Outstanding">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                 Color="@(OrderRules.IsOpen(context) ? Color.Info : Color.Default)">
+                            @OrderRules.Money(OrderRules.Outstanding(context))
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Line total">@OrderRules.MoneyText(context.LinePayableAmount, order.Currency)</MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudText Typo="Typo.h6" Class="mt-4 mb-2">Actions this order allows</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">@OrderActionsSentence</MudText>
+
+            @if (AllowedOrderActions.Count == 0)
+            {
+                <MudText Typo="Typo.body2" role="status">This order's state leaves no command here.</MudText>
+            }
+
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+                @foreach (var action in AllowedOrderActions)
+                {
+                    <MudButton Variant="@(action == OrderRules.OrderAction.Confirm ? Variant.Filled : Variant.Outlined)"
+                               Color="@(action == OrderRules.OrderAction.CancelRemainder ? Color.Warning : Color.Primary)"
+                               OnClick="@(() => BeginOrderActionAsync(action))"
+                               Disabled="@(_busy || _awaitingAnswer)">
+                        @OrderActionLabel(action)
+                    </MudButton>
+                }
+                <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Print" OnClick="TogglePrint">
+                    @(_printing ? "Close the reprint" : "Reprint the order")
+                </MudButton>
+            </MudStack>
+
+            @if (_pendingOrderAction is { } pending)
+            {
+                @*
+                    An amendment restates what is still outstanding: what has already been delivered is untouched
+                    and the remaining quantity is cancelled and replaced by a new line (specification task 22,
+                    recipe step 3). The screen therefore offers the outstanding figure, never the ordered one.
+                *@
+                <MudPaper Outlined="true" Class="pa-4 mt-3">
+                    <MudText Typo="Typo.h6" Class="mb-2">@OrderActionHeading(pending)</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">@OrderActionHelp(pending)</MudText>
+
+                    @if (pending == OrderRules.OrderAction.Amend)
+                    {
+                        <MudTable Items="AmendmentRows" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                                  aria-label="Outstanding quantities to restate">
+                            <HeaderContent>
+                                <MudTh>Line</MudTh>
+                                <MudTh>Outstanding now</MudTh>
+                                <MudTh>Keep this much</MudTh>
+                                <MudTh>Tax</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Line">@($"{context.Line.LineNo}. {context.Line.Description}")</MudTd>
+                                <MudTd DataLabel="Outstanding now">@OrderRules.Money(OrderRules.Outstanding(context.Line))</MudTd>
+                                <MudTd DataLabel="Keep this much">
+                                    <MudNumericField T="decimal" Value="@context.Keep"
+                                                     ValueChanged="@((decimal value) => SetKeep(context.Line, value))"
+                                                     Min="0m" Max="@OrderRules.Outstanding(context.Line)" Step="1m"
+                                                     Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                     aria-label="@($"Quantity to keep on line {context.Line.LineNo}")" />
+                                </MudTd>
+                                <MudTd DataLabel="Tax">
+                                    @if (context.Line.VariantId is not null)
+                                    {
+                                        <MudText Typo="Typo.body2">
+                                            catalog rate @TaxPercent(context.Line.TaxRate) - @context.Line.TaxMode
+                                        </MudText>
+                                    }
+                                    else
+                                    {
+                                        @* The line stored a rate value, not a rate record, so the amendment names an
+                                           active rate of this business by name and the screen shows what it matched. *@
+                                        <MudSelect T="Guid?" Label="Active tax rate" Value="@RateFor(context.Line)"
+                                                   ValueChanged="@((Guid? value) => SetServiceRate(context.Line, value))"
+                                                   Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                                                   aria-label="@($"Tax rate on line {context.Line.LineNo}")">
+                                            <MudSelectItem T="Guid?" Value="@((Guid?)null)">No tax</MudSelectItem>
+                                            @foreach (var rate in _taxRates)
+                                            {
+                                                <MudSelectItem T="Guid?" Value="@((Guid?)rate.Id)">@RateLabel(rate)</MudSelectItem>
+                                            }
+                                        </MudSelect>
+                                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                            @($"was {TaxPercent(context.Line.TaxRate)} {context.Line.TaxMode}; now {RateLabelFor(context.Line)}")
+                                        </MudText>
+                                    }
+                                </MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <MudDatePicker Date="_promisedOn" DateChanged="PromisedOnChangedAsync"
+                                       Label="Promised delivery (optional)" Class="mt-3"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense" />
+                    }
+
+                    <MudTextField T="string" Value="@_reason"
+                                  ValueChanged="@((string value) => _reason = value ?? string.Empty)"
+                                  Label="@OrderActionReasonLabel(pending)" MaxLength="500" Class="mt-3"
+                                  Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Reason" />
+
+                    @if (pending == OrderRules.OrderAction.Confirm)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            Confirmation re-checks this account's discount authority and the customer's credit limit;
+                            a refusal is shown here rather than bypassed.
+                        </MudText>
+                    }
+
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-3">
+                        <MudButton Variant="Variant.Filled"
+                                   Color="@(pending == OrderRules.OrderAction.CancelRemainder ? Color.Warning : Color.Primary)"
+                                   OnClick="RunOrderActionAsync" Disabled="@(!CanRunOrderAction)">
+                            Confirm @OrderActionLabel(pending)
+                        </MudButton>
+                        <MudButton Variant="Variant.Text" OnClick="() => { _pendingOrderAction = null; return Task.CompletedTask; }">
+                            Cancel
+                        </MudButton>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@OrderActionSentence(pending)</MudText>
+                    </MudStack>
+                </MudPaper>
+            }
+
+            @if (_awaitingAnswer)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3" role="alert">
+                    @OrderRules.UnresolvedOrderNote
+                </MudAlert>
+            }
+
+            @if (_printing)
+            {
+                <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mt-3" role="status">
+                    Document copy - @OrderRules.MoneyText(order.TotalAmount, order.Currency) as recorded in revision
+                    @order.CurrentRevision. Nothing was re-priced, re-numbered or delivered by printing this.
+                </MudAlert>
+                <MudSimpleTable Dense="true" Class="mt-2" aria-label="Reprinted order">
+                    <tbody>
+                        <tr><td>Order @order.OrderNumber - revision @order.CurrentRevision (@OrderRules.OrderStatusText(order.Status))</td><td>@OrderRules.MoneyText(order.TotalAmount, order.Currency)</td></tr>
+                        <tr><td>@order.OrderDate:yyyy-MM-dd</td><td>@(order.CustomerName ?? "no customer named")</td></tr>
+                        @foreach (var line in order.Lines)
+                        {
+                            <tr>
+                                <td>@($"{line.LineNo}. {line.Description} x {OrderRules.Money(line.Quantity)}")</td>
+                                <td>@OrderRules.MoneyText(line.LinePayableAmount, order.Currency)</td>
+                            </tr>
+                        }
+                        @if (order.Note is { Length: > 0 } orderNote)
+                        {
+                            <tr><td>Note</td><td>@orderNote</td></tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+        </MudPaper>
+    }
+
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" Label="Order number" Value="@_search" ValueChanged="SearchChangedAsync"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChangedAsync"
+                              Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              aria-label="Order number" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@OrderRules.SearchHelp("order")</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string" Label="Status" Value="@_status" ValueChanged="StatusChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var option in StatusOptions)
+                    {
+                        <MudSelectItem T="string" Value="@option">@(option.Length == 0 ? "Every status" : OrderRules.OrderStatusText(option))</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pt-4">
+                    Outstanding quantities are what task 23's fulfillment may still deliver.
+                </MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">Orders</MudText>
+            <MudStack Row="true" Spacing="1">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+            </MudStack>
+        </MudStack>
+
+        <MudTable Items="_list.Rows" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                  aria-label="Sales orders">
+            <HeaderContent>
+                <MudTh>Order</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Branch</MudTh>
+                <MudTh>Customer</MudTh>
+                <MudTh>Ordered</MudTh>
+                <MudTh>Promised</MudTh>
+                <MudTh>Total</MudTh>
+                <MudTh>Rev</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Order">
+                    <MudLink Href="@($"/orders/sales-orders/{context.Id}")" Underline="Underline.Hover">@context.OrderNumber</MudLink>
+                </MudTd>
+                <MudTd DataLabel="Status">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@StatusColor(context.Status)">
+                        @OrderRules.OrderStatusText(context.Status)
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Branch">@(context.LocationName ?? "a branch no longer listed")</MudTd>
+                <MudTd DataLabel="Customer">@(context.CustomerName ?? "Counter order")</MudTd>
+                <MudTd DataLabel="Ordered">@context.OrderDate.ToString("yyyy-MM-dd")</MudTd>
+                <MudTd DataLabel="Promised">@(context.PromisedDeliveryDate?.ToString("yyyy-MM-dd") ?? "-")</MudTd>
+                <MudTd DataLabel="Total">@OrderRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                <MudTd DataLabel="Rev">@context.CurrentRevision</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Class="pa-4">No order matches these filters.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+
+        @if (_list.Message is { Length: > 0 } listMessage)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">@listMessage</MudText>
+        }
+    </MudPaper>
+</ShellStates>
+
+@code {
+    private static readonly string[] StatusOptions =
+    [
+        "", "Draft", "Confirmed", "PartiallyFulfilled", "Fulfilled", "Closed",
+    ];
+
+    private static string TaxPercent(decimal rate)
+        => $"{Math.Round(rate * 100m, 2).ToString("0.##")}%";
+
+    private static string RateLabel(QtsBilling.Contracts.Pricing.TaxRateDto rate)
+        => $"{rate.Name} ({Math.Round(rate.Rate * 100m, 2).ToString("0.##")}%)";
+
+    private Guid? RateFor(OrderLineDto line) => _serviceRates.GetValueOrDefault(line.LineKey);
+}

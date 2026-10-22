@@ -21,6 +21,7 @@ using QtsBilling.Contracts.Customers;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Invoices;
+using QtsBilling.Contracts.Orders;
 using QtsBilling.Contracts.Pricing;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Purchasing;
@@ -809,6 +810,102 @@ Check("a refusal that proves nothing committed frees the attempt, a lost answer 
 Check("a refund key stays inside the header bound the server validates",
     QtsBilling.Ui.Pages.Sales.SalesRules.NewRefundKey("S-2026-0001").Length <= 64);
 
+// 13. The quote and sales-order workbenches (specification task 22): three shipped shared pages, silent during the
+//     prerender, stating what a commitment is before anything is clicked, and the lifecycle rules - which actions a
+//     status allows, which need a reason, that a sent quote is only ever superseded by a new revision, and that a
+//     reprint or a "send" never claims a delivery happened.
+var quoteBranchId = Guid.CreateVersion7();
+var quoteId = Guid.CreateVersion7();
+var orderId = Guid.CreateVersion7();
+var stubQuotes = new StubQuoteApiClient(quoteBranchId, quoteId);
+var orderServices = new ServiceCollection();
+orderServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+orderServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+orderServices.AddMudServices();
+orderServices.AddSingleton<NavigationManager, StubNavigationManager>();
+orderServices.AddSingleton<IQuoteApiClient>(stubQuotes);
+orderServices.AddSingleton<ISalesOrderApiClient>(new StubSalesOrderApiClient(quoteBranchId, quoteId, orderId));
+orderServices.AddSingleton<ICustomerApiClient>(new StubCustomerApiClient());
+orderServices.AddSingleton<IProductApiClient>(new StubProductApiClient());
+orderServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(quoteBranchId));
+orderServices.AddSingleton<IPricingApiClient>(new StubPricingApiClient());
+orderServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var orderProvider = orderServices.BuildServiceProvider();
+await using var orderRenderer = new HtmlRenderer(orderProvider, orderProvider.GetRequiredService<ILoggerFactory>());
+
+var quotesHtml = await orderRenderer.Dispatcher.InvokeAsync(async () =>
+    (await orderRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Orders.Quotes>(ParameterView.Empty)).ToHtmlString());
+
+var quoteEditorHtml = await orderRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var parameters = new Dictionary<string, object?> { ["QuoteId"] = quoteId };
+
+    return (await orderRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Orders.QuoteEditor>(
+        ParameterView.FromDictionary(parameters))).ToHtmlString();
+});
+
+var ordersHtml = await orderRenderer.Dispatcher.InvokeAsync(async () =>
+    (await orderRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Orders.SalesOrders>(ParameterView.Empty)).ToHtmlString());
+
+Check("the quote and order screens are shared pages with their own routes",
+    typeof(QtsBilling.Ui.Pages.Orders.Quotes).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "orders/quotes")
+        && typeof(QtsBilling.Ui.Pages.Orders.QuoteEditor).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "orders/quotes/{QuoteId:guid}")
+        && typeof(QtsBilling.Ui.Pages.Orders.SalesOrders).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "orders/sales-orders")
+        && typeof(QtsBilling.Ui.Pages.Orders.SalesOrders).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "orders/sales-orders/{OrderId:guid}"));
+Check("the order workbenches read nothing during the prerender",
+    stubQuotes.Calls == 0 && stubQuotes.WriteCalls == 0,
+    $"reads {stubQuotes.Calls}, writes {stubQuotes.WriteCalls}");
+Check("the quote and order lists state that a commitment moves no stock and recognises no revenue",
+    quotesHtml.Contains("moves no stock and recognises no revenue", StringComparison.Ordinal)
+        && ordersHtml.Contains("moves no stock and recognises no revenue", StringComparison.Ordinal)
+        && quotesHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && ordersHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the quote editor resolves its contracts and paints its loading answer, not a finished document",
+    quoteEditorHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && !quoteEditorHtml.Contains("Convert to a sales order", StringComparison.Ordinal));
+
+Check("only the actions a status allows are offered, and the ones that need a reason are known",
+    QtsBilling.Ui.Pages.Orders.OrderRules.AllowedQuoteActions("Draft", false)
+        .SequenceEqual([QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.SaveDraft,
+            QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.Send,
+            QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.Cancel])
+        && !QtsBilling.Ui.Pages.Orders.OrderRules.AllowedQuoteActions("Accepted", alreadyConverted: true).Any()
+        && QtsBilling.Ui.Pages.Orders.OrderRules.AllowedQuoteActions("Accepted", false)
+            .Contains(QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.Convert)
+        && !QtsBilling.Ui.Pages.Orders.OrderRules.AllowedQuoteActions("Rejected", false).Any()
+        && QtsBilling.Ui.Pages.Orders.OrderRules.QuoteActionNeedsReason(QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.Reject)
+        && !QtsBilling.Ui.Pages.Orders.OrderRules.QuoteActionNeedsReason(QtsBilling.Ui.Pages.Orders.OrderRules.QuoteAction.Accept)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.AllowedOrderActions("Draft")
+            .SequenceEqual([QtsBilling.Ui.Pages.Orders.OrderRules.OrderAction.Confirm])
+        && QtsBilling.Ui.Pages.Orders.OrderRules.AllowedOrderActions("Fulfilled").Count == 0);
+Check("sending a quote records communication and never claims a delivery happened",
+    QtsBilling.Ui.Pages.Orders.OrderRules.SendNote.Contains("Nothing is emailed", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.SendNote.Contains("no delivery is claimed", StringComparison.OrdinalIgnoreCase)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.RevisionNote.Contains("never rewritten", StringComparison.OrdinalIgnoreCase)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.RevisionNote.Contains("new revision", StringComparison.Ordinal));
+Check("an amendment restates only what is outstanding, never a delivered quantity",
+    QtsBilling.Ui.Pages.Orders.OrderRules.Outstanding(StubQuoteApiClient.SampleLine(Guid.CreateVersion7(), 5m, 2m, 0m)) == 3m
+        && QtsBilling.Ui.Pages.Orders.OrderRules.Outstanding(StubQuoteApiClient.SampleLine(Guid.CreateVersion7(), 5m, 5m, 0m)) == 0m
+        && !QtsBilling.Ui.Pages.Orders.OrderRules.IsOpen(StubQuoteApiClient.SampleLine(Guid.CreateVersion7(), 4m, 4m, 0m))
+        && QtsBilling.Ui.Pages.Orders.OrderRules.OrderActionNeedsReason(QtsBilling.Ui.Pages.Orders.OrderRules.OrderAction.CancelRemainder));
+Check("a refused command is explained by its own cause, and a lost answer is not called a refusal",
+    QtsBilling.Ui.Pages.Orders.OrderRules.RefusalSentence(
+            new ApiException(409, ApiErrorCodes.QuoteExpired, "x"), "quote")
+        .Contains("Re-quote the customer", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.RefusalSentence(
+                new ApiException(409, ApiErrorCodes.CreditLimitExceeded, "limit"), "order")
+            .Contains("not overridable from this screen", StringComparison.Ordinal)
+        && !QtsBilling.Ui.Pages.Orders.OrderRules.CommittedNothing(ApiErrorCodes.TransientRetry));
+Check("a conversion key is one intention's key and fits the header bound",
+    QtsBilling.Ui.Pages.Orders.OrderRules.NewConversionKey("QT-2026-0007").Length <= 64
+        && QtsBilling.Ui.Pages.Orders.OrderRules.NewConversionKey("QT-2026-0007").StartsWith("convert-QT-2026-0007-", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Orders.OrderRules.NewCommandKey("quote-draft").Length <= 64);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -1331,6 +1428,193 @@ internal sealed class StubSaleApiClient(Guid branchId, Guid tillId, Guid lineId)
         string idempotencyKey,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never pays cash back.");
+}
+
+/// <summary>
+/// The register contract as the render smoke sees it: reads are counted so a page that reaches for the network
+/// during the prerender fails the run, and no drawer command is executed here (specification task 19).
+/// </summary>
+/// <summary>
+/// The quote contract as the render smoke sees it: reads are counted so a page that reaches for data during the
+/// prerender fails the run, and no lifecycle command is executed here (specification task 22).
+/// </summary>
+internal sealed class StubQuoteApiClient(Guid branchId, Guid quoteId) : IQuoteApiClient
+{
+    /// <summary>One priced line, shared with the order stub so both screens read the same shape.</summary>
+    public static OrderLineDto SampleLine(Guid lineKey, decimal ordered = 5m, decimal delivered = 2m, decimal cancelled = 0m)
+        => new(Guid.CreateVersion7(), lineKey, 1, Guid.CreateVersion7(), "Trainer", "TRN-001", ordered, delivered, cancelled,
+            100m, 0m, 100m * ordered, 0.15m, 15m * ordered, 115m * ordered, "Exclusive", "catalog-v1");
+
+    public static SalesQuoteDto QuoteSample(Guid branch, Guid id, string status, Guid lineKey)
+    {
+        var line = SampleLine(lineKey, 2m, 0m, 0m);
+        QuoteRevisionDto[] revisions = status == "Draft"
+            ? []
+            : [new QuoteRevisionDto(
+                Guid.CreateVersion7(), 1, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)),
+                DateOnly.FromDateTime(DateTime.Today.AddDays(45)), "QAR", 200m, 0m, 30m, 230m, 0m, "30 days",
+                "Sent to customer", Guid.CreateVersion7(), DateTimeOffset.UtcNow, [line])];
+
+        return new SalesQuoteDto(
+            id, branch, CustomerId: null, "QT-2026-0007", status,
+            DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)),
+            DateOnly.FromDateTime(DateTime.Today.AddDays(45)), "QAR", 200m, 0m, 30m, 230m, 0m,
+            revisions.Length, 4L, Guid.CreateVersion7(), DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow, status == "Accepted" ? DateTimeOffset.UtcNow : null, "30 days",
+            [line], revisions, "Main store", null);
+    }
+
+    public static SalesOrderDto OrderSample(Guid branch, Guid sourceQuote, Guid order)
+    {
+        var line = SampleLine(Guid.CreateVersion7());
+
+        return new SalesOrderDto(
+            order, branch, CustomerId: null, sourceQuote, Guid.CreateVersion7(), "SO-2026-0003", "PartiallyFulfilled",
+            DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(14)), "QAR",
+            500m, 0m, 75m, 575m, 0m, 1, 7L, Guid.CreateVersion7(), DateTimeOffset.UtcNow,
+            DateTimeOffset.UtcNow, null, null, "deliver in one go",
+            [line],
+            [new SalesOrderRevisionDto(
+                Guid.CreateVersion7(), 1, DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(14)),
+                "QAR", 500m, 0m, 75m, 575m, 0m, "Order confirmed", Guid.CreateVersion7(), DateTimeOffset.UtcNow, [line])],
+            "Main store", null);
+    }
+
+    public int Calls { get; private set; }
+
+    public int WriteCalls { get; private set; }
+
+    public Task<PagedResult<SalesQuoteSummaryDto>> ListAsync(
+        string? status = null,
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new PagedResult<SalesQuoteSummaryDto>(
+            [new SalesQuoteSummaryDto(
+                quoteId, branchId, null, "QT-2026-0007", "Sent",
+                DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(30)), null,
+                "QAR", 230m, 1, 4L, "Main store", null)],
+            null,
+            pageSize));
+    }
+
+    public Task<SalesQuoteDto> GetAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Sent", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> CreateAsync(CreateQuoteRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Draft", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> UpdateAsync(Guid id, UpdateQuoteRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Draft", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> SendAsync(Guid id, QuoteCommandRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Sent", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> AcceptAsync(Guid id, QuoteCommandRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Accepted", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> RejectAsync(Guid id, QuoteCommandRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Rejected", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> AmendAsync(Guid id, QuoteAmendRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Sent", Guid.CreateVersion7()));
+    }
+
+    public Task<SalesQuoteDto> CancelAsync(Guid id, QuoteCommandRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(QuoteSample(branchId, quoteId, "Cancelled", Guid.CreateVersion7()));
+    }
+
+    public Task<QuoteConversionResultDto> ConvertAsync(
+        Guid id,
+        ConvertQuoteRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+
+        return Task.FromResult(new QuoteConversionResultDto(
+            QuoteSample(branchId, quoteId, "Accepted", Guid.CreateVersion7()),
+            OrderSample(branchId, quoteId, Guid.CreateVersion7())));
+    }
+}
+
+internal sealed class StubSalesOrderApiClient(Guid branchId, Guid quoteId, Guid orderId) : ISalesOrderApiClient
+{
+    public int Calls { get; private set; }
+
+    public Task<PagedResult<SalesOrderSummaryDto>> ListAsync(
+        string? status = null,
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new PagedResult<SalesOrderSummaryDto>(
+            [new SalesOrderSummaryDto(
+                orderId, branchId, null, quoteId, "SO-2026-0003", "PartiallyFulfilled",
+                DateOnly.FromDateTime(DateTime.Today), DateOnly.FromDateTime(DateTime.Today.AddDays(14)),
+                "QAR", 575m, 1, 7L, "Main store", null)],
+            null,
+            pageSize));
+    }
+
+    public Task<SalesOrderDto> GetAsync(Guid id, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
+    }
+
+    public Task<SalesOrderDto> CreateAsync(CreateSalesOrderRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
+
+    public Task<SalesOrderDto> UpdateAsync(Guid id, UpdateSalesOrderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
+
+    public Task<SalesOrderDto> ConfirmAsync(Guid id, ConfirmSalesOrderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
+
+    public Task<SalesOrderDto> AmendAsync(Guid id, AmendSalesOrderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
+
+    public Task<SalesOrderDto> CancelRemainderAsync(Guid id, CancelOrderRemainderRequest request, CancellationToken cancellationToken = default)
+        => Task.FromResult(StubQuoteApiClient.OrderSample(branchId, quoteId, orderId));
 }
 
 /// <summary>

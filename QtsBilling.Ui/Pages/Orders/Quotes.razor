@@ -1,0 +1,248 @@
+@page "/orders/quotes"
+@namespace QtsBilling.Ui.Pages.Orders
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Catalog
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Orders
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Quotes - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Quotes</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @BusinessContext Every figure here is what the server priced and snapshotted, never a browser calculation.
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="1">
+        <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Add"
+                   OnClick="ToggleCreate" Disabled="@_busy">
+            @(_creating ? "Close the new quote" : "New quote")
+        </MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="ReloadAsync" Disabled="@_list.IsBusy">Reload</MudButton>
+    </MudStack>
+</MudStack>
+
+@*
+    What a quote is allowed to be (specification task 22, recipe steps 1 and 4): a priced commitment with revisions
+    and a lifecycle. It never moves stock and never recognises revenue, and "sent" means recorded as issued here -
+    this product has no mail service, so it never claims a delivery.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    @OrderRules.CommitmentNote
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+@if (_creating)
+{
+    <MudPaper Class="pa-4 mb-4" Elevation="3">
+        <MudText Typo="Typo.h6" Class="mb-2">A new draft quote</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+            @DraftHelp A draft is not yet communicated and can still be edited; sending it fixes the first revision.
+        </MudText>
+
+        @if (_createProblem is not null)
+        {
+            <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert">@_createProblem</MudAlert>
+        }
+
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="3">
+                <MudSelect T="Guid?" Label="Branch" Value="@_draft.LocationId"
+                           ValueChanged="@((Guid? value) => { _draft.LocationId = value; return Task.CompletedTask; })"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Branch">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Choose a branch</MudSelectItem>
+                    @foreach (var location in _locations)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)location.Id)">@location.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <ReferenceSelector Label="Customer (optional, search by name)"
+                                   Value="@_draftCustomer"
+                                   ValueChanged="DraftCustomerChangedAsync"
+                                   Search="SearchCustomersAsync"
+                                   HelpText="A quote may be written without a customer; conversion then makes an order for the branch." />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudDatePicker Date="_quotedOn" DateChanged="QuotedOnChangedAsync" Label="Quoted on (business date)"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudDatePicker Date="_expiresOn" DateChanged="ExpiresOnChangedAsync" Label="Expires on (required)"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="6" md="2">
+                <MudDatePicker Date="_promisedOn" DateChanged="PromisedOnChangedAsync" Label="Promised delivery (optional)"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="6">
+                <MudTextField T="string" Value="@_draftNote" ValueChanged="@((string value) => _draftNote = value)"
+                              Label="Terms and note to the customer" MaxLength="2000" Lines="2"
+                              Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Terms and note" />
+            </MudItem>
+        </MudGrid>
+
+        <MudText Typo="Typo.subtitle1" Class="mt-3 mb-1">Opening line</MudText>
+        <MudGrid Spacing="2">
+            <MudItem xs="12" md="5">
+                <ReferenceSelector Label="Catalog item (search by name)"
+                                   Value="@_pickedProduct"
+                                   ValueChanged="PickedProductChangedAsync"
+                                   Search="SearchCatalogAsync"
+                                   HelpText="Chosen by name; its catalog price, tax rate and mode come with it and cannot be restated here." />
+            </MudItem>
+            <MudItem xs="12" md="7">
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Start">
+                    <MudTextField T="string" Value="@_lineDescription" ValueChanged="@((string value) => _lineDescription = value)"
+                                  Label="or write a service line" MaxLength="300" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                  Class="flex-grow-1" aria-label="Written line description" />
+                    <MudNumericField T="decimal" Value="@_lineQuantity" ValueChanged="@((decimal value) => _lineQuantity = value)"
+                                     Label="Quantity" Min="0.001m" Step="1m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     aria-label="Quantity" />
+                    <MudNumericField T="decimal" Value="@_lineUnitPrice" ValueChanged="@((decimal value) => _lineUnitPrice = value)"
+                                     Label="Unit price (written lines)" Min="0m" Step="1m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                     aria-label="Unit price" />
+                    <MudSelect T="Guid?" Label="Tax rate" Value="@_lineTaxRateId"
+                               ValueChanged="@((Guid? value) => _lineTaxRateId = value)"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true" aria-label="Tax rate">
+                        <MudSelectItem T="Guid?" Value="@((Guid?)null)">No tax</MudSelectItem>
+                        @foreach (var rate in _taxRates)
+                        {
+                            <MudSelectItem T="Guid?" Value="@((Guid?)rate.Id)">@RateLabel(rate)</MudSelectItem>
+                        }
+                    </MudSelect>
+                </MudStack>
+            </MudItem>
+        </MudGrid>
+
+        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-3">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync" Disabled="@(!CanCreate || _busy)">
+                Create draft quote
+            </MudButton>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@PreviewSentence</MudText>
+        </MudStack>
+    </MudPaper>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="ReloadAsync">
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" Label="Quote number" Value="@_search" ValueChanged="SearchChangedAsync"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChangedAsync"
+                              Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              aria-label="Quote number" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@OrderRules.SearchHelp("quote")</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="string" Label="Status" Value="@_status" ValueChanged="StatusChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense">
+                    @foreach (var option in StatusOptions)
+                    {
+                        <MudSelectItem T="string" Value="@option">@StatusOptionText(option)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pt-4">
+                    The list is bounded to the branches this account may reach and paged by the server.
+                </MudText>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">Quotes</MudText>
+            <MudStack Row="true" Spacing="1">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+            </MudStack>
+        </MudStack>
+
+        <MudTable Items="_list.Rows" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                  aria-label="Quotes">
+            <HeaderContent>
+                <MudTh>Quote</MudTh>
+                <MudTh>Status</MudTh>
+                <MudTh>Branch</MudTh>
+                <MudTh>Customer</MudTh>
+                <MudTh>Quoted</MudTh>
+                <MudTh>Expires</MudTh>
+                <MudTh>Total</MudTh>
+                <MudTh>Rev</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Quote">
+                    <MudLink Href="@($"/orders/quotes/{context.Id}")" Underline="Underline.Hover">@context.QuoteNumber</MudLink>
+                </MudTd>
+                <MudTd DataLabel="Status">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@StatusColor(context.Status)">
+                        @OrderRules.QuoteStatusText(context.Status, context.ExpiryDate, Today)
+                    </MudChip>
+                </MudTd>
+                <MudTd DataLabel="Branch">@(context.LocationName ?? "a branch no longer listed")</MudTd>
+                <MudTd DataLabel="Customer">@(context.CustomerName ?? "Counter quote")</MudTd>
+                <MudTd DataLabel="Quoted">@context.QuoteDate.ToString("yyyy-MM-dd")</MudTd>
+                <MudTd DataLabel="Expires">
+                    @context.ExpiryDate.ToString("yyyy-MM-dd")
+                    @if (context.PromisedDeliveryDate is { } promised)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">promised @promised.ToString("yyyy-MM-dd")</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="Total">@OrderRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                <MudTd DataLabel="Rev">@context.CurrentRevision</MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Class="pa-4">No quote matches these filters.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+
+        @if (_list.Message is { Length: > 0 } listMessage)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">@listMessage</MudText>
+        }
+    </MudPaper>
+</ShellStates>
+
+@code {
+    private static readonly string[] StatusOptions =
+    [
+        "", "Draft", "Sent", "Accepted", "Rejected", "Expired", "Cancelled",
+    ];
+
+    private bool CanCreate
+        => !_busy
+            && _draft.LocationId is not null
+            && _expiresOn is not null
+            && OpeningLine is not null;
+
+    private string DraftHelp
+        => "A quote is priced by the server from the branch's own catalog, dated in the business's own calendar, "
+            + "and expires on the date you set - after that it cannot be accepted or converted.";
+
+    private string PreviewSentence
+        => _pickedProduct is null && string.IsNullOrWhiteSpace(_lineDescription)
+            ? "Choose a catalog item or write a line. The server prices it and returns the exact total."
+            : "The server will price this line from the catalog and return the document totals; this screen adds nothing up.";
+
+    private static string StatusOptionText(string option)
+        => option.Length == 0 ? "Every status" : OrderRules.QuoteStatusText(option, default, default).Split(" - ")[0];
+
+    private static string RateLabel(QtsBilling.Contracts.Pricing.TaxRateDto rate)
+        => $"{rate.Name} ({Math.Round(rate.Rate * 100m, 2).ToString("0.##")}%)";
+}

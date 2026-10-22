@@ -59,8 +59,10 @@ public static class ShellNavigation
             "The browser posts through the same contract but does not hold a drawer; trade at a registered terminal."),
         new("Registers and drawers", "sales/registers", Icons.Material.Filled.AccountBalanceWallet, GroupSales, Permissions.RegistersManage, ShellAvailability.Available),
         new("Sales history and refunds", "sales", Icons.Material.Filled.History, GroupSales, Permissions.SalesPost, ShellAvailability.Available),
-        new("Quotes and sales orders", "orders/quotes", Icons.Material.Filled.RequestQuote, GroupSales, Permissions.OrdersManage, ShellAvailability.Planned,
-            "Arrives with task 22."),
+        new("Quotes", "orders/quotes", Icons.Material.Filled.RequestQuote, GroupSales, Permissions.OrdersManage, ShellAvailability.Available),
+        new("Sales orders", "orders/sales-orders", Icons.Material.Filled.Description, GroupSales, Permissions.OrdersManage, ShellAvailability.Available),
+        new("Delivery and fulfillment", "orders/fulfillment", Icons.Material.Filled.LocalShipping, GroupSales, Permissions.OrdersManage, ShellAvailability.Planned,
+            "Arrives with task 23."),
 
         // Purchasing: suppliers, what is owed to them, and what arrived.
         new("Suppliers", "suppliers", Icons.Material.Filled.LocalShipping, GroupPurchasing, Permissions.PurchasingManage, ShellAvailability.Available),

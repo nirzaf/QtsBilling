@@ -86,7 +86,13 @@ public static class OrderEndpoints
         var rows = await query.OrderByDescending(row => row.Id).Take(size + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
         var hasMore = rows.Count > size;
         if (hasMore) rows.RemoveAt(size);
-        var items = rows.Select(ToQuoteSummary).ToArray();
+        var names = await ReadNameMapsAsync(
+            db,
+            businessId,
+            rows.Select(row => row.LocationId).Distinct().ToArray(),
+            rows.Select(row => row.CustomerId).OfType<Guid>().Distinct().ToArray(),
+            cancellationToken).ConfigureAwait(false);
+        var items = rows.Select(row => ToQuoteSummary(row, names)).ToArray();
         return Results.Ok(new PagedResult<SalesQuoteSummaryDto>(items, hasMore ? CursorPaging.Encode(rows[^1].Id) : null, size));
     }
 
@@ -552,7 +558,13 @@ public static class OrderEndpoints
         var rows = await query.OrderByDescending(row => row.Id).Take(size + 1).ToListAsync(cancellationToken).ConfigureAwait(false);
         var hasMore = rows.Count > size;
         if (hasMore) rows.RemoveAt(size);
-        var items = rows.Select(ToOrderSummary).ToArray();
+        var names = await ReadNameMapsAsync(
+            db,
+            businessId,
+            rows.Select(row => row.LocationId).Distinct().ToArray(),
+            rows.Select(row => row.CustomerId).OfType<Guid>().Distinct().ToArray(),
+            cancellationToken).ConfigureAwait(false);
+        var items = rows.Select(row => ToOrderSummary(row, names)).ToArray();
         return Results.Ok(new PagedResult<SalesOrderSummaryDto>(items, hasMore ? CursorPaging.Encode(rows[^1].Id) : null, size));
     }
 
@@ -1394,13 +1406,15 @@ public static class OrderEndpoints
         var allLines = revisionIds.Length == 0 ? [] : await db.SalesQuoteRevisionLines.AsNoTracking()
             .Where(row => row.BusinessId == quote.BusinessId && revisionIds.Contains(row.QuoteRevisionId)).OrderBy(row => row.LineNo).ToListAsync(cancellationToken).ConfigureAwait(false);
         var byRevision = allLines.GroupBy(row => row.QuoteRevisionId).ToDictionary(group => group.Key, group => (IReadOnlyList<OrderLineDto>)group.Select(ToOrderLineDto).ToArray());
+        var names = await DocumentNamesAsync(db, quote.BusinessId, quote.LocationId, quote.CustomerId, cancellationToken).ConfigureAwait(false);
         return new SalesQuoteDto(quote.Id, quote.LocationId, quote.CustomerId, quote.QuoteNumber, quote.Status.ToString(), quote.QuoteDate,
             quote.ExpiryDate, quote.PromisedDeliveryDate, quote.Currency, quote.SubtotalAmount, quote.DiscountAmount, quote.TaxAmount,
             quote.TotalAmount, quote.RoundingAmount, quote.CurrentRevision, quote.Version, quote.CreatedByUserId, quote.CreatedAtUtc,
             quote.SentAtUtc, quote.AcceptedAtUtc, quote.Note, currentLines,
             revisions.Select(row => new QuoteRevisionDto(row.Id, row.RevisionNumber, row.QuoteDate, row.ExpiryDate, row.PromisedDeliveryDate,
                 row.Currency, row.SubtotalAmount, row.DiscountAmount, row.TaxAmount, row.TotalAmount, row.RoundingAmount, row.Note, row.Reason,
-                row.ChangedByUserId, row.RecordedAtUtc, byRevision.GetValueOrDefault(row.Id, Array.Empty<OrderLineDto>()))).ToArray());
+                row.ChangedByUserId, row.RecordedAtUtc, byRevision.GetValueOrDefault(row.Id, Array.Empty<OrderLineDto>()))).ToArray(),
+            names.Location, names.Customer);
     }
 
     private static async Task<SalesOrderDto> OrderDetailAsync(BillingDbContext db, SalesOrder order, CancellationToken cancellationToken)
@@ -1414,6 +1428,7 @@ public static class OrderEndpoints
         var allLines = revisionIds.Length == 0 ? [] : await db.SalesOrderRevisionLines.AsNoTracking()
             .Where(row => row.BusinessId == order.BusinessId && revisionIds.Contains(row.OrderRevisionId)).OrderBy(row => row.LineNo).ToListAsync(cancellationToken).ConfigureAwait(false);
         var byRevision = allLines.GroupBy(row => row.OrderRevisionId).ToDictionary(group => group.Key, group => (IReadOnlyList<OrderLineDto>)group.Select(ToOrderLineDto).ToArray());
+        var names = await DocumentNamesAsync(db, order.BusinessId, order.LocationId, order.CustomerId, cancellationToken).ConfigureAwait(false);
         return new SalesOrderDto(order.Id, order.LocationId, order.CustomerId, order.SourceQuoteId, order.SourceQuoteRevisionId,
             order.OrderNumber, order.Status.ToString(), order.OrderDate, order.PromisedDeliveryDate, order.Currency, order.SubtotalAmount,
             order.DiscountAmount, order.TaxAmount, order.TotalAmount, order.RoundingAmount, order.CurrentRevision, order.Version,
@@ -1421,7 +1436,8 @@ public static class OrderEndpoints
             order.RemainderCancellationReason, order.Note, lines.Select(ToOrderLineDto).ToArray(),
             revisions.Select(row => new SalesOrderRevisionDto(row.Id, row.RevisionNumber, row.OrderDate, row.PromisedDeliveryDate,
                 row.Currency, row.SubtotalAmount, row.DiscountAmount, row.TaxAmount, row.TotalAmount, row.RoundingAmount, row.Reason,
-                row.ChangedByUserId, row.RecordedAtUtc, byRevision.GetValueOrDefault(row.Id, Array.Empty<OrderLineDto>()))).ToArray());
+                row.ChangedByUserId, row.RecordedAtUtc, byRevision.GetValueOrDefault(row.Id, Array.Empty<OrderLineDto>()))).ToArray(),
+            names.Location, names.Customer);
     }
 
     private static OrderLineDto ToOrderLineDto(SalesQuoteLine row)
@@ -1442,13 +1458,67 @@ public static class OrderEndpoints
             row.QuantityCancelled, row.UnitPrice, row.DiscountAmount, row.RevenueBaseAmount, row.TaxRate, row.TaxAmount,
             row.LinePayableAmount, row.TaxMode, row.PricingPolicyVersion);
 
-    private static SalesQuoteSummaryDto ToQuoteSummary(SalesQuote row)
+    private static SalesQuoteSummaryDto ToQuoteSummary(SalesQuote row, DocumentNameMaps names)
         => new(row.Id, row.LocationId, row.CustomerId, row.QuoteNumber, row.Status.ToString(), row.QuoteDate, row.ExpiryDate,
-            row.PromisedDeliveryDate, row.Currency, row.TotalAmount, row.CurrentRevision, row.Version);
+            row.PromisedDeliveryDate, row.Currency, row.TotalAmount, row.CurrentRevision, row.Version,
+            names.Locations.GetValueOrDefault(row.LocationId), names.Customers.GetValueOrDefault(row.CustomerId ?? Guid.Empty));
 
-    private static SalesOrderSummaryDto ToOrderSummary(SalesOrder row)
+    private static SalesOrderSummaryDto ToOrderSummary(SalesOrder row, DocumentNameMaps names)
         => new(row.Id, row.LocationId, row.CustomerId, row.SourceQuoteId, row.OrderNumber, row.Status.ToString(), row.OrderDate,
-            row.PromisedDeliveryDate, row.Currency, row.TotalAmount, row.CurrentRevision, row.Version);
+            row.PromisedDeliveryDate, row.Currency, row.TotalAmount, row.CurrentRevision, row.Version,
+            names.Locations.GetValueOrDefault(row.LocationId), names.Customers.GetValueOrDefault(row.CustomerId ?? Guid.Empty));
+
+    /// <summary>
+    /// The branch and customer names for a page of documents. A workbench that shows only identifiers fails
+    /// requirement R07, so the read model carries the names an operator recognises; the lookup is bounded by the
+    /// page it decorates (specification task 22, recipe step 1).
+    /// </summary>
+    private sealed record DocumentNameMaps(
+        IReadOnlyDictionary<Guid, string> Locations,
+        IReadOnlyDictionary<Guid, string> Customers);
+
+    private static async Task<DocumentNameMaps> ReadNameMapsAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid[] locationIds,
+        Guid[] customerIds,
+        CancellationToken cancellationToken)
+    {
+        var locationRows = await db.BusinessLocations.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && locationIds.Contains(row.Id))
+            .Select(row => new { row.Id, row.Name })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var customerRows = customerIds.Length == 0
+            ? []
+            : await db.Customers.AsNoTracking()
+                .Where(row => row.BusinessId == businessId && customerIds.Contains(row.Id))
+                .Select(row => new { row.Id, row.Name })
+                .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return new DocumentNameMaps(
+            locationRows.ToDictionary(row => row.Id, row => row.Name),
+            customerRows.ToDictionary(row => row.Id, row => row.Name));
+    }
+
+    private static async Task<(string? Location, string? Customer)> DocumentNamesAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid locationId,
+        Guid? customerId,
+        CancellationToken cancellationToken)
+    {
+        var maps = await ReadNameMapsAsync(
+            db,
+            businessId,
+            new[] { locationId },
+            customerId.HasValue ? new[] { customerId.Value } : Array.Empty<Guid>(),
+            cancellationToken).ConfigureAwait(false);
+
+        var customerName = customerId is { } chosen && maps.Customers.TryGetValue(chosen, out var name) ? name : null;
+
+        return (maps.Locations.GetValueOrDefault(locationId), customerName);
+    }
 
     private static void AddAudit(BillingDbContext db, Guid businessId, Guid userId, string entityType, Guid entityId, string action,
         DateTimeOffset occurredAt, string correlationId, object summary)
