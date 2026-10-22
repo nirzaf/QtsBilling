@@ -55,6 +55,20 @@ public sealed record LocalCashSaleDraft(
     string? Note = null);
 
 /// <summary>
+/// The online attempt that was sent but whose end the operator has not seen: the exact operation id (which is also
+/// the idempotency key the server replays its stored receipt from), the exact body, and the location and drawer it
+/// was posted into. It survives a page refresh or a restart so the operator resolves that one attempt instead of
+/// ringing a second sale for the same cash (specification task 20, recipe step 2). Nothing in it is a credential -
+/// no token, no session material, no card data - because it is written to browser storage.
+/// </summary>
+public sealed record PendingCheckoutAttempt(
+    Guid OperationId,
+    Guid LocationId,
+    Guid RegisterId,
+    LocalCashSaleDraft Draft,
+    DateTimeOffset SavedAtUtc);
+
+/// <summary>
 /// The outcome of a local capture attempt. A capture is only accepted when the money rows are durably
 /// committed; a failed transaction never produces an accepted result.
 /// </summary>

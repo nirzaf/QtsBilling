@@ -30,10 +30,68 @@ else if (PosService is null)
         <MudAlert Severity="Severity.Error" Class="mt-4" Dense="true">@_error</MudAlert>
     }
 
-    @if (_postedReceipt is not null)
+    @if (_postedServerReceipt is { } serverReceipt)
+    {
+        @* The posted sale is shown as the server recorded it: its own line names and prices, its own payment rows
+           and its own change. The cart that produced it is gone and cannot disagree with it
+           (specification task 20, recipe step 3). *@
+        <MudPaper Class="pa-3 mt-4" Outlined="true" aria-label="Posted receipt">
+            <MudStack Row="true" Justify="Justify.SpaceBetween" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">@serverReceipt.SaleNumber</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                         Color="@(string.Equals(serverReceipt.ReceiptState, "Posted", StringComparison.OrdinalIgnoreCase) ? Color.Success : Color.Warning)">
+                    @serverReceipt.ReceiptState
+                </MudChip>
+            </MudStack>
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @serverReceipt.BusinessName - @serverReceipt.LocationName - @serverReceipt.PostedAtLocal
+            </MudText>
+
+            <MudTable Items="serverReceipt.Lines" Dense="true" Breakpoint="Breakpoint.Sm" Class="mt-2"
+                      aria-label="Posted lines">
+                <HeaderContent>
+                    <MudTh>Item</MudTh>
+                    <MudTh>Qty</MudTh>
+                    <MudTh>Unit price</MudTh>
+                    <MudTh>Tax</MudTh>
+                    <MudTh>Line total</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Item">@context.ProductName</MudTd>
+                    <MudTd DataLabel="Qty">@context.Quantity.ToString("0.##")</MudTd>
+                    <MudTd DataLabel="Unit price">@context.UnitPrice.ToString("0.00")</MudTd>
+                    <MudTd DataLabel="Tax">@context.TaxAmount.ToString("0.00")</MudTd>
+                    <MudTd DataLabel="Line total">@context.LineTotal.ToString("0.00")</MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            <MudStack Row="true" Justify="Justify.SpaceBetween" Class="mt-2">
+                <MudText Typo="Typo.body2">Total</MudText>
+                <MudText Typo="Typo.body2">@serverReceipt.TotalAmount.ToString("0.00") @serverReceipt.Currency</MudText>
+            </MudStack>
+            @foreach (var payment in serverReceipt.Payments)
+            {
+                var tendered = payment.CashReceived is { } cash ? $", tendered {cash:0.00}" : string.Empty;
+                var returned = payment.Change is { } changeAmount ? $", change {changeAmount:0.00}" : string.Empty;
+                <MudText Typo="Typo.body2" Color="Color.Secondary">
+                    @($"{payment.Method} - {payment.Status} - {payment.Amount:0.00}{tendered}{returned}")
+                </MudText>
+            }
+
+            <MudStack Row="true" Spacing="2" Class="mt-2">
+                <MudButton Variant="Variant.Text" Color="Color.Success" StartIcon="@Icons.Material.Filled.Print"
+                           OnClick="OpenPostedReceiptAsync">
+                    Print 80 mm receipt
+                </MudButton>
+                <MudButton Variant="Variant.Text" OnClick="ClearPostedReceipt">Next customer</MudButton>
+            </MudStack>
+        </MudPaper>
+    }
+    else if (_postedReceipt is not null)
     {
         <MudAlert Severity="Severity.Success" Class="mt-4" Dense="true" ShowCloseIcon="true" CloseIconClicked="ClearPostedReceipt">
             Sale @_postedReceipt.SaleNumber posted. Total: @_postedReceipt.TotalAmount.ToString("0.00") @_postedReceipt.Currency.
+            The server's receipt lines could not be read back; the sale itself is posted.
             <MudButton Variant="Variant.Text" Color="Color.Success" StartIcon="@Icons.Material.Filled.Print"
                        OnClick="OpenPostedReceiptAsync" Class="ml-2">
                 Print 80 mm receipt
@@ -154,7 +212,22 @@ else if (PosService is null)
                     <MudStack Row="true" Justify="Justify.SpaceBetween">
                         <MudText>Change</MudText><MudText>@Math.Max(0m, Change).ToString("0.00")</MudText>
                     </MudStack>
-                    @if (_onlineAttempt is not null)
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                        This total is the screen's estimate, computed with the same shared calculation the server uses;
+                        the amounts that count are the ones on the posted receipt above.
+                    </MudText>
+                    @if (_onlineAttemptUnknown && _onlineAttempt is { } unresolved)
+                    {
+                        @* The one state in which no new sale may be started: the money may already be in the drawer,
+                           so the attempt must be resolved as itself (task 20, recipe step 2). *@
+                        <MudAlert Severity="Severity.Error" Dense="true" Class="mt-2" role="alert">
+                            <strong>Outcome unknown.</strong> This sale of @($"{AttemptTotal:0.00}") may already be posted.
+                            Checking it sends the same sale again - key @unresolved.OperationId.ToString("N") - and
+                            brings back either the posted receipt or the refusal. Nothing else on this screen can be
+                            changed until then.
+                        </MudAlert>
+                    }
+                    else if (_onlineAttempt is not null)
                     {
                         <MudAlert Severity="Severity.Warning" Dense="true" Class="mt-2">
                             The post result is uncertain. Retry sends the same sale with its original idempotency key.
@@ -169,9 +242,12 @@ else if (PosService is null)
                     }
                     <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.PointOfSale"
                                FullWidth="true" Class="mt-3"
-                               Disabled="@(_busy || _lines.Count == 0 || _onlineLocationId is null || !CanPostOnline || (_cashReceived ?? Total) < Total)"
+                               Disabled="@(_busy || (_onlineAttempt is null
+                                   && (_lines.Count == 0 || _onlineLocationId is null || !CanPostOnline || (_cashReceived ?? Total) < Total)))"
                                OnClick="CaptureAsync">
-                        @(_busy ? "Posting..." : _onlineAttempt is null ? "Post cash sale" : "Retry sale post")
+                        @(_busy ? "Posting..."
+                            : _onlineAttemptUnknown ? "Check the same sale"
+                            : _onlineAttempt is null ? "Post cash sale" : "Retry sale post")
                     </MudButton>
                 </MudCardContent>
             </MudCard>

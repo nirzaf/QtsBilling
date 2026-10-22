@@ -10,6 +10,11 @@ public interface ISaleApiClient
         SaleCaptureRequest request,
         string idempotencyKey,
         CancellationToken cancellationToken = default);
+
+    /// <summary>The server's own receipt for a posted sale: immutable line, payment and change snapshots.</summary>
+    Task<SaleReceiptDto> GetReceiptAsync(
+        Guid saleId,
+        CancellationToken cancellationToken = default);
 }
 
 /// <summary>Authenticated HTTP client for the authoritative online POS posting endpoint.</summary>
@@ -44,5 +49,17 @@ public sealed class SaleApiClient : ISaleApiClient
         return await response.Content
             .ReadFromJsonAsync<SaleCaptureResult>(ContractJson.Options, cancellationToken)
             .ConfigureAwait(false) ?? throw new InvalidOperationException("The sale API returned an empty capture result.");
+    }
+
+    public async Task<SaleReceiptDto> GetReceiptAsync(
+        Guid saleId,
+        CancellationToken cancellationToken = default)
+    {
+        using var response = await _http.GetAsync($"{Route}{saleId:D}/receipt", cancellationToken).ConfigureAwait(false);
+        await ApiHttp.ThrowIfFailedAsync(response, cancellationToken).ConfigureAwait(false);
+
+        return await response.Content
+            .ReadFromJsonAsync<SaleReceiptDto>(ContractJson.Options, cancellationToken)
+            .ConfigureAwait(false) ?? throw new InvalidOperationException("The sale API returned an empty receipt.");
     }
 }

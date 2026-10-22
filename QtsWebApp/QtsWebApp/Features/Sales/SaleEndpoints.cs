@@ -137,6 +137,36 @@ public static class SaleEndpoints
             return pricing.Error;
         }
 
+        // A discount allowance belongs to the membership, not to the terminal: a line given away beyond what this
+        // account may discount is refused here, before anything is written, priced or posted
+        // (specification task 20, recipe step 1 and T20.02).
+        var allowance = await db.BusinessMemberships.AsNoTracking()
+            .Where(membership => membership.BusinessId == businessId && membership.UserId == userId && membership.IsActive)
+            .Select(membership => (decimal?)membership.MaxDiscountRate)
+            .SingleOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (allowance is null)
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var beyondAllowance = pricing.Lines
+            .Where(line => line.Discount > 0m
+                && line.Gross > 0m
+                && line.Discount > Math.Round(line.Gross * allowance.Value, 4, MidpointRounding.AwayFromZero))
+            .Select(line => line.LineNo)
+            .ToArray();
+
+        if (beyondAllowance.Length > 0)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status403Forbidden,
+                ApiErrorCodes.PermissionDenied,
+                "This account may not give a discount that large.",
+                $"The membership's allowance is {allowance.Value * 100m:0.##}% of a line's gross; line(s) {string.Join(", ", beyondAllowance)} exceed it. A supervisor with the allowance must record the sale.");
+        }
+
         TerminalCaptureVerification? terminalCapture = null;
         if (Enum.TryParse<QtsBilling.Persistence.Postgres.PaymentMethod>(request.Payment.Method?.Trim(), true, out var requestedMethod)
             && requestedMethod == QtsBilling.Persistence.Postgres.PaymentMethod.Card)

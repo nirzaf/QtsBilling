@@ -1,32 +1,48 @@
 using System.Globalization;
+using System.Text.Json;
+using Microsoft.JSInterop;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Pos;
 using QtsBilling.Contracts.Sales;
+using QtsBilling.Contracts.Serialization;
 using QtsModels.ValueObjects;
 
 namespace QtsWebApp.Client.Services;
 
-/// <summary>Online browser POS orchestration over the authenticated server API.</summary>
+/// <summary>
+/// Online browser POS orchestration over the authenticated server API. An attempt whose answer was lost is kept
+/// exactly as it was sent - same operation id, same body, same drawer - and stored in browser local storage (which
+/// survives a refresh or a restart) so the operator resolves that attempt rather than ringing a second sale for the
+/// same cash (specification task 20, recipe step 2). The stored envelope holds no credential: no token, no cookie,
+/// no card data - only the line identifiers, amounts and the key.
+/// </summary>
 public sealed class WebPosCheckoutOrchestrator : IPosCheckoutOrchestrator
 {
     private const int CatalogPageSize = 25;
+
+    /// <summary>The one local-storage slot the unresolved online attempt lives in.</summary>
+    public const string PendingAttemptKey = "qts.pos.pending-attempt";
+
     private readonly IProductApiClient _products;
     private readonly IInventoryApiClient _inventory;
     private readonly ICashRegisterApiClient _registers;
     private readonly ISaleApiClient _sales;
+    private readonly IJSRuntime _js;
 
     public WebPosCheckoutOrchestrator(
         IProductApiClient products,
         IInventoryApiClient inventory,
         ICashRegisterApiClient registers,
-        ISaleApiClient sales)
+        ISaleApiClient sales,
+        IJSRuntime js)
     {
         _products = products;
         _inventory = inventory;
         _registers = registers;
         _sales = sales;
+        _js = js;
     }
 
     public async Task<PosCheckoutContext> GetContextAsync(CancellationToken cancellationToken = default)
@@ -165,7 +181,76 @@ public sealed class WebPosCheckoutOrchestrator : IPosCheckoutOrchestrator
             draft.Note,
             registerId);
 
-        // The same operation id and unchanged draft are retained by the UI after uncertain outcomes.
-        return await _sales.PostSaleAsync(request, draft.OperationId.ToString("N"), cancellationToken).ConfigureAwait(false);
+        // The same operation id and unchanged draft are retained by the UI after uncertain outcomes: the server
+        // replays its stored receipt for that key, so a retry resolves the sale instead of duplicating it. A
+        // failure that never reached the server - or whose answer never came back - is reported as the distinct
+        // outcome-unknown contract code rather than as a refusal (specification task 20, recipe step 2).
+        SaleCaptureResult result;
+
+        try
+        {
+            result = await _sales.PostSaleAsync(request, draft.OperationId.ToString("N"), cancellationToken)
+                .ConfigureAwait(false);
+        }
+        catch (ApiException)
+        {
+            throw;
+        }
+        catch (Exception exception) when (exception is HttpRequestException or TaskCanceledException or OperationCanceledException)
+        {
+            if (exception is OperationCanceledException && cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+
+            throw new ApiException(
+                408,
+                ApiErrorCodes.TransientRetry,
+                $"The sale's outcome is unknown ({exception.GetType().Name}: the request could not be completed or its answer was lost). "
+                    + $"The attempt is kept - key {draft.OperationId:N} and the same lines - so the cashier must check this same sale before taking money for another one.");
+        }
+
+        return result;
     }
+
+    public Task<SaleReceiptDto> GetPostedReceiptAsync(Guid saleId, CancellationToken cancellationToken = default)
+        => _sales.GetReceiptAsync(saleId, cancellationToken);
+
+    public async Task<PendingCheckoutAttempt?> ReadPendingAttemptAsync(CancellationToken cancellationToken = default)
+    {
+        var stored = await _js.InvokeAsync<string?>("localStorage.getItem", PendingAttemptKey).ConfigureAwait(false);
+
+        if (string.IsNullOrWhiteSpace(stored))
+        {
+            return null;
+        }
+
+        try
+        {
+            return JsonSerializer.Deserialize<PendingCheckoutAttempt>(stored, ContractJson.Options);
+        }
+        catch (JsonException exception)
+        {
+            // A damaged envelope is reported, never dropped: the sale it described may already be committed, and the
+            // screen has to say so before the cashier takes money for a second one. The stored text is left exactly
+            // where it is, so nothing is lost while the operator checks the register's history
+            // (specification task 20, recipe step 2).
+            throw new InvalidOperationException(
+                $"the stored checkout attempt could not be read ({exception.Message}) - the sale it describes may already be posted",
+                exception);
+        }
+    }
+
+    public Task SavePendingAttemptAsync(PendingCheckoutAttempt attempt, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(attempt);
+
+        return _js.InvokeVoidAsync(
+            "localStorage.setItem",
+            PendingAttemptKey,
+            JsonSerializer.Serialize(attempt, ContractJson.Options)).AsTask();
+    }
+
+    public Task ClearPendingAttemptAsync(CancellationToken cancellationToken = default)
+        => _js.InvokeVoidAsync("localStorage.removeItem", PendingAttemptKey).AsTask();
 }

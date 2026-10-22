@@ -38,4 +38,29 @@ public interface IPosCheckoutOrchestrator
         Guid registerId,
         LocalCashSaleDraft draft,
         CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The immutable receipt the server holds for a posted sale - its line snapshots, its payment rows and the
+    /// change it computed. A posted checkout is shown from this answer, never from the cart that produced it
+    /// (specification task 20, recipe step 3).
+    /// </summary>
+    Task<SaleReceiptDto> GetPostedReceiptAsync(
+        Guid saleId,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>
+    /// The attempt this browser sent and has not seen the end of, if any. Read on load so a refresh cannot turn an
+    /// unresolved sale into a second one (specification task 20, recipe step 2). A stored record that cannot be read
+    /// back is reported by an exception rather than returned as "nothing pending": the attempt it describes may
+    /// already be a posted sale, and the screen has to say so instead of starting a new one.
+    /// </summary>
+    Task<PendingCheckoutAttempt?> ReadPendingAttemptAsync(CancellationToken cancellationToken = default);
+
+    /// <summary>Stores the attempt before it is sent, so a lost answer still has something to resolve.</summary>
+    Task SavePendingAttemptAsync(
+        PendingCheckoutAttempt attempt,
+        CancellationToken cancellationToken = default);
+
+    /// <summary>Forgets it once the attempt is resolved - accepted, refused with nothing committed, or abandoned.</summary>
+    Task ClearPendingAttemptAsync(CancellationToken cancellationToken = default);
 }

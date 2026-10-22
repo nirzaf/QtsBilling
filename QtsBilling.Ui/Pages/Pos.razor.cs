@@ -66,7 +66,17 @@ public partial class Pos
     private Guid? _onlineAttemptLocationId;
     private Guid? _onlineAttemptRegisterId;
     private bool _onlineAttemptRejected;
+
+    /// <summary>
+    /// True while an online post has no answer the operator can act on: the sale may already be committed, so the
+    /// only permitted action is resolving that same attempt - never a new sale (specification task 20, step 2).
+    /// </summary>
+    private bool _onlineAttemptUnknown;
+
     private SaleCaptureResult? _postedReceipt;
+
+    /// <summary>The server's own receipt snapshot of the sale just posted; the screen shows this, not its cart.</summary>
+    private SaleReceiptDto? _postedServerReceipt;
 
     private IReadOnlyList<LocalCatalogItem> Filtered => string.IsNullOrWhiteSpace(_search)
         ? _catalog
@@ -166,6 +176,10 @@ public partial class Pos
                 _catalog = [];
                 _error = "This account has no active business location available for point of sale.";
             }
+
+            // A sale whose answer was lost before a refresh is still the same sale: restore its exact key, body and
+            // context so the operator resolves it rather than taking the money twice (specification task 20).
+            await RestorePendingAttemptAsync(checkout).ConfigureAwait(false);
         }
         catch (ApiException exception)
         {
@@ -605,38 +619,72 @@ public partial class Pos
         _error = null;
         try
         {
+            if (!_onlineAttemptUnknown)
+            {
+                // Stored before the request leaves, so an answer that never arrives still leaves the exact key,
+                // body and context behind to resolve (specification task 20, recipe step 2).
+                await checkout.SavePendingAttemptAsync(new PendingCheckoutAttempt(
+                    _onlineAttempt.OperationId,
+                    _onlineAttemptLocationId!.Value,
+                    _onlineAttemptRegisterId!.Value,
+                    _onlineAttempt,
+                    DateTimeOffset.UtcNow)).ConfigureAwait(false);
+            }
+
             var result = await checkout.CaptureCashSaleAsync(
                 _onlineAttemptLocationId!.Value,
                 _onlineAttemptRegisterId!.Value,
-                _onlineAttempt);
+                _onlineAttempt).ConfigureAwait(false);
 
             if (result.Provisional)
             {
+                _onlineAttemptUnknown = true;
                 _error = "The server returned a provisional result for an online sale. The sale remains locked so it can be safely retried.";
                 return;
             }
 
+            // A posted checkout is shown from the server's immutable receipt - its line, payment and change
+            // snapshots - rather than from the cart that produced it (task 20, recipe step 3).
             _postedReceipt = result;
+            _postedServerReceipt = await TryReadPostedReceiptAsync(checkout, result.SaleId).ConfigureAwait(false);
             _onlineAttempt = null;
             _onlineAttemptLocationId = null;
             _onlineAttemptRegisterId = null;
             _onlineAttemptRejected = false;
+            _onlineAttemptUnknown = false;
             _operationId = null;
             _lines.Clear();
             _cashReceived = null;
+            await checkout.ClearPendingAttemptAsync().ConfigureAwait(false);
             Snackbar.Add($"Sale {result.SaleNumber} posted.", Severity.Success);
         }
         catch (ApiException exception)
         {
             _error = exception.Message;
-            _onlineAttemptRejected = exception.Code is ApiErrorCodes.InvalidPrice
+            var refusedWithNothingCommitted = exception.Code is ApiErrorCodes.InvalidPrice
                 or ApiErrorCodes.InsufficientStock
                 or ApiErrorCodes.CashRegisterNotOpen
-                or ApiErrorCodes.ValidationFailed;
+                or ApiErrorCodes.ValidationFailed
+                or ApiErrorCodes.Forbidden
+                or ApiErrorCodes.PermissionDenied
+                or ApiErrorCodes.Unauthenticated
+                or ApiErrorCodes.PaymentMethodDisabled
+                or ApiErrorCodes.CreditLimitExceeded;
+            _onlineAttemptRejected = refusedWithNothingCommitted;
+
+            // Anything else - including the outcome-unknown the orchestrator reports for a lost answer - leaves the
+            // attempt, its key and its body exactly as they were.
+            _onlineAttemptUnknown = !refusedWithNothingCommitted;
+
+            if (refusedWithNothingCommitted)
+            {
+                await checkout.ClearPendingAttemptAsync().ConfigureAwait(false);
+            }
         }
         catch (Exception exception)
         {
-            _error = $"The sale result could not be confirmed: {exception.Message} Retry to check the same sale safely.";
+            _onlineAttemptUnknown = true;
+            _error = $"The sale's outcome is unknown: {exception.Message} The same sale is retried to check it; no new sale can be posted until it is resolved.";
         }
         finally
         {
@@ -645,6 +693,73 @@ public partial class Pos
         }
     }
 
+    /// <summary>
+    /// Reads the server's receipt for the sale just posted. A receipt that cannot be read is said out loud: the
+    /// sale is still posted, and the history list is the other way to reach it (task 20, recipe step 3).
+    /// </summary>
+    private async Task<SaleReceiptDto?> TryReadPostedReceiptAsync(IPosCheckoutOrchestrator checkout, Guid saleId)
+    {
+        try
+        {
+            return await checkout.GetPostedReceiptAsync(saleId).ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            _error = $"The sale posted, but its receipt could not be read: {exception.Message}";
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Puts back an attempt the browser stored before its answer was lost. The cart may be gone after a refresh,
+    /// but the exact key, body, location and drawer are not, so the sale can still be resolved as itself.
+    /// </summary>
+    private async Task RestorePendingAttemptAsync(IPosCheckoutOrchestrator checkout)
+    {
+        if (_onlineAttempt is not null)
+        {
+            return;
+        }
+
+        PendingCheckoutAttempt? pending;
+
+        try
+        {
+            pending = await checkout.ReadPendingAttemptAsync().ConfigureAwait(false);
+        }
+        catch (Exception exception)
+        {
+            // An unreadable envelope is said out loud rather than silently dropped: the sale it described may exist.
+            _error = $"An unfinished sale could not be read back: {exception.Message}. Check this register's sales history before taking more cash for it.";
+            return;
+        }
+
+        if (pending is null)
+        {
+            return;
+        }
+
+        _onlineAttempt = pending.Draft;
+        _onlineAttemptLocationId = pending.LocationId;
+        _onlineAttemptRegisterId = pending.RegisterId;
+        _onlineAttemptUnknown = true;
+        _onlineAttemptRejected = false;
+        _operationId = pending.OperationId;
+        _error = "A sale was sent and its answer never arrived. Check its outcome before selling again; the same sale is retried, never a new one.";
+    }
+
+    /// <summary>The total of the attempt being resolved, computed with the shared commercial calculation.</summary>
+    private decimal AttemptTotal => _onlineAttempt is { } draft
+        ? draft.Lines.Sum(line => CommercialAmountCalculator.ComputeLine(
+            line.Quantity,
+            line.UnitPrice,
+            line.TaxMode,
+            line.TaxRate,
+            line.Discount,
+            line.PricingPolicyVersion,
+            "attempt").PayableAmount)
+        : 0m;
+
     private async Task StartFreshAfterRejectionAsync()
     {
         if (!_onlineAttemptRejected || _busy)
@@ -652,18 +767,31 @@ public partial class Pos
             return;
         }
 
+        var checkout = OnlineCheckout;
+
         _onlineAttempt = null;
         _onlineAttemptLocationId = null;
         _onlineAttemptRegisterId = null;
         _onlineAttemptRejected = false;
+        _onlineAttemptUnknown = false;
         _operationId = null;
         _lines.Clear();
         _cashReceived = null;
         Snackbar.Add("The rejected sale was cleared. Refreshing current prices and drawer status.", Severity.Info);
-        await LoadOnlineContextAsync();
+
+        if (checkout is not null)
+        {
+            await checkout.ClearPendingAttemptAsync().ConfigureAwait(false);
+        }
+
+        await LoadOnlineContextAsync().ConfigureAwait(false);
     }
 
-    private void ClearPostedReceipt() => _postedReceipt = null;
+    private void ClearPostedReceipt()
+    {
+        _postedReceipt = null;
+        _postedServerReceipt = null;
+    }
 
     private async Task OpenPostedReceiptAsync()
     {

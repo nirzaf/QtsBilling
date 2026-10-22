@@ -124,6 +124,14 @@ var posHtml = await posRenderer.Dispatcher.InvokeAsync(async () =>
 Check("browser POS renders online checkout", posHtml.Contains("ONLINE CASH SALE", StringComparison.Ordinal));
 Check("browser POS asks for location and register", posHtml.Contains("Sale context", StringComparison.Ordinal) && posHtml.Contains("Cash register", StringComparison.Ordinal));
 Check("browser POS exposes a direct server post action", posHtml.Contains("Post cash sale", StringComparison.Ordinal));
+Check("browser POS is LocalCore: no card-acquiring control is offered",
+    !posHtml.Contains("card-intents", StringComparison.OrdinalIgnoreCase)
+        && !posHtml.Contains("Card payment", StringComparison.OrdinalIgnoreCase)
+        && !posHtml.Contains("tap or insert", StringComparison.OrdinalIgnoreCase)
+        && !posHtml.Contains("PSP", StringComparison.OrdinalIgnoreCase));
+Check("browser POS says its own total is the estimate and the receipt is the answer",
+    posHtml.Contains("the screen's estimate", StringComparison.Ordinal)
+        && posHtml.Contains("posted receipt", StringComparison.Ordinal));
 
 Console.WriteLine($"     rendered markup: {html.Length} chars");
 
@@ -771,6 +779,18 @@ internal sealed class StubPosCheckoutOrchestrator : IPosCheckoutOrchestrator
 
     public Task<SaleCaptureResult> CaptureCashSaleAsync(Guid locationId, Guid registerId, LocalCashSaleDraft draft, CancellationToken cancellationToken = default)
         => Task.FromResult(new SaleCaptureResult(Guid.NewGuid(), "S-SMOKE", "USD", 0m, 0m, DateTimeOffset.UtcNow, false));
+
+    public Task<SaleReceiptDto> GetPostedReceiptAsync(Guid saleId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never reads a posted receipt.");
+
+    public Task<PendingCheckoutAttempt?> ReadPendingAttemptAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<PendingCheckoutAttempt?>(null);
+
+    public Task SavePendingAttemptAsync(PendingCheckoutAttempt attempt, CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
+
+    public Task ClearPendingAttemptAsync(CancellationToken cancellationToken = default)
+        => Task.CompletedTask;
 }
 
 internal sealed class StubAccountApiClient : IAccountApiClient

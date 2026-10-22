@@ -31,25 +31,28 @@ public sealed class CashCustodyTests(PostgresApiFixture fixture) : IClassFixture
         var registerId = await CreateRegisterAsync(owner, $"T19 race {Guid.NewGuid().ToString("N")[..8]}");
         var sessionId = await OpenDrawerAsync(owner, registerId, 50m);
 
-        var sale = PostSaleAsync(owner, registerId, "race" + Guid.NewGuid().ToString("N")[..8]);
-        var close = CloseDrawerAsync(owner, registerId, sessionId, 50m);
+        // Both commands are in flight at once; each is awaited rather than blocked on, so a deadlock in either
+        // path shows up as a failing test rather than a hung run.
+        var saleTask = PostSaleAsync(owner, registerId, "race" + Guid.NewGuid().ToString("N")[..8]);
+        var closeTask = CloseDrawerAsync(owner, registerId, sessionId, 50m);
 
-        await Task.WhenAll(sale, close);
+        var saleResponse = await saleTask;
+        var closeResponse = await closeTask;
 
         // The close always lands: the drawer is judged against whatever the movements had become, and a sale that
         // arrived after the session closed is refused rather than written into a closed drawer.
-        var closeBody = await close.Result.Content.ReadAsStringAsync();
-        Assert.True(close.Result.StatusCode == HttpStatusCode.OK, $"the close was refused: {(int)close.Result.StatusCode} {closeBody}");
+        var closeBody = await closeResponse.Content.ReadAsStringAsync();
+        Assert.True(closeResponse.StatusCode == HttpStatusCode.OK, $"the close was refused: {(int)closeResponse.StatusCode} {closeBody}");
 
-        var saleSucceeded = sale.Result.StatusCode == HttpStatusCode.Created;
+        var saleSucceeded = saleResponse.StatusCode == HttpStatusCode.Created;
 
         if (!saleSucceeded)
         {
-            var refusal = await sale.Result.Content.ReadAsStringAsync();
+            var refusal = await saleResponse.Content.ReadAsStringAsync();
 
             // The sale lost the race and is refused by the drawer's own state, with the code the POS already
             // understands - never accepted into a closed session uncounted.
-            Assert.Equal(HttpStatusCode.Conflict, sale.Result.StatusCode);
+            Assert.Equal(HttpStatusCode.Conflict, saleResponse.StatusCode);
             Assert.Contains(ApiErrorCodes.CashRegisterNotOpen, refusal, StringComparison.Ordinal);
         }
 
