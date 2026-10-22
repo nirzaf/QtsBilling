@@ -120,6 +120,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<CashRegisterSession> CashRegisterSessions => Set<CashRegisterSession>();
 
+    public DbSet<CashCustodyResolution> CashCustodyResolutions => Set<CashCustodyResolution>();
+
     public DbSet<Refund> Refunds => Set<Refund>();
 
     public DbSet<RefundLine> RefundLines => Set<RefundLine>();

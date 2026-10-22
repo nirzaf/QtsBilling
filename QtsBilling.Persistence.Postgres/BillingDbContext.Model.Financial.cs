@@ -210,6 +210,50 @@ public partial class BillingDbContext
                 "opening_float >= 0 AND (counted_cash IS NULL OR counted_cash >= 0)"));
         });
 
+        modelBuilder.Entity<CashCustodyResolution>(b =>
+        {
+            b.ToTable("cash_custody_resolutions");
+            HasBusinessFk(b);
+            b.Property(e => e.CarryForwardNumber).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Currency).HasMaxLength(3).IsRequired();
+            b.Property(e => e.SourceReference).HasMaxLength(160).IsRequired();
+            b.Property(e => e.Reason).HasMaxLength(400).IsRequired();
+            b.HasOne<CashRegister>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CashRegisterId, e.BusinessId })
+                .HasPrincipalKey(r => new { r.Id, r.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<CashRegisterSession>()
+                .WithMany()
+                .HasForeignKey(e => new { e.CashRegisterSessionId, e.BusinessId })
+                .HasPrincipalKey(s => new { s.Id, s.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<DeviceRegistration>()
+                .WithMany()
+                .HasForeignKey(e => new { e.DeviceId, e.BusinessId })
+                .HasPrincipalKey(device => new { device.Id, device.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ReceivingCustodianUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.AuthorisedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId });
+            b.HasIndex(e => new { e.BusinessId, e.CarryForwardNumber });
+
+            // One carry-forward row per unresolved thing per session: a repeated act cannot quietly double-name the
+            // same payment or operation, and a close reads this to decide whether anything is still uncovered.
+            b.HasIndex(e => new { e.BusinessId, e.CashRegisterSessionId, e.SourceKind, e.SourceId })
+                .IsUnique()
+                .HasDatabaseName("ux_cash_custody_resolutions_session_source");
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_cash_custody_resolutions_amount",
+                "amount >= 0"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_cash_custody_resolutions_distinct_people",
+                "receiving_custodian_user_id <> authorised_by_user_id"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_cash_custody_resolutions_device_kind",
+                "source_kind <> 'DeviceOperation' OR device_id IS NOT NULL"));
+        });
+
         modelBuilder.Entity<Refund>(b =>
         {
             b.ToTable("refunds");

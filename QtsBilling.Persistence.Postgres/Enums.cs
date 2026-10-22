@@ -55,6 +55,9 @@ public enum JournalSourceType
     StockTransferReceipt,
     StockCount,
     SalesOrderDelivery,
+
+    /// <summary>The counted discrepancy of a closed drawer, posted only when the count differs from the movements (task 19).</summary>
+    CashOverShort,
 }
 
 public enum StockTransferStatus
@@ -191,6 +194,19 @@ public enum CashRegisterSessionStatus
 {
     Open,
     Closed,
+}
+
+/// <summary>
+/// What kind of unresolved money a carry-forward row names (specification D07, task 19). The three are kept
+/// separate because each is seen differently on screen and cleared by different evidence: a payment the server
+/// recorded but never confirmed, an operation a terminal pushed that awaits review, or the custody a device
+/// holds which the server cannot count until it is pushed and therefore has to be declared.
+/// </summary>
+public enum CashCustodySourceKind
+{
+    ProvisionalPayment,
+    DeviceOperation,
+    DeviceCustody,
 }
 
 public enum MembershipRole

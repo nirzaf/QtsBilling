@@ -43,10 +43,12 @@ public sealed class WebPosCheckoutOrchestrator : IPosCheckoutOrchestrator
     public Task<CashSessionDetailDto> OpenCashDrawerAsync(
         Guid registerId,
         decimal openingFloat,
+        string idempotencyKey,
         CancellationToken cancellationToken = default)
         => _registers.OpenSessionAsync(
             registerId,
             new OpenCashRegisterSessionRequest(openingFloat, null),
+            idempotencyKey,
             cancellationToken);
 
     public async Task<PosCatalogPage> GetCatalogAsync(

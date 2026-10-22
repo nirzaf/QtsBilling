@@ -52,6 +52,15 @@ public partial class Pos
     private bool _loadingContext;
     private bool _catalogLoading;
     private decimal _openingFloat;
+
+    /// <summary>
+    /// One key per drawer-open intention (specification D06, task 19). It is held while the intention stands, so a
+    /// retry after a lost answer re-applies the same command instead of opening a second drawer; choosing another
+    /// register is a different intention and takes a new key.
+    /// </summary>
+    private string _drawerOpenKey = Guid.NewGuid().ToString("N");
+
+    private Guid? _drawerOpenRegisterId;
     private string? _catalogCursor;
     private LocalCashSaleDraft? _onlineAttempt;
     private Guid? _onlineAttemptLocationId;
@@ -223,10 +232,20 @@ public partial class Pos
 
         _busy = true;
         _error = null;
+
+        if (_drawerOpenRegisterId != registerId)
+        {
+            _drawerOpenRegisterId = registerId;
+            _drawerOpenKey = Guid.NewGuid().ToString("N");
+        }
+
         try
         {
-            await checkout.OpenCashDrawerAsync(registerId, _openingFloat);
+            await checkout.OpenCashDrawerAsync(registerId, _openingFloat, _drawerOpenKey);
             _openingFloat = 0m;
+
+            // The next drawer is a new intention, so it must not replay this receipt.
+            _drawerOpenKey = Guid.NewGuid().ToString("N");
             Snackbar.Add("Cash drawer opened.", Severity.Success);
             await LoadOnlineContextAsync();
         }

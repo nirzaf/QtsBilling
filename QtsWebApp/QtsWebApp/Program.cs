@@ -349,6 +349,11 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Pricing.IPricingApiClient, Q
 builder.Services.AddHttpClient<QtsBilling.Contracts.Catalog.IProductApiClient, QtsBilling.Contracts.Catalog.ProductApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The register and cash-custody workbench (specification task 19): the drawer commands are the same versioned,
+// idempotency-keyed contract the terminal uses, so the shared page resolves on this host too.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Sales.ICashRegisterApiClient, QtsBilling.Contracts.Sales.CashRegisterApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

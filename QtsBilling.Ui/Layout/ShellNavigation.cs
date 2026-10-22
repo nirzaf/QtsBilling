@@ -57,6 +57,7 @@ public static class ShellNavigation
         // Sales: taking money and the commitments around it.
         new("Point of sale", "pos", Icons.Material.Filled.PointOfSale, GroupSales, Permissions.SalesPost, ShellAvailability.DeviceOnly,
             "The browser posts through the same contract but does not hold a drawer; trade at a registered terminal."),
+        new("Registers and drawers", "sales/registers", Icons.Material.Filled.AccountBalanceWallet, GroupSales, Permissions.RegistersManage, ShellAvailability.Available),
         new("Sales history and refunds", "sales", Icons.Material.Filled.History, GroupSales, Permissions.SalesPost, ShellAvailability.Planned,
             "Arrives with task 21."),
         new("Quotes and sales orders", "orders/quotes", Icons.Material.Filled.RequestQuote, GroupSales, Permissions.OrdersManage, ShellAvailability.Planned,

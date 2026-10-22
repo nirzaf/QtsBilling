@@ -623,6 +623,59 @@ Check("an archive discloses only the quantity the screen actually read",
     CatalogRules.ArchiveSentence("Case of 24", 2, "Case", 24m, true).Contains("24.00 unit(s) of Case", StringComparison.Ordinal)
     && !CatalogRules.ArchiveSentence("Consulting", 1, null, 0m, false).Contains("unit(s)", StringComparison.Ordinal));
 
+// 12. The register workbench (specification task 19): the drawer screen is a shipped page that reads nothing
+//     during the prerender, states the custody rule before anything is clicked, and keeps the over/short wording
+//     in the shared rules the server's own answer is reported with.
+var stubDrawers = new StubCashRegisterApiClient();
+var drawerServices = new ServiceCollection();
+drawerServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+drawerServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+drawerServices.AddMudServices();
+drawerServices.AddSingleton<NavigationManager, StubNavigationManager>();
+drawerServices.AddSingleton<ICashRegisterApiClient>(stubDrawers);
+drawerServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(Guid.NewGuid()));
+drawerServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([Permissions.RegistersManage]));
+
+await using var drawerProvider = drawerServices.BuildServiceProvider();
+await using var drawerRenderer = new HtmlRenderer(drawerProvider, drawerProvider.GetRequiredService<ILoggerFactory>());
+
+var registersHtml = await drawerRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await drawerRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Sales.Registers>(ParameterView.Empty);
+    return output.ToHtmlString();
+});
+
+Check("the register workbench is a shared page with its own route",
+    typeof(QtsBilling.Ui.Pages.Sales.Registers).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "sales/registers"));
+Check("the register workbench reads nothing during the prerender",
+    stubDrawers.Calls == 0 && stubDrawers.CustodyCalls == 0,
+    $"registers {stubDrawers.Calls}, custody {stubDrawers.CustodyCalls}");
+Check("the register workbench states the custody rule before a single click",
+    registersHtml.Contains("carried forward to a named custodian", StringComparison.Ordinal)
+        && registersHtml.Contains("never netted out", StringComparison.Ordinal)
+        && registersHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the register workbench asks for no public resource and no identifier a human must type",
+    !registersHtml.Contains("http://", StringComparison.Ordinal) && !registersHtml.Contains("https://", StringComparison.Ordinal)
+        && !registersHtml.Contains("Register id", StringComparison.Ordinal));
+
+// The drawer sentences the close panel renders, proven where they are written.
+Check("a matching count promises no journal", QtsBilling.Ui.Pages.Sales.RegisterRules.VarianceSentence(100m, 100m, "QAR")
+    .Contains("no journal is produced", StringComparison.Ordinal));
+Check("a shortage is named as a shortage and the rejected-sale rule is stated with it",
+    QtsBilling.Ui.Pages.Sales.RegisterRules.VarianceSentence(97.5m, 100m, "QAR").Contains("Short by 2.50 QAR", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.RegisterRules.VarianceSentence(97.5m, 100m, "QAR").Contains("never netted out", StringComparison.OrdinalIgnoreCase));
+Check("money the drawer holds by fractions is not rounded away",
+    QtsBilling.Ui.Pages.Sales.RegisterRules.Money(0.005m) == "0.0050"
+        && QtsBilling.Ui.Pages.Sales.RegisterRules.Money(2.5m) == "2.50");
+Check("only what the server cannot see needs a declared figure",
+    !QtsBilling.Ui.Pages.Sales.RegisterRules.NeedsDeclaredAmount(new QtsBilling.Contracts.Sales.UnresolvedCashItemDto(
+        QtsBilling.Contracts.Sales.CashCustodySourceState.ProvisionalPayment, Guid.NewGuid(), "payment", 30m, "QAR", null, null, null, "x"))
+    && QtsBilling.Ui.Pages.Sales.RegisterRules.NeedsDeclaredAmount(new QtsBilling.Contracts.Sales.UnresolvedCashItemDto(
+        QtsBilling.Contracts.Sales.CashCustodySourceState.DeviceCustody, Guid.NewGuid(), "terminal", 0m, "QAR", null, null, null, "x")));
+Check("a command key stays inside the header bound the server validates",
+    QtsBilling.Ui.Pages.Sales.RegisterRules.NewCommandKey("drawer-close").Length <= 64);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -710,7 +763,7 @@ internal sealed class StubPosCheckoutOrchestrator : IPosCheckoutOrchestrator
     public Task<PosCheckoutContext> GetContextAsync(CancellationToken cancellationToken = default)
         => Task.FromResult(new PosCheckoutContext([], []));
 
-    public Task<CashSessionDetailDto> OpenCashDrawerAsync(Guid registerId, decimal openingFloat, CancellationToken cancellationToken = default)
+    public Task<CashSessionDetailDto> OpenCashDrawerAsync(Guid registerId, decimal openingFloat, string idempotencyKey, CancellationToken cancellationToken = default)
         => throw new NotImplementedException();
 
     public Task<PosCatalogPage> GetCatalogAsync(Guid locationId, string? search = null, string? cursor = null, CancellationToken cancellationToken = default)
@@ -947,6 +1000,67 @@ internal sealed class StubProductApiClient : IProductApiClient
 
     public Task<ProductDetailDto> RestoreProductAsync(Guid id, RestoreProductRequest request, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never writes the catalog.");
+}
+
+/// <summary>
+/// The register contract as the render smoke sees it: reads are counted so a page that reaches for the network
+/// during the prerender fails the run, and no drawer command is executed here (specification task 19).
+/// </summary>
+internal sealed class StubCashRegisterApiClient : ICashRegisterApiClient
+{
+    public int Calls { get; private set; }
+
+    public int CustodyCalls { get; private set; }
+
+    public Task<IReadOnlyList<CashRegisterDto>> GetRegistersAsync(CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<CashRegisterDto>>([]);
+    }
+
+    public Task<CashRegisterDto> CreateRegisterAsync(CreateCashRegisterRequest request, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never creates a register.");
+
+    public Task<CashSessionDetailDto> OpenSessionAsync(
+        Guid registerId, OpenCashRegisterSessionRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never opens a drawer.");
+
+    public Task<CashSessionDetailDto> GetCurrentSessionAsync(Guid registerId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        throw new QtsBilling.Contracts.Abstractions.ApiException(404, QtsBilling.Contracts.Abstractions.ApiErrorCodes.CashRegisterNotOpen, "no open drawer");
+    }
+
+    public Task<PagedResult<CashRegisterSessionDto>> ListSessionsAsync(
+        Guid registerId, string? cursor = null, int pageSize = 25, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(QtsBilling.Contracts.Abstractions.PagedResult<CashRegisterSessionDto>.Empty(pageSize));
+    }
+
+    public Task<CashSessionDetailDto> GetSessionAsync(Guid registerId, Guid sessionId, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never reads one session.");
+
+    public Task<CashMovementDto> AddMovementAsync(
+        Guid registerId, Guid sessionId, CashMovementRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never moves drawer cash.");
+
+    public Task<DrawerCustodyDto> GetCustodyAsync(Guid registerId, Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        CustodyCalls++;
+        throw new NotSupportedException("The smoke never reads a custody position.");
+    }
+
+    public Task<IReadOnlyList<CashCustodianDto>> GetCustodiansAsync(CancellationToken cancellationToken = default)
+        => Task.FromResult<IReadOnlyList<CashCustodianDto>>([]);
+
+    public Task<DrawerCustodyDto> CreateCustodyTransferAsync(
+        Guid registerId, Guid sessionId, CreateCustodyTransferRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never carries cash forward.");
+
+    public Task<CashSessionDetailDto> CloseSessionAsync(
+        Guid registerId, Guid sessionId, CloseCashRegisterSessionRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never closes a drawer.");
 }
 
 /// <summary>Reference lists are read-only here, with one entry each so a picker has something to name.</summary>

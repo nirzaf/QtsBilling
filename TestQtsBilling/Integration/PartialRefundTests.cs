@@ -145,9 +145,12 @@ public sealed class PartialRefundTests : IClassFixture<PostgresApiFixture>
         Assert.Equal(HttpStatusCode.Created, createResponse.StatusCode);
         using var registerJson = JsonDocument.Parse(createBody);
         var registerId = registerJson.RootElement.GetProperty("id").GetGuid();
-        var openResponse = await client.PostAsJsonAsync(
-            $"/api/v1/pos/registers/{registerId}/sessions",
-            new OpenCashRegisterSessionRequest(50m, "partial refund test float"));
+        using var open = new HttpRequestMessage(HttpMethod.Post, $"/api/v1/pos/registers/{registerId}/sessions")
+        {
+            Content = JsonContent.Create(new OpenCashRegisterSessionRequest(50m, "partial refund test float")),
+        };
+        open.Headers.Add("Idempotency-Key", "partial-open-" + Guid.NewGuid().ToString("N"));
+        var openResponse = await client.SendAsync(open);
         Assert.Equal(HttpStatusCode.Created, openResponse.StatusCode);
         return registerId;
     }

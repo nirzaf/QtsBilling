@@ -16,9 +16,15 @@ public interface IPosCheckoutOrchestrator
 {
     Task<PosCheckoutContext> GetContextAsync(CancellationToken cancellationToken = default);
 
+    /// <summary>
+    /// Opens a drawer on the chosen register. The caller supplies the idempotency key and keeps it for as long as
+    /// the intention stands, so retrying a command whose answer was lost cannot open a second drawer
+    /// (specification D06, task 19).
+    /// </summary>
     Task<CashSessionDetailDto> OpenCashDrawerAsync(
         Guid registerId,
         decimal openingFloat,
+        string idempotencyKey,
         CancellationToken cancellationToken = default);
 
     Task<PosCatalogPage> GetCatalogAsync(

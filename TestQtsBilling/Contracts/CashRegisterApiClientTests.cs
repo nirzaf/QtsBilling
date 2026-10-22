@@ -28,7 +28,10 @@ public sealed class CashRegisterApiClientTests
         using var http = new HttpClient(handler) { BaseAddress = new Uri("https://billing.test") };
         var client = new CashRegisterApiClient(http);
 
-        var result = await client.OpenSessionAsync(registerId, new OpenCashRegisterSessionRequest(75m, "Morning float"));
+        var result = await client.OpenSessionAsync(
+            registerId,
+            new OpenCashRegisterSessionRequest(75m, "Morning float"),
+            "drawer-open-1");
 
         Assert.Equal(session.Id, result.Session.Id);
         Assert.Equal(75m, result.ExpectedCash);
@@ -36,6 +39,9 @@ public sealed class CashRegisterApiClientTests
         Assert.Equal($"/api/v1/pos/registers/{registerId:D}/sessions", handler.PathAndQuery);
         Assert.Contains("\"openingFloat\":75", handler.Body, StringComparison.Ordinal);
         Assert.Contains("\"note\":\"Morning float\"", handler.Body, StringComparison.Ordinal);
+
+        // The opening carries the caller's key, because the only safe retry of a lost answer is the same command.
+        Assert.Equal("drawer-open-1", handler.IdempotencyKey);
     }
 
     private sealed class CaptureHandler(CashSessionDetailDto result) : HttpMessageHandler
@@ -44,10 +50,13 @@ public sealed class CashRegisterApiClientTests
         public string? PathAndQuery { get; private set; }
         public string? Body { get; private set; }
 
+        public string? IdempotencyKey { get; private set; }
+
         protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
         {
             Method = request.Method;
             PathAndQuery = request.RequestUri?.PathAndQuery;
+            IdempotencyKey = request.Headers.TryGetValues("Idempotency-Key", out var values) ? string.Join(",", values) : null;
             Body = await request.Content!.ReadAsStringAsync(cancellationToken);
             return new HttpResponseMessage(HttpStatusCode.Created)
             {

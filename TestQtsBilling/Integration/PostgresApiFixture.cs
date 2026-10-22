@@ -463,6 +463,10 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             ("4000", "Sales revenue", AccountType.Revenue),
             ("5000", "Cost of goods sold", AccountType.Expense),
             ("5200", "Inventory shrinkage", AccountType.Expense),
+
+            // The chart the fixture seeds mirrors the chart the product bootstraps, so a drawer that counts
+            // differently from its movements can be posted rather than refused (specification task 19).
+            ("5300", "Cash over short", AccountType.Expense),
         })
         {
             db.Accounts.Add(new Account

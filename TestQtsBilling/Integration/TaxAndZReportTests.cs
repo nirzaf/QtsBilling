@@ -134,9 +134,12 @@ public sealed class TaxAndZReportTests : IClassFixture<PostgresApiFixture>
         using var registerJson = JsonDocument.Parse(registerBody);
         var registerId = registerJson.RootElement.GetProperty("id").GetGuid();
 
-        var openResponse = await client.PostAsJsonAsync(
+        // Every drawer command carries the key of its intention (specification D06, task 19).
+        var openResponse = await PostWithKeyAsync(
+            client,
             $"/api/v1/pos/registers/{registerId}/sessions",
-            new OpenCashRegisterSessionRequest(50m, "opening float"));
+            new OpenCashRegisterSessionRequest(50m, "opening float"),
+            "open-z-" + Guid.NewGuid().ToString("N"));
         var openBody = await openResponse.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.Created, openResponse.StatusCode);
         using var openJson = JsonDocument.Parse(openBody);
@@ -145,18 +148,24 @@ public sealed class TaxAndZReportTests : IClassFixture<PostgresApiFixture>
         await PostSaleAsync(client, registerId, "Cash", null);
         await PostSaleAsync(client, registerId, "Cheque", "CHK-Z-REPORT");
 
-        var paidIn = await client.PostAsJsonAsync(
+        var paidIn = await PostWithKeyAsync(
+            client,
             $"/api/v1/pos/registers/{registerId}/sessions/{sessionId}/movements",
-            new CashMovementRequest("cashIn", 10m, "Paid in for float correction"));
+            new CashMovementRequest("cashIn", 10m, "Paid in for float correction"),
+            "paidin-z-" + Guid.NewGuid().ToString("N"));
         Assert.Equal(HttpStatusCode.Created, paidIn.StatusCode);
-        var paidOut = await client.PostAsJsonAsync(
+        var paidOut = await PostWithKeyAsync(
+            client,
             $"/api/v1/pos/registers/{registerId}/sessions/{sessionId}/movements",
-            new CashMovementRequest("cashOut", 5m, "Paid out for supplies"));
+            new CashMovementRequest("cashOut", 5m, "Paid out for supplies"),
+            "paidout-z-" + Guid.NewGuid().ToString("N"));
         Assert.Equal(HttpStatusCode.Created, paidOut.StatusCode);
 
-        var closeResponse = await client.PostAsJsonAsync(
+        var closeResponse = await PostWithKeyAsync(
+            client,
             $"/api/v1/pos/registers/{registerId}/sessions/{sessionId}/close",
-            new CloseCashRegisterSessionRequest(170m, "counted at close"));
+            new CloseCashRegisterSessionRequest(170m, "counted at close"),
+            "close-z-" + Guid.NewGuid().ToString("N"));
         var closeBody = await closeResponse.Content.ReadAsStringAsync();
         Assert.Equal(HttpStatusCode.OK, closeResponse.StatusCode);
         Assert.False(string.IsNullOrWhiteSpace(closeBody));
@@ -189,6 +198,18 @@ public sealed class TaxAndZReportTests : IClassFixture<PostgresApiFixture>
         var csv = System.Text.Encoding.UTF8.GetString(csvBytes);
         Assert.Contains("\"Section\",\"Item\",\"Field\",\"Value\"", csv, StringComparison.Ordinal);
         Assert.Contains("'=Z report", csv, StringComparison.Ordinal);
+    }
+
+    /// <summary>Posts a drawer command with the key that names its intention (specification D06, task 19).</summary>
+    private static async Task<HttpResponseMessage> PostWithKeyAsync(HttpClient client, string route, object request, string idempotencyKey)
+    {
+        using var message = new HttpRequestMessage(HttpMethod.Post, route)
+        {
+            Content = JsonContent.Create(request),
+        };
+        message.Headers.Add("Idempotency-Key", idempotencyKey);
+
+        return await client.SendAsync(message);
     }
 
     private async Task<Guid> CreateInvoiceAsync(HttpClient client, DateOnly issueDate)

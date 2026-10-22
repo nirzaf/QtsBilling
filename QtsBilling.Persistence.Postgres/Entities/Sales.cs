@@ -276,3 +276,46 @@ public sealed class RefundLine : Entity, ITenantScoped
 
     public RefundDisposition Disposition { get; set; } = RefundDisposition.Restock;
 }
+
+/// <summary>
+/// One named unresolved cash obligation moved out of a drawer session's custody to a receiving custodian
+/// (specification D07, task 19). A carry-forward never erases money and never changes the drawer's expected
+/// arithmetic: it records, per operation, who now owns the duty to account for an amount that could not be
+/// settled before the drawer closed. One row names one operation, so a close can only proceed when every
+/// unresolved item on the session has its own row, and a manager reading the drawer later sees the operation,
+/// the amount, the reason, the custodian and the authoriser.
+/// </summary>
+public sealed class CashCustodyResolution : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    public Guid CashRegisterId { get; set; }
+
+    public Guid CashRegisterSessionId { get; set; }
+
+    /// <summary>The device the obligation came from, when it came from a terminal rather than the drawer itself.</summary>
+    public Guid? DeviceId { get; set; }
+
+    /// <summary>Groups the rows of one carry-forward document, so a later reader can see the whole act.</summary>
+    public string CarryForwardNumber { get; set; } = string.Empty;
+
+    public CashCustodySourceKind SourceKind { get; set; }
+
+    /// <summary>The unresolved thing this row names: a payment, a device operation, or a device's declared custody.</summary>
+    public Guid SourceId { get; set; }
+
+    /// <summary>What the operator could read on screen when the amount was carried: a payment, sale or operation reference.</summary>
+    public string SourceReference { get; set; } = string.Empty;
+
+    public decimal Amount { get; set; }
+
+    public string Currency { get; set; } = "QAR";
+
+    public string Reason { get; set; } = string.Empty;
+
+    public Guid ReceivingCustodianUserId { get; set; }
+
+    public Guid AuthorisedByUserId { get; set; }
+
+    public DateTimeOffset OccurredAtUtc { get; set; }
+}

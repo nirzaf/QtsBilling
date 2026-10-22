@@ -1,0 +1,395 @@
+@page "/sales/registers"
+@namespace QtsBilling.Ui.Pages.Sales
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Inventory
+@using QtsBilling.Contracts.Sales
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Registers and cash custody - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Registers and drawers</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            The branch this screen shows is @(Selected is { } chosen ? LocationName(chosen.LocationId) : "chosen below"),
+            and every figure here is derived from the movements the server recorded - never from a number typed in.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">
+        Reload
+    </MudButton>
+</MudStack>
+
+@*
+    Three rules the server holds and the screen states before anything is clicked (specification D07, task 19):
+    the drawer is the movements, unresolved cash must be named and handed to a person before a drawer may close,
+    and a counted difference is posted rather than absorbed.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    Expected cash is always float + cash sales + paid in − paid out − refunds, taken from the movement rows.
+    Cash that was taken but never confirmed, and any terminal of this branch whose money nobody has accounted for,
+    must be carried forward to a named custodian - operation by operation - before the drawer can be closed.
+    A count that differs from the movements is posted to the business's cash-over/short account; rejected offline
+    sales are never netted out of it. @RegisterRules.KeyHeldNote
+</MudAlert>
+
+@if (_committed is not null)
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3">@_committed</MudAlert>
+}
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" Class="mb-4" aria-label="Choose a register">
+        @foreach (var register in _registersList)
+        {
+            var open = register.CurrentSession is not null;
+            <MudButton Variant="@(_selectedRegisterId == register.Id ? Variant.Filled : Variant.Outlined)"
+                       Color="@(_selectedRegisterId == register.Id ? Color.Primary : Color.Default)"
+                       OnClick="@(() => SelectRegisterAsync(register.Id))"
+                       aria-pressed="@(_selectedRegisterId == register.Id ? "true" : "false")">
+                @register.Name - @LocationName(register.LocationId)
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Class="ml-2"
+                         Color="@(open ? Color.Success : Color.Default)">
+                    @(open ? "drawer open" : "closed")
+                </MudChip>
+            </MudButton>
+        }
+    </MudStack>
+
+    @if (Selected is { } register)
+    {
+        @if (_detail is null)
+        {
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.h6">Open a drawer on @register.Name</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-3">
+                    One register holds one open drawer at a time. The float you type becomes the opening movement;
+                    it is not editable afterwards, because the movements are the record.
+                </MudText>
+
+                <MudGrid Spacing="2">
+                    <MudItem xs="12" md="4">
+                        <MudNumericField T="decimal" @bind-Value="_openingFloat" Label="Opening float"
+                                         Min="0m" Step="0.5m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         aria-label="Opening float" />
+                    </MudItem>
+                    <MudItem xs="12" md="8">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="pt-2"
+                                   OnClick="OpenDrawerAsync"
+                                   Disabled="@(!_canManage || _busy || _openingFloat < 0m)">
+                            Open drawer
+                        </MudButton>
+                        @if (!_canManage)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Opening a drawer needs the registers-manage authority this account does not hold.
+                            </MudText>
+                        }
+                    </MudItem>
+                </MudGrid>
+            </MudPaper>
+        }
+        else
+        {
+            var drawer = _detail;
+
+            <MudPaper Class="pa-4 mb-4" Elevation="2">
+                <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                    <MudText Typo="Typo.h6">@register.Name - drawer opened @drawer.Session.OpenedAtUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm")</MudText>
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary">
+                        expected @RegisterRules.MoneyText(drawer.ExpectedCash, drawer.Session.Currency)
+                    </MudChip>
+                </MudStack>
+
+                <MudGrid Spacing="1" Class="mt-2">
+                    <MudItem xs="6" md="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Float</MudText>
+                        <MudText Typo="Typo.body2">@RegisterRules.Money(drawer.Breakdown.OpeningFloat)</MudText>
+                    </MudItem>
+                    <MudItem xs="6" md="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Cash sales</MudText>
+                        <MudText Typo="Typo.body2">@RegisterRules.Money(drawer.Breakdown.SaleCash)</MudText>
+                    </MudItem>
+                    <MudItem xs="6" md="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Paid in / paid out</MudText>
+                        <MudText Typo="Typo.body2">@RegisterRules.Money(drawer.Breakdown.CashIn) / @RegisterRules.Money(drawer.Breakdown.CashOut)</MudText>
+                    </MudItem>
+                    <MudItem xs="6" md="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">Refunds / unsettled cash</MudText>
+                        <MudText Typo="Typo.body2">@RegisterRules.Money(drawer.Breakdown.Refunds) / @RegisterRules.Money(drawer.ProvisionalCash)</MudText>
+                    </MudItem>
+                </MudGrid>
+
+                <MudTable Items="drawer.Movements" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                          aria-label="Movements on this drawer" Class="mt-3">
+                    <HeaderContent>
+                        <MudTh>When (UTC)</MudTh>
+                        <MudTh>Kind</MudTh>
+                        <MudTh>Amount</MudTh>
+                        <MudTh>Reason</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="When">@context.OccurredAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+                        <MudTd DataLabel="Kind">@context.MovementType</MudTd>
+                        <MudTd DataLabel="Amount">@RegisterRules.Money(context.Amount)</MudTd>
+                        <MudTd DataLabel="Reason">@(context.Reason ?? "-")</MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                <MudGrid Spacing="2" Class="mt-3">
+                    <MudItem xs="12" md="3">
+                        <MudSelect T="string" @bind-Value="_movementKind" Label="Movement"
+                                   Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Movement kind">
+                            <MudSelectItem T="string" Value="@("cashIn")">Paid in</MudSelectItem>
+                            <MudSelectItem T="string" Value="@("cashOut")">Paid out</MudSelectItem>
+                        </MudSelect>
+                    </MudItem>
+                    <MudItem xs="12" md="3">
+                        <MudNumericField T="decimal" @bind-Value="_movementAmount" Label="Amount"
+                                         Min="0m" Step="0.5m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                         aria-label="Movement amount" />
+                    </MudItem>
+                    <MudItem xs="12" md="4">
+                        <MudTextField T="string" @bind-Value="_movementReason" Label="Reason" MaxLength="500"
+                                      HelperText="Required - a drawer movement without a reason is not an audit record."
+                                      Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Movement reason" />
+                    </MudItem>
+                    <MudItem xs="12" md="2">
+                        <MudButton Variant="Variant.Outlined" Color="Color.Primary" Class="pt-2"
+                                   OnClick="AddMovementAsync"
+                                   Disabled="@(!_canManage || _busy || _movementAmount <= 0m || string.IsNullOrWhiteSpace(_movementReason))">
+                            Record
+                        </MudButton>
+                    </MudItem>
+                </MudGrid>
+
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">
+                    Sales and refunds record their own movements; only paid-in and paid-out are typed here.
+                </MudText>
+            </MudPaper>
+
+            @if (_custody is { } custody)
+            {
+                <MudPaper Class="pa-4 mb-4" Elevation="2">
+                    <MudText Typo="Typo.h6">Custody position</MudText>
+
+                    @if (custody.Closable)
+                    {
+                        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mt-2 mb-2">
+                            Nothing on this drawer is unresolved: the counted difference below is the only thing that
+                            will be posted, and only if the count differs from @RegisterRules.MoneyText(custody.ExpectedCash, custody.Currency).
+                        </MudAlert>
+                    }
+                    else
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2 mb-2" role="alert">
+                            @RegisterRules.BlockSentence(custody)
+                        </MudAlert>
+                    }
+
+                    @if (custody.Unresolved.Count > 0)
+                    {
+                        <MudTable Items="custody.Unresolved" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                                  aria-label="Unresolved cash on this drawer">
+                            <HeaderContent>
+                                <MudTh>What</MudTh>
+                                <MudTh>Server sees</MudTh>
+                                <MudTh>Carried amount</MudTh>
+                                <MudTh>Why it is unresolved</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="What">@context.Reference</MudTd>
+                                <MudTd DataLabel="Server sees">
+                                    @(context.Amount > 0m ? RegisterRules.MoneyText(context.Amount, context.Currency) : "not visible here")
+                                </MudTd>
+                                <MudTd DataLabel="Carried amount">
+                                    @if (NeedsDeclaration(context.Kind, context.SourceId))
+                                    {
+                                        <MudNumericField T="decimal"
+                                                         Label="Amount this custodian answers for"
+                                                         Min="@MinimumFor(context.Kind, context.SourceId)"
+                                                         Step="0.5m"
+                                                         Value="@DeclaredAmount(context)"
+                                                         ValueChanged="@(value => DeclareAmount(context, value))"
+                                                         Variant="Variant.Outlined" Margin="Margin.Dense"
+                                                         HelperText="@($"At least {RegisterRules.Money(MinimumFor(context.Kind, context.SourceId))}")"
+                                                         aria-label="@($"Carried amount for {context.Reference}")" />
+                                    }
+                                    else
+                                    {
+                                        @RegisterRules.MoneyText(context.Amount, context.Currency)
+                                    }
+                                </MudTd>
+                                <MudTd DataLabel="Why it is unresolved">@context.Explanation</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+
+                        <MudGrid Spacing="2" Class="mt-3">
+                            <MudItem xs="12" md="4">
+                                <MudSelect T="Guid?" @bind-Value="_custodianId" Label="Receiving custodian"
+                                           HelperText="An active account in this business, chosen by name."
+                                           Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Receiving custodian">
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Choose who receives this</MudSelectItem>
+                                    @foreach (var custodian in _custodians)
+                                    {
+                                        <MudSelectItem T="Guid?" Value="@((Guid?)custodian.UserId)">@custodian.Name (@custodian.Role)</MudSelectItem>
+                                    }
+                                </MudSelect>
+                            </MudItem>
+                            <MudItem xs="12" md="6">
+                                <MudTextField T="string" @bind-Value="_transferReason" Label="Why it is carried forward"
+                                              MaxLength="500" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                              aria-label="Carry-forward reason" />
+                            </MudItem>
+                            <MudItem xs="12" md="2">
+                                <MudButton Variant="Variant.Outlined" Color="Color.Warning" Class="pt-2"
+                                           OnClick="CarryForwardAsync"
+                                           Disabled="@(!_canManage || _busy || _custodianId is null || string.IsNullOrWhiteSpace(_transferReason) || custody.Unresolved.Count == 0)">
+                                    Carry forward
+                                </MudButton>
+                            </MudItem>
+                        </MudGrid>
+                    }
+
+                    @if (custody.Devices.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mt-3">Terminals of this branch</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            The server cannot count cash a terminal has not pushed. A terminal that has not reported
+                            is an evidence gap, never a zero.
+                        </MudText>
+                        <ul class="mt-2">
+                            @foreach (var device in custody.Devices)
+                            {
+                                <li><MudText Typo="Typo.body2">@RegisterRules.DeviceSentence(device)</MudText></li>
+                            }
+                        </ul>
+                    }
+
+                    @if (custody.CarryForwards.Count > 0)
+                    {
+                        <MudText Typo="Typo.subtitle1" Class="mt-3">Carried forward from this drawer</MudText>
+                        <MudTable Items="custody.CarryForwards" Dense="true" Hover="true" Breakpoint="Breakpoint.Sm"
+                                  aria-label="Carry-forwards recorded on this drawer">
+                            <HeaderContent>
+                                <MudTh>Document</MudTh>
+                                <MudTh>Item</MudTh>
+                                <MudTh>Amount</MudTh>
+                                <MudTh>Received by</MudTh>
+                                <MudTh>Authorised by</MudTh>
+                                <MudTh>Reason</MudTh>
+                            </HeaderContent>
+                            <RowTemplate>
+                                <MudTd DataLabel="Document">@context.CarryForwardNumber</MudTd>
+                                <MudTd DataLabel="Item">@context.Reference</MudTd>
+                                <MudTd DataLabel="Amount">@RegisterRules.MoneyText(context.Amount, context.Currency)</MudTd>
+                                <MudTd DataLabel="Received by">@context.ReceivingCustodianName</MudTd>
+                                <MudTd DataLabel="Authorised by">@context.AuthorisedByName</MudTd>
+                                <MudTd DataLabel="Reason">@context.Reason</MudTd>
+                            </RowTemplate>
+                        </MudTable>
+                    }
+                </MudPaper>
+
+                <MudPaper Class="pa-4" Elevation="2">
+                    <MudText Typo="Typo.h6">Close this drawer</MudText>
+                    <MudGrid Spacing="2" Class="mt-2">
+                        <MudItem xs="12" md="4">
+                            <MudNumericField T="decimal?" @bind-Value="_countedCash" Label="Counted cash"
+                                             Min="0m" Step="0.5m" Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             aria-label="Counted cash at close" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string" @bind-Value="_closeNote" Label="Closing note" MaxLength="500"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense" aria-label="Closing note" />
+                        </MudItem>
+                        <MudItem xs="12" md="2">
+                            <MudButton Variant="Variant.Filled" Color="Color.Primary" Class="pt-2"
+                                       OnClick="CloseDrawerAsync" Disabled="@(!CanClose)">
+                                Close drawer
+                            </MudButton>
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        @(_countedCash is { } counted
+                            ? RegisterRules.VarianceSentence(counted, custody.ExpectedCash, custody.Currency)
+                            : "Enter the count to see what the difference will be.")
+                    </MudText>
+
+                    @if (!custody.Closable)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" role="alert">
+                            @RegisterRules.BlockSentence(custody) The close stays refused until each item above is carried
+                            forward to a named custodian.
+                        </MudText>
+                    }
+                </MudPaper>
+            }
+        }
+
+        @if (_canManage)
+        {
+                @* The history of this register, paged by the server: a closed drawer is never edited, so the row a
+                   manager returns to later is the record of what was counted and what was carried away (task 19). *@
+                <MudPaper Class="pa-4 mt-4" Elevation="2">
+                    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                        <MudText Typo="Typo.h6">Drawer history on @register.Name</MudText>
+                        <MudStack Row="true" Spacing="1">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousHistoryAsync"
+                                       Disabled="@(_history.IsBusy || !_history.CanGoPrevious)">Previous</MudButton>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextHistoryAsync"
+                                       Disabled="@(_history.IsBusy || !_history.CanGoNext)">Next</MudButton>
+                        </MudStack>
+                    </MudStack>
+
+                    <MudTable Items="_history.Rows" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                              aria-label="Past drawer sessions on this register">
+                        <HeaderContent>
+                            <MudTh>Opened (UTC)</MudTh>
+                            <MudTh>Float</MudTh>
+                            <MudTh>Closed (UTC)</MudTh>
+                            <MudTh>Counted</MudTh>
+                            <MudTh>Expected</MudTh>
+                            <MudTh>State</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Opened">@context.OpenedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+                            <MudTd DataLabel="Float">@RegisterRules.Money(context.OpeningFloat)</MudTd>
+                            <MudTd DataLabel="Closed">@(context.ClosedAtUtc?.ToString("yyyy-MM-dd HH:mm") ?? "-")</MudTd>
+                            <MudTd DataLabel="Counted">@(context.CountedCash is { } counted ? RegisterRules.Money(counted) : "-")</MudTd>
+                            <MudTd DataLabel="Expected">@(context.ExpectedCash is { } expected ? RegisterRules.Money(expected) : "-")</MudTd>
+                            <MudTd DataLabel="State">@SessionStateText(context)</MudTd>
+                        </RowTemplate>
+                        <NoRecordsContent>
+                            <MudText Typo="Typo.body2" Class="pa-4">
+                                No drawer has been opened on this register yet.
+                            </MudText>
+                        </NoRecordsContent>
+                    </MudTable>
+
+                    @if (_history.Message is { Length: > 0 } historyMessage)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">@historyMessage</MudText>
+                    }
+                </MudPaper>
+        }
+    }
+</ShellStates>
+
+@code {
+    private string LocationName(Guid locationId)
+        => _locationNames.TryGetValue(locationId, out var name) ? name : "a branch no longer listed";
+
+    private decimal DeclaredAmount(UnresolvedCashItemDto item)
+        => _declared.TryGetValue((item.Kind, item.SourceId), out var value) ? value : item.Amount;
+
+    private void DeclareAmount(UnresolvedCashItemDto item, decimal value)
+        => _declared[(item.Kind, item.SourceId)] = value;
+}

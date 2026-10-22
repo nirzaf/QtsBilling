@@ -1354,6 +1354,118 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.ToTable("business_membership_locations", (string)null);
                 });
 
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.CashCustodyResolution", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("AuthorisedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("authorised_by_user_id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<string>("CarryForwardNumber")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("carry_forward_number");
+
+                    b.Property<Guid>("CashRegisterId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cash_register_id");
+
+                    b.Property<Guid>("CashRegisterSessionId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("cash_register_session_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("character varying(3)")
+                        .HasColumnName("currency");
+
+                    b.Property<Guid?>("DeviceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("device_id");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("Reason")
+                        .IsRequired()
+                        .HasMaxLength(400)
+                        .HasColumnType("character varying(400)")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("ReceivingCustodianUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("receiving_custodian_user_id");
+
+                    b.Property<Guid>("SourceId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("source_id");
+
+                    b.Property<string>("SourceKind")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("text")
+                        .HasColumnName("source_kind");
+
+                    b.Property<string>("SourceReference")
+                        .IsRequired()
+                        .HasMaxLength(160)
+                        .HasColumnType("character varying(160)")
+                        .HasColumnName("source_reference");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("AuthorisedByUserId");
+
+                    b.HasIndex("ReceivingCustodianUserId");
+
+                    b.HasIndex("BusinessId", "CarryForwardNumber");
+
+                    b.HasIndex("BusinessId", "CashRegisterSessionId");
+
+                    b.HasIndex("CashRegisterId", "BusinessId");
+
+                    b.HasIndex("CashRegisterSessionId", "BusinessId");
+
+                    b.HasIndex("DeviceId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "CashRegisterSessionId", "SourceKind", "SourceId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_cash_custody_resolutions_session_source");
+
+                    b.ToTable("cash_custody_resolutions", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_cash_custody_resolutions_amount", "amount >= 0");
+
+                            t.HasCheckConstraint("ck_cash_custody_resolutions_device_kind", "source_kind <> 'DeviceOperation' OR device_id IS NOT NULL");
+
+                            t.HasCheckConstraint("ck_cash_custody_resolutions_distinct_people", "receiving_custodian_user_id <> authorised_by_user_id");
+                        });
+                });
+
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.CashRegister", b =>
                 {
                     b.Property<Guid>("Id")
@@ -7867,6 +7979,47 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.CashCustodyResolution", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("AuthorisedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ReceivingCustodianUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.CashRegister", null)
+                        .WithMany()
+                        .HasForeignKey("CashRegisterId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.CashRegisterSession", null)
+                        .WithMany()
+                        .HasForeignKey("CashRegisterSessionId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.DeviceRegistration", null)
+                        .WithMany()
+                        .HasForeignKey("DeviceId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.CashRegister", b =>
