@@ -251,3 +251,29 @@ public enum SetupTicketPurpose
     Setup,
     Recovery,
 }
+
+/// <summary>
+/// Whether an accountant may still change how a statement line was reconciled. A finalised statement is a
+/// reviewed position: its lines are locked until an authorised, reasoned reopen (specification task 31), and the
+/// accounting period behind it is not touched either way.
+/// </summary>
+public enum BankReconciliationStatus
+{
+    Open,
+    Finalised,
+}
+
+/// <summary>
+/// The evidence-writing steps of bank reconciliation. Every transition of a statement line's match state, every
+/// reviewed fee or interest posting, and both sides of finalise/reopen leave one append-only row of these, so a
+/// corrected match never erases the match it replaced (specification task 31, case T31.03).
+/// </summary>
+public enum BankReconciliationAction
+{
+    Matched,
+    Unmatched,
+    FeePosted,
+    InterestPosted,
+    Finalised,
+    Reopened,
+}

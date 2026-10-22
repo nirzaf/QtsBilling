@@ -99,4 +99,24 @@ public static class ApiErrorCodes
     /// later (specification task 27, recipe step 1).
     /// </summary>
     public const string DuplicateSupplierReference = "DUPLICATE_SUPPLIER_REFERENCE";
+
+    /// <summary>
+    /// A finalised statement was asked for a correction. The review state is a decision, not a suggestion: the
+    /// statement is reopened by an authorised act first, and the accounting period is not touched either way
+    /// (specification task 31, recipe step 3).
+    /// </summary>
+    public const string BankStatementFinalised = "BANK_STATEMENT_FINALISED";
+
+    /// <summary>
+    /// A statement was asked to be finalised while lines remain unmatched, while its own figures do not add up, or
+    /// while the booked bank account does not tie to what was reconciled. Finalising hides an exception, so the
+    /// exceptions are named instead (specification task 31, T31.01 and recipe step 4).
+    /// </summary>
+    public const string BankStatementNotReconciled = "BANK_STATEMENT_NOT_RECONCILED";
+
+    /// <summary>
+    /// A correction or reopening arrived without the reason an auditor would read. Bank reconciliation changes are
+    /// only accepted as explained acts (specification task 31, T31.03).
+    /// </summary>
+    public const string BankCorrectionReasonRequired = "BANK_CORRECTION_REASON_REQUIRED";
 }

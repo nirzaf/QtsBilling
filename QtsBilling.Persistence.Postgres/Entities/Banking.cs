@@ -38,6 +38,13 @@ public sealed class BankStatementImport : TenantEntity
 
     public int LineCount { get; set; }
 
+    /// <summary>Whether the reconciliation is still open for correction or has been finalised by a reviewer.</summary>
+    public BankReconciliationStatus Status { get; set; } = BankReconciliationStatus.Open;
+
+    public DateTimeOffset? FinalisedAtUtc { get; set; }
+
+    public Guid? FinalisedByUserId { get; set; }
+
     public DateTimeOffset ImportedAtUtc { get; set; }
 
     public Guid ImportedByUserId { get; set; }
@@ -63,4 +70,42 @@ public sealed class BankStatementLine : TenantEntity
     public DateTimeOffset? ReconciledAtUtc { get; set; }
 
     public Guid? ReconciledByUserId { get; set; }
+}
+
+/// <summary>
+/// Append-only evidence of one reconciliation decision: what a statement line was matched to before and after,
+/// the journal a reviewed fee or interest line produced, the reason an accountant gave for correcting or
+/// reopening, and the command key that wrote it. The line row keeps only the current state; this table keeps the
+/// history, so correcting a mistaken match cannot erase it (specification task 31, case T31.03, D10).
+/// </summary>
+public sealed class BankStatementReconciliationEvent : TenantEntity
+{
+    public Guid StatementImportId { get; set; }
+
+    /// <summary>Null for a statement-level act (finalise or reopen), set for a line-level act.</summary>
+    public Guid? StatementLineId { get; set; }
+
+    public Guid BankAccountId { get; set; }
+
+    public BankReconciliationAction Action { get; set; }
+
+    public Guid? PriorJournalLineId { get; set; }
+
+    public Guid? NewJournalLineId { get; set; }
+
+    /// <summary>The entry a reviewed fee or interest posting produced, so the movement is traceable, not implied.</summary>
+    public Guid? JournalEntryId { get; set; }
+
+    /// <summary>The statement line's signed movement at the time of the act, or the posted movement amount.</summary>
+    public decimal Amount { get; set; }
+
+    public string? Reason { get; set; }
+
+    public DateTimeOffset OccurredAtUtc { get; set; }
+
+    public Guid ActorUserId { get; set; }
+
+    public string IdempotencyKey { get; set; } = string.Empty;
+
+    public string PayloadHash { get; set; } = string.Empty;
 }

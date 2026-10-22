@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
@@ -404,6 +405,62 @@ public sealed class SupplierCreditTests : IClassFixture<PostgresApiFixture>
         var original = await _fixture.WithFreshContextAsync(async db => (await db.OpenItems.AsNoTracking()
             .SingleAsync(row => row.Id == openingId)).OriginalAmount);
         Assert.Equal(500m, original);
+
+        await _fixture.WithFreshContextAsync(async db =>
+            await FinancialAssertions.AssertEveryEntryBalancesAsync(db, _fixture.BusinessA.BusinessId));
+    }
+
+    [Fact]
+    public async Task T27_06_the_statement_is_read_on_the_business_clock_and_not_refused_by_a_second_clock()
+    {
+        await EnsurePayablesChartAsync();
+        var purchasing = await ClientAsync();
+        var suffix = Guid.NewGuid().ToString("N")[..8];
+
+        // Move the business to a zone fourteen hours ahead of Greenwich. For most of the UTC day its calendar date is
+        // one day later than UTC's, which is exactly the window in which a guard that measures on the UTC calendar
+        // refuses the date the same route just computed as "today" - the defect this case pins (specification F21).
+        const string aheadOfUtc = "Pacific/Kiritimati";
+        await _fixture.WithFreshContextAsync(async db =>
+        {
+            var business = await db.Businesses.SingleAsync(row => row.Id == _fixture.BusinessA.BusinessId);
+            business.TimeZone = aheadOfUtc;
+            await db.SaveChangesAsync();
+        });
+
+        try
+        {
+            var zoneToday = DateOnly.FromDateTime(
+                TimeZoneInfo.ConvertTime(DateTimeOffset.UtcNow, TimeZoneInfo.FindSystemTimeZoneById(aheadOfUtc)).DateTime);
+
+            var order = await ReceiveAsync(purchasing, $"T27-06 {suffix}", ordered: 4m, received: 4m, unitCost: 25m);
+            var billId = await CreateBillAsync(purchasing, order, suffix, quantity: 4m, unitCost: 25m, taxRate: 0m);
+            var issued = await purchasing.IssueBillAsync(billId, $"t27-06-issue-{suffix}");
+
+            // The default read answers, and an explicit read at the business's own date answers with the same figure.
+            var implicitRead = await purchasing.GetStatementAsync(order.SupplierId);
+            Assert.Equal(issued.BalanceDue, implicitRead.ClosingBalance);
+            var explicitRead = await purchasing.GetStatementAsync(order.SupplierId, zoneToday);
+            Assert.Equal(implicitRead.ClosingBalance, explicitRead.ClosingBalance);
+            Assert.Single(explicitRead.OpenItems);
+
+            // A date beyond the business's today is still refused, and the refusal names the date it would accept,
+            // so the screen can tell the accountant which calendar was used instead of leaving them to guess.
+            var future = await CaptureAsync(() => purchasing.GetStatementAsync(order.SupplierId, zoneToday.AddDays(1)));
+            Assert.Equal(ApiErrorCodes.ValidationFailed, future.Code);
+            Assert.Contains("asOf", future.Errors.Keys, StringComparer.Ordinal);
+            Assert.Contains(zoneToday.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture),
+                string.Join(' ', future.Errors["asOf"]), StringComparison.Ordinal);
+        }
+        finally
+        {
+            await _fixture.WithFreshContextAsync(async db =>
+            {
+                var business = await db.Businesses.SingleAsync(row => row.Id == _fixture.BusinessA.BusinessId);
+                business.TimeZone = "Asia/Qatar";
+                await db.SaveChangesAsync();
+            });
+        }
 
         await _fixture.WithFreshContextAsync(async db =>
             await FinancialAssertions.AssertEveryEntryBalancesAsync(db, _fixture.BusinessA.BusinessId));

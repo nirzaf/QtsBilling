@@ -389,6 +389,11 @@ builder.Services.AddHttpClient<IInventoryApiClient, InventoryApiClient>(client =
 builder.Services.AddHttpClient<QtsBilling.Contracts.Expenses.IExpenseApiClient, QtsBilling.Contracts.Expenses.ExpenseApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// Bank reconciliation (specification task 31): the review screen is a shared page this host routes as well, so the
+// statement, candidate and correction reads must resolve on the server circuit rather than only in WebAssembly.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Banking.IBankingApiClient, QtsBilling.Contracts.Banking.BankingApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IPaymentApiClient, PaymentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

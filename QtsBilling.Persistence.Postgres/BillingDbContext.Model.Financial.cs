@@ -462,11 +462,21 @@ public partial class BillingDbContext
                 .HasPrincipalKey(account => new { account.Id, account.BusinessId })
                 .OnDelete(DeleteBehavior.Restrict);
             b.HasOne<User>().WithMany().HasForeignKey(e => e.ImportedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.FinalisedByUserId).OnDelete(DeleteBehavior.Restrict);
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.HasIndex(e => new { e.BusinessId, e.BankAccountId, e.Status })
+                .HasDatabaseName("ix_bank_statement_imports_business_account_status");
             b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey }).IsUnique()
                 .HasDatabaseName("ux_bank_statement_imports_business_idempotency_key");
             b.HasIndex(e => new { e.BusinessId, e.BankAccountId, e.FileHash }).IsUnique()
                 .HasDatabaseName("ux_bank_statement_imports_account_file_hash");
             b.ToTable(t => t.HasCheckConstraint("ck_bank_statement_imports_line_count", "line_count > 0"));
+            // A finalised statement names who finalised it and when; an open one holds neither. The review state
+            // is a fact on the row, not something the screen infers from the absence of a timestamp.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_bank_statement_imports_finalisation",
+                "(status = 'Open' AND finalised_at_utc IS NULL AND finalised_by_user_id IS NULL)"
+                + " OR (status = 'Finalised' AND finalised_at_utc IS NOT NULL AND finalised_by_user_id IS NOT NULL)"));
         });
 
         modelBuilder.Entity<BankStatementLine>(b =>
@@ -494,6 +504,80 @@ public partial class BillingDbContext
                 .HasDatabaseName("ux_bank_statement_lines_business_matched_journal_line");
             b.HasIndex(e => new { e.BusinessId, e.ValueDate });
             b.ToTable(t => t.HasCheckConstraint("ck_bank_statement_lines_nonzero_amount", "amount <> 0"));
+        });
+
+        modelBuilder.Entity<BankStatementReconciliationEvent>(b =>
+        {
+            b.ToTable("bank_statement_reconciliation_events");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.Action).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Reason).HasColumnType("text");
+            b.Property(e => e.Amount).HasPrecision(18, 4);
+            b.Property(e => e.IdempotencyKey).HasMaxLength(64).IsRequired();
+            b.Property(e => e.PayloadHash).HasMaxLength(64).IsRequired();
+            b.HasOne<BankStatementImport>()
+                .WithMany()
+                .HasForeignKey(e => new { e.StatementImportId, e.BusinessId })
+                .HasPrincipalKey(import => new { import.Id, import.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BankStatementLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.StatementLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<BankAccount>()
+                .WithMany()
+                .HasForeignKey(e => new { e.BankAccountId, e.BusinessId })
+                .HasPrincipalKey(account => new { account.Id, account.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalEntry>()
+                .WithMany()
+                .HasForeignKey(e => new { e.JournalEntryId, e.BusinessId })
+                .HasPrincipalKey(entry => new { entry.Id, entry.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.PriorJournalLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<JournalLine>()
+                .WithMany()
+                .HasForeignKey(e => new { e.NewJournalLineId, e.BusinessId })
+                .HasPrincipalKey(line => new { line.Id, line.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.ActorUserId).OnDelete(DeleteBehavior.Restrict);
+            b.HasIndex(e => new { e.BusinessId, e.StatementLineId, e.OccurredAtUtc })
+                .HasDatabaseName("ix_bank_statement_reconciliation_events_business_line_time");
+            b.HasIndex(e => new { e.BusinessId, e.StatementImportId, e.OccurredAtUtc })
+                .HasDatabaseName("ix_bank_statement_reconciliation_events_business_statement_time");
+            b.HasIndex(e => new { e.BusinessId, e.IdempotencyKey }).IsUnique()
+                .HasFilter("idempotency_key <> ''")
+                .HasDatabaseName("ux_bank_statement_reconciliation_events_business_key");
+            // One reviewed movement posts one entry, and a second attempt under another key is refused here rather
+            // than double-counted in the bank account.
+            b.HasIndex(e => new { e.BusinessId, e.JournalEntryId }).IsUnique()
+                .HasFilter("journal_entry_id IS NOT NULL")
+                .HasDatabaseName("ux_bank_statement_reconciliation_events_business_journal_entry");
+            // Statement-level acts name no line and line-level acts must name one: an event row states the level it
+            // belongs to instead of leaving it inferred.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_bank_statement_reconciliation_events_level",
+                "(action IN ('Finalised', 'Reopened') AND statement_line_id IS NULL)"
+                + " OR (action NOT IN ('Finalised', 'Reopened') AND statement_line_id IS NOT NULL)"));
+            // A correction, a posting or a reopening is not accepted without the reason an auditor would read.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_bank_statement_reconciliation_events_reason",
+                "(action IN ('Unmatched', 'FeePosted', 'InterestPosted', 'Reopened') AND reason IS NOT NULL AND btrim(reason) <> '')"
+                + " OR action IN ('Matched', 'Finalised')"));
+            // Each action carries the references that make it traceable: a match names the line it chose, an
+            // unmatch names the line it is walking away from, and a posting names the entry it produced.
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_bank_statement_reconciliation_events_evidence",
+                "(action = 'Matched' AND new_journal_line_id IS NOT NULL)"
+                + " OR (action = 'Unmatched' AND prior_journal_line_id IS NOT NULL)"
+                + " OR (action IN ('FeePosted', 'InterestPosted') AND journal_entry_id IS NOT NULL AND new_journal_line_id IS NOT NULL)"
+                + " OR action IN ('Finalised', 'Reopened')"));
         });
 
         modelBuilder.Entity<JournalEntry>(b =>

@@ -87,8 +87,7 @@ public static class ShellNavigation
         // Nav visibility matches what the routes actually authorise: the statement and open-item reads answer to the
         // issuing authority, and only the posting authority can apply a deposit or hand one back (task 25).
         new("Receivables and receipts", "finance/receivables", Icons.Material.Filled.Paid, GroupFinance, Permissions.InvoicesIssue, ShellAvailability.Available),
-        new("Bank feed and reconciliation", "finance/banking", Icons.Material.Filled.AccountBalanceWallet, GroupFinance, Permissions.AccountingPost, ShellAvailability.Planned,
-            "Arrives with task 31."),
+        new("Bank feed and reconciliation", "finance/banking", Icons.Material.Filled.AccountBalanceWallet, GroupFinance, Permissions.AccountingPost, ShellAvailability.Available),
         new("Expenses", "expenses", Icons.Material.Filled.Receipt, GroupFinance, Permissions.ExpensesManage, ShellAvailability.Available),
         new("Ledger, journals and periods", "accounting/accounts", Icons.Material.Filled.AccountTree, GroupFinance, Permissions.AccountingPost, ShellAvailability.Planned,
             "Arrives with task 32."),

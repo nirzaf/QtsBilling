@@ -584,22 +584,4 @@ public partial class Payables : IAsyncDisposable
 
         public string TaxMode { get; set; } = taxMode;
     }
-
-    /// <summary>One write intention: its key and its exact body, held while the answer is outstanding.</summary>
-    private sealed class HeldIntention<TBody>(string name)
-    {
-        public string Name { get; } = name;
-
-        public string? Key { get; set; }
-
-        public TBody? Body { get; set; }
-
-        public bool Outstanding => Key is not null;
-
-        public void Release()
-        {
-            Key = null;
-            Body = default;
-        }
-    }
 }

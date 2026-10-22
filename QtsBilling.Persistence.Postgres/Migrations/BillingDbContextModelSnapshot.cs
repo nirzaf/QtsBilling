@@ -756,6 +756,14 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("file_name");
 
+                    b.Property<DateTimeOffset?>("FinalisedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("finalised_at_utc");
+
+                    b.Property<Guid?>("FinalisedByUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("finalised_by_user_id");
+
                     b.Property<string>("IdempotencyKey")
                         .IsRequired()
                         .HasMaxLength(64)
@@ -789,6 +797,12 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnType("date")
                         .HasColumnName("statement_date");
 
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("text")
+                        .HasColumnName("status");
+
                     b.Property<DateTimeOffset>("UpdatedAtUtc")
                         .HasColumnType("timestamptz")
                         .HasColumnName("updated_at_utc");
@@ -799,6 +813,8 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasColumnName("version");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("FinalisedByUserId");
 
                     b.HasIndex("ImportedByUserId");
 
@@ -812,8 +828,13 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .IsUnique()
                         .HasDatabaseName("ux_bank_statement_imports_account_file_hash");
 
+                    b.HasIndex("BusinessId", "BankAccountId", "Status")
+                        .HasDatabaseName("ix_bank_statement_imports_business_account_status");
+
                     b.ToTable("bank_statement_imports", null, t =>
                         {
+                            t.HasCheckConstraint("ck_bank_statement_imports_finalisation", "(status = 'Open' AND finalised_at_utc IS NULL AND finalised_by_user_id IS NULL) OR (status = 'Finalised' AND finalised_at_utc IS NOT NULL AND finalised_by_user_id IS NOT NULL)");
+
                             t.HasCheckConstraint("ck_bank_statement_imports_line_count", "line_count > 0");
                         });
                 });
@@ -884,8 +905,6 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasAlternateKey("Id", "BusinessId");
-
                     b.HasIndex("ReconciledByUserId");
 
                     b.HasIndex("BusinessId", "MatchedJournalLineId")
@@ -905,6 +924,134 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                     b.ToTable("bank_statement_lines", null, t =>
                         {
                             t.HasCheckConstraint("ck_bank_statement_lines_nonzero_amount", "amount <> 0");
+                        });
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.BankStatementReconciliationEvent", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasColumnName("id");
+
+                    b.Property<string>("Action")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("text")
+                        .HasColumnName("action");
+
+                    b.Property<Guid>("ActorUserId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("actor_user_id");
+
+                    b.Property<decimal>("Amount")
+                        .HasPrecision(18, 4)
+                        .HasColumnType("numeric(18,4)")
+                        .HasColumnName("amount");
+
+                    b.Property<Guid>("BankAccountId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("bank_account_id");
+
+                    b.Property<Guid>("BusinessId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("business_id");
+
+                    b.Property<DateTimeOffset>("CreatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("created_at_utc");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("idempotency_key");
+
+                    b.Property<Guid?>("JournalEntryId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("journal_entry_id");
+
+                    b.Property<Guid?>("NewJournalLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("new_journal_line_id");
+
+                    b.Property<DateTimeOffset>("OccurredAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("occurred_at_utc");
+
+                    b.Property<string>("PayloadHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("payload_hash");
+
+                    b.Property<Guid?>("PriorJournalLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("prior_journal_line_id");
+
+                    b.Property<string>("Reason")
+                        .HasMaxLength(400)
+                        .HasColumnType("text")
+                        .HasColumnName("reason");
+
+                    b.Property<Guid>("StatementImportId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("statement_import_id");
+
+                    b.Property<Guid?>("StatementLineId")
+                        .HasColumnType("uuid")
+                        .HasColumnName("statement_line_id");
+
+                    b.Property<DateTimeOffset>("UpdatedAtUtc")
+                        .HasColumnType("timestamptz")
+                        .HasColumnName("updated_at_utc");
+
+                    b.Property<long>("Version")
+                        .IsConcurrencyToken()
+                        .HasColumnType("bigint")
+                        .HasColumnName("version");
+
+                    b.HasKey("Id");
+
+                    b.HasAlternateKey("Id", "BusinessId");
+
+                    b.HasIndex("ActorUserId");
+
+                    b.HasIndex("BankAccountId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("ux_bank_statement_reconciliation_events_business_key")
+                        .HasFilter("idempotency_key <> ''");
+
+                    b.HasIndex("BusinessId", "JournalEntryId")
+                        .IsUnique()
+                        .HasDatabaseName("ux_bank_statement_reconciliation_events_business_journal_entry")
+                        .HasFilter("journal_entry_id IS NOT NULL");
+
+                    b.HasIndex("JournalEntryId", "BusinessId");
+
+                    b.HasIndex("NewJournalLineId", "BusinessId");
+
+                    b.HasIndex("PriorJournalLineId", "BusinessId");
+
+                    b.HasIndex("StatementImportId", "BusinessId");
+
+                    b.HasIndex("StatementLineId", "BusinessId");
+
+                    b.HasIndex("BusinessId", "StatementImportId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_bank_statement_reconciliation_events_business_statement_time");
+
+                    b.HasIndex("BusinessId", "StatementLineId", "OccurredAtUtc")
+                        .HasDatabaseName("ix_bank_statement_reconciliation_events_business_line_time");
+
+                    b.ToTable("bank_statement_reconciliation_events", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_bank_statement_reconciliation_events_evidence", "(action = 'Matched' AND new_journal_line_id IS NOT NULL) OR (action = 'Unmatched' AND prior_journal_line_id IS NOT NULL) OR (action IN ('FeePosted', 'InterestPosted') AND journal_entry_id IS NOT NULL AND new_journal_line_id IS NOT NULL) OR action IN ('Finalised', 'Reopened')");
+
+                            t.HasCheckConstraint("ck_bank_statement_reconciliation_events_level", "(action IN ('Finalised', 'Reopened') AND statement_line_id IS NULL) OR (action NOT IN ('Finalised', 'Reopened') AND statement_line_id IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_bank_statement_reconciliation_events_reason", "(action IN ('Unmatched', 'FeePosted', 'InterestPosted', 'Reopened') AND reason IS NOT NULL AND btrim(reason) <> '') OR action IN ('Matched', 'Finalised')");
                         });
                 });
 
@@ -8175,6 +8322,11 @@ namespace QtsBilling.Persistence.Postgres.Migrations
 
                     b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
                         .WithMany()
+                        .HasForeignKey("FinalisedByUserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
                         .HasForeignKey("ImportedByUserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
@@ -8212,6 +8364,59 @@ namespace QtsBilling.Persistence.Postgres.Migrations
                         .HasPrincipalKey("Id", "BusinessId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.BankStatementReconciliationEvent", b =>
+                {
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.User", null)
+                        .WithMany()
+                        .HasForeignKey("ActorUserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.Business", null)
+                        .WithMany()
+                        .HasForeignKey("BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.BankAccount", null)
+                        .WithMany()
+                        .HasForeignKey("BankAccountId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalEntry", null)
+                        .WithMany()
+                        .HasForeignKey("JournalEntryId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalLine", null)
+                        .WithMany()
+                        .HasForeignKey("NewJournalLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.JournalLine", null)
+                        .WithMany()
+                        .HasForeignKey("PriorJournalLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.BankStatementImport", null)
+                        .WithMany()
+                        .HasForeignKey("StatementImportId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("QtsBilling.Persistence.Postgres.Entities.BankStatementLine", null)
+                        .WithMany()
+                        .HasForeignKey("StatementLineId", "BusinessId")
+                        .HasPrincipalKey("Id", "BusinessId")
+                        .OnDelete(DeleteBehavior.Restrict);
                 });
 
             modelBuilder.Entity("QtsBilling.Persistence.Postgres.Entities.Brand", b =>

@@ -45,6 +45,7 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
         typeof(SalesOrderDelivery),
         typeof(SalesOrderDeliveryLine),
         typeof(DeliveryInvoiceAllocation),
+        typeof(BankStatementReconciliationEvent),
     ];
 
     public BillingDbContext(DbContextOptions<BillingDbContext> options)
@@ -107,6 +108,8 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
     public DbSet<BankStatementImport> BankStatementImports => Set<BankStatementImport>();
 
     public DbSet<BankStatementLine> BankStatementLines => Set<BankStatementLine>();
+
+    public DbSet<BankStatementReconciliationEvent> BankStatementReconciliationEvents => Set<BankStatementReconciliationEvent>();
 
     public DbSet<Sale> Sales => Set<Sale>();
 

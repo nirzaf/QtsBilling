@@ -1240,11 +1240,16 @@ public static class SupplierBillEndpoints
         var allowedLocations = await BusinessScope.AccessibleLocationIdsAsync(db, readerId, businessId, cancellationToken)
             .ConfigureAwait(false);
         var date = asOf ?? LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow);
-        if (date > DateOnly.FromDateTime(DateTime.UtcNow))
+
+        // One clock, the business's own. The default is computed in the business time zone, so it has to be checked
+        // in that same time zone - comparing it against the UTC calendar made this route refuse its own default for
+        // the hours after 21:00 UTC in a zone ahead of Greenwich (specification F21, found by the task 27 read).
+        var businessToday = LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow);
+        if (date > businessToday)
         {
             return ApiResults.ValidationProblem("The statement date cannot be in the future.", new Dictionary<string, string[]>
             {
-                [nameof(asOf)] = ["Choose today or an earlier business date."],
+                [nameof(asOf)] = [$"Choose {businessToday:yyyy-MM-dd} or an earlier business date."],
             });
         }
 

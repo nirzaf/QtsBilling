@@ -1,0 +1,306 @@
+@page "/finance/banking"
+@namespace QtsBilling.Ui.Pages.Finance
+@using QtsBilling.Contracts.Banking
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Models
+
+<PageTitle>Bank feed and reconciliation - QTS Billing</PageTitle>
+
+@* The bank-reconciliation workbench (specification task 31): the bank's own statement read against the booked bank
+   account, the posted lines each movement can be reconciled to, a reasoned correction that keeps the match it
+   replaces, a reviewed journal for the fee or interest the bank charged, and a finalisation that is refused while an
+   exception is still visible. No figure on this page is computed here, and no identifier is asked of a person. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Bank reconciliation</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">A statement of the bank's movements, the booked bank account, and the decisions between them.</MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read the statement again</MudButton>
+</MudStack>
+
+@* The four rules this screen will not cross, stated before anything is loaded. *@
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+    @BankingRules.MatchRule @BankingRules.CorrectionRule @BankingRules.MovementRule @BankingRules.FinaliseRule @BankingRules.PeriodRule
+</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the statement again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read the statement back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (Outstanding)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="unknown-outcome">
+            <MudText Typo="Typo.body2">One of these acts is still awaiting its answer. Its key and its exact figures are held, so pressing again asks the server about the same document instead of writing a second correction or a second journal.</MudText>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" md="5">
+            <ReferenceSelector Label="Bank account" HelpText="search by name" Value="_account"
+                               ValueChanged="AccountChangedAsync" Disabled="@_busy"
+                               Search="SearchBankAccountsAsync" />
+        </MudItem>
+        <MudItem xs="12" md="5">
+            <MudSelect T="BankStatementImportDto" Value="_statement" ValueChanged="StatementChangedAsync"
+                       Label="Statement (by date and file)" Disabled="@(_busy || _statements.Count == 0)">
+                @foreach (var import in _statements)
+                {
+                    <MudSelectItem T="BankStatementImportDto" Value="import">@BankingRules.StatementLabel(import)</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        @if (_review is not null)
+        {
+            <MudItem xs="12" md="2" Class="d-flex align-items-center">
+                <MudChip T="string" Color="@(IsFinalised ? Color.Default : Color.Info)" Variant="Variant.Text">
+                    @BankingRules.StatusText(_review.Statement.Import.Status)
+                </MudChip>
+            </MudItem>
+        }
+    </MudGrid>
+
+    @if (_review is { } review)
+    {
+        @* The two sides of the reconciliation, as the server computed them. *@
+        <MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="arithmetic">
+            <MudText Typo="Typo.h6" Class="mb-2">The figures</MudText>
+            <MudGrid>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Opening balance</MudText>
+                    <MudText Typo="Typo.body1">@BankingRules.MoneyText(review.Arithmetic.OpeningBalance, review)</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Movements on the statement</MudText>
+                    <MudText Typo="Typo.body1">@BankingRules.MoneyText(review.Arithmetic.MovementTotal, review)</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Closing the bank printed</MudText>
+                    <MudText Typo="Typo.body1">@BankingRules.MoneyText(review.Arithmetic.StatedClosing, review)</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Booked bank movement in the period</MudText>
+                    <MudText Typo="Typo.body1">@BankingRules.MoneyText(review.Arithmetic.BookedBankMovement, review)</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Reconciled so far</MudText>
+                    <MudText Typo="Typo.body1">@BankingRules.MoneyText(review.Arithmetic.MatchedTotal, review)</MudText>
+                </MudItem>
+                <MudItem xs="6" sm="4">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Still unmatched</MudText>
+                    <MudText Typo="Typo.body1" Color="@(review.Arithmetic.UnmatchedCount == 0 ? Color.Default : Color.Warning)">
+                        @BankingRules.MoneyText(review.Arithmetic.UnmatchedTotal, review) (@review.Arithmetic.UnmatchedCount line(s))
+                    </MudText>
+                </MudItem>
+            </MudGrid>
+            <MudText Typo="Typo.body2" Class="mt-2" Color="@(review.Arithmetic.TiesToLedger ? Color.Success : Color.Warning)"
+                     data-qts-state="@(review.Arithmetic.TiesToLedger ? "reconciled" : "not-reconciled")">
+                @BankingRules.ReconciliationSentence(review)
+            </MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">@BankingRules.PeriodSentence(review)</MudText>
+        </MudPaper>
+
+        <MudTable Items="Lines" Hover="true" Dense="true" Class="mb-4" FixedHeader="true" Height="420px">
+            <HeaderContent>
+                <MudTh>Line</MudTh>
+                <MudTh>Value date</MudTh>
+                <MudTh>Bank's words</MudTh>
+                <MudTh>Reference</MudTh>
+                <MudTh Style="text-align:right">Movement</MudTh>
+                <MudTh>Reconciled to</MudTh>
+                <MudTh>What the screen offers</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                @{
+                    var candidates = CandidatesFor(context);
+                }
+                <MudTd DataLabel="Line">@context.LineNo</MudTd>
+                <MudTd DataLabel="Value date">@context.ValueDate.ToString("yyyy-MM-dd")</MudTd>
+                <MudTd DataLabel="Bank's words">@context.Description</MudTd>
+                <MudTd DataLabel="Reference">@(context.Reference is { Length: > 0 } reference ? reference : "-")</MudTd>
+                <MudTd DataLabel="Movement" Style="text-align:right">@BankingRules.MoneyText(context.Amount, review)</MudTd>
+                <MudTd DataLabel="Reconciled to">
+                    @if (context.MatchedJournalLineId is null)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Warning">unmatched</MudText>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2">@(context.MatchedEntryNumber is { Length: > 0 } number ? number : "a posted journal line")</MudText>
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">correct it with a reason below</MudText>
+                    }
+                </MudTd>
+                <MudTd DataLabel="What the screen offers">
+                    @if (context.MatchedJournalLineId is null && !_busy && _canPost && !IsFinalised)
+                    {
+                        <MudStack Spacing="1">
+                            @if (candidates.Count > 0)
+                            {
+                                <MudSelect T="Guid?" Value="ChosenFor(context)"
+                                           ValueChanged="@(chosen => _chosen[context.Id] = chosen ?? Guid.Empty)"
+                                           Label="Posted line it is (by entry number)" Dense="true" Margin="Margin.Dense">
+                                    @foreach (var candidate in candidates)
+                                    {
+                                        <MudSelectItem T="Guid?" Value="@((Guid?)candidate.JournalLineId)">
+                                            @candidate.EntryNumber · @BankingRules.MoneyText(candidate.Amount, review) · @candidate.EntryDate.ToString("yyyy-MM-dd")@(candidate.Description is { Length: > 0 } memo ? $" · {memo}" : string.Empty)
+                                        </MudSelectItem>
+                                    }
+                                </MudSelect>
+                                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                           OnClick="@(() => MatchAsync(context))" Disabled="@_busy">Reconcile this line</MudButton>
+                            }
+                            else
+                            {
+                                <MudText Typo="Typo.caption" Color="Color.Secondary">No posted bank line of this amount is waiting in this window, so this is a movement the business has not booked.</MudText>
+                            }
+
+                            <MudTextField T="string" Value="@ReasonFor(context)"
+                                          ValueChanged="@((string value) => _reasons[context.Id] = value)"
+                                          Label="Reason the reviewer records"
+                                          HelperText="A charge closes against an expense account; interest against a revenue account."
+                                          Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+
+                            <ReferenceSelector Label="@(BankingRules.IsCharge(context) ? "Expense account it closes against" : "Revenue account it closes against")"
+                                               HelpText="search by name or code"
+                                               Value="MovementAccountFor(context)"
+                                               ValueChanged="@(chosen => ChooseMovementAccount(context, chosen))"
+                                               Search="SearchLedgerAccountsAsync"
+                                               Disabled="@_busy" />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary"
+                                       OnClick="@(() => MovementAsync(context))" Disabled="@_busy"
+                                       data-qts-action="record-movement">@BankingRules.MovementTitle(context)</MudButton>
+                        </MudStack>
+                    }
+                    else if (context.MatchedJournalLineId is not null && !_busy && _canPost && !IsFinalised)
+                    {
+                        <MudStack Spacing="1">
+                            <MudTextField T="string" Value="@ReasonFor(context)"
+                                          ValueChanged="@((string value) => _reasons[context.Id] = value)"
+                                          Label="Reason for the correction" Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary"
+                                       OnClick="@(() => UnmatchAsync(context))" Disabled="@_busy"
+                                       data-qts-action="correct-match">Correct the match, keeping the evidence</MudButton>
+                        </MudStack>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @(_busy ? "Reading the statement…" : IsFinalised ? "The review is finalised; reopen it below to change anything." : "This account may not change a reconciliation.")
+                        </MudText>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Class="pa-4">This statement has no movement lines.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+
+        <MudGrid Class="mb-4">
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4">
+                    <MudText Typo="Typo.h6" Class="mb-2">Finalise the review</MudText>
+                    @if (IsFinalised)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">
+                            @if (_review.Statement.Import.FinalisedAtUtc is { } finalisedAt)
+                            {
+                                <text>Finalised @finalisedAt.ToString("yyyy-MM-dd HH:mm") UTC by @(_review.Statement.Import.FinalisedByUserName ?? "a previous user").</text>
+                            }
+                            else
+                            {
+                                <text>Finalised, with no timestamp on the record.</text>
+                            }
+                        </MudText>
+                        <MudTextField T="string" @bind-Value="_reason" Label="Reason for reopening" Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+                        <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary" Class="mt-2"
+                                   OnClick="ReopenAsync" Disabled="@(_busy || !_canClose)"
+                                   StartIcon="@Icons.Material.Filled.Undo">
+                            Reopen the review
+                            @if (!_canClose)
+                            {
+                                <MudTooltip Text="@($"Reopening needs the '{QtsBilling.Contracts.Identity.Permissions.AccountingClose}' authority.")">
+                                    <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+                                </MudTooltip>
+                            }
+                        </MudButton>
+                    }
+                    else
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">
+                            @(string.IsNullOrWhiteSpace(BankingRules.FinaliseBlocker(review))
+                                ? "Every line is answered and the booked bank account ties to what was reconciled."
+                                : BankingRules.FinaliseBlocker(review))
+                        </MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="FinaliseAsync" Disabled="@(_busy || !_canPost || !BankingRules.CanFinalise(review))"
+                                   data-qts-action="finalise">Finalise the statement</MudButton>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4" data-qts-region="history">
+                    <MudText Typo="Typo.h6" Class="mb-2">What was decided, and why</MudText>
+                    @if (review.Events.Count == 0)
+                    {
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">Nothing has been reconciled on this statement yet.</MudText>
+                    }
+                    else
+                    {
+                        @foreach (var evt in review.Events.OrderByDescending(row => row.OccurredAtUtc).Take(20))
+                        {
+                            <MudText Typo="Typo.body2" Class="mb-1">@BankingRules.EventSentence(evt)</MudText>
+                        }
+                    }
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+    }
+</ShellStates>
+
+@* The statement the bank gave, read locally. Outside the state panel because an account with no statement yet is
+   exactly when it is needed, and the server owns the parsing, the arithmetic check and the duplicate-file refusal. *@
+@if (_account is not null && _canPost)
+{
+    <MudPaper Outlined="true" Class="pa-4" data-qts-region="import">
+        <MudText Typo="Typo.h6" Class="mb-1">Import a bank statement</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+            A CSV with the columns Date, Description, Reference, Amount - the file the bank gave you, parsed on this
+            server. No bank provider and no remote download is required, and a file this account already holds is
+            refused rather than imported twice.
+        </MudText>
+        <MudGrid>
+            <MudItem xs="12" sm="6" md="3">
+                <MudDatePicker @bind-Date="_statementDate" Label="Statement date" Margin="Margin.Dense" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField @bind-Value="_openingBalance" Label="Opening balance, as the bank printed it" Margin="Margin.Dense" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3">
+                <MudTextField @bind-Value="_closingBalance" Label="Closing balance, as the bank printed it" Margin="Margin.Dense" Variant="Variant.Outlined" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="3" Class="d-flex align-items-center">
+                <label class="mud-input-label input-label"><InputFile OnChange="ChooseFileAsync" accept=".csv" /> statement file</label>
+            </MudItem>
+        </MudGrid>
+        <MudStack Row="true" AlignItems="AlignItems.Center" Spacing="3" Wrap="Wrap.Wrap" Class="mt-2">
+            <MudText Typo="Typo.body2" Color="Color.Secondary">
+                @(_csvName is { Length: > 0 } chosen ? $"{chosen} selected" : "No file chosen yet.")
+            </MudText>
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" OnClick="ImportAsync"
+                       Disabled="@(!CanImport || _busy)" data-qts-action="import-statement">
+                Import and open the review
+            </MudButton>
+        </MudStack>
+    </MudPaper>
+}

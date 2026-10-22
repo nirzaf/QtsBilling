@@ -15,6 +15,7 @@ using MudBlazor.Services;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Administration;
+using QtsBilling.Contracts.Banking;
 using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
@@ -1143,6 +1144,61 @@ Check("a lost payables answer keeps its key while a proven refusal releases it",
             new ApiException(409, ApiErrorCodes.OverCredit, "x"), "this credit").Contains("read the bill back", StringComparison.OrdinalIgnoreCase)
         && QtsBilling.Ui.Pages.Purchasing.PayablesRules.NewKey("settle", Guid.CreateVersion7()).Length <= 64);
 
+// 16. The bank-reconciliation workbench (specification task 31): a shipped shared page that reads nothing during the
+//     prerender, states that a reference is not proof and that a difference is answered by a line, and offers a
+//     finalisation only when the statement ties. The figures it quotes are the arithmetic of the read, not a claim.
+var bankingStub = new StubBankingApiClient();
+var bankingServices = new ServiceCollection();
+bankingServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+bankingServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+bankingServices.AddMudServices();
+bankingServices.AddSingleton<NavigationManager, StubNavigationManager>();
+bankingServices.AddSingleton<IBankingApiClient>(bankingStub);
+bankingServices.AddSingleton<IAccountingApiClient>(new StubAccountingApiClient());
+bankingServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var bankingProvider = bankingServices.BuildServiceProvider();
+await using var bankingRenderer = new HtmlRenderer(bankingProvider, bankingProvider.GetRequiredService<ILoggerFactory>());
+
+var bankingHtml = await bankingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await bankingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Finance.Banking>(ParameterView.Empty)).ToHtmlString());
+
+Check("the bank screen is a shared page with its own route and an honest nav row",
+    typeof(QtsBilling.Ui.Pages.Finance.Banking).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "finance/banking")
+        && QtsBilling.Ui.Layout.ShellNavigation.Routes
+            .Single(route => route.Href == "finance/banking").Availability == QtsBilling.Ui.Layout.ShellAvailability.Available);
+Check("the bank screen reads nothing and posts nothing during the prerender",
+    bankingStub.Calls == 0 && bankingStub.WriteCalls == 0,
+    $"reads {bankingStub.Calls}, writes {bankingStub.WriteCalls}");
+Check("the bank screen states its rules before any statement is loaded",
+    bankingHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && bankingHtml.Contains("never proof", StringComparison.Ordinal)
+        && bankingHtml.Contains("never written off", StringComparison.Ordinal)
+        && bankingHtml.Contains("not the accounting period", StringComparison.Ordinal));
+Check("a finalised review offers reopening and nothing else, and the sign of a line decides the act",
+    QtsBilling.Ui.Pages.Finance.BankingRules.AllowedActions(BankReconciliationState.Finalised)
+        .SequenceEqual([QtsBilling.Ui.Pages.Finance.BankingRules.BankReconciliationAction.Reopen])
+    && QtsBilling.Ui.Pages.Finance.BankingRules.IsCharge(StubBankingApiClient.SampleLine(-15m))
+    && !QtsBilling.Ui.Pages.Finance.BankingRules.IsCharge(StubBankingApiClient.SampleLine(125m))
+    && QtsBilling.Ui.Pages.Finance.BankingRules.CounterAccountKind(StubBankingApiClient.SampleLine(-15m)).Contains("expense", StringComparison.Ordinal));
+Check("a statement that does not tie is stated as unreconciled, and the blocker names what is missing",
+    QtsBilling.Ui.Pages.Finance.BankingRules.ReconciliationSentence(StubBankingApiClient.SampleReview(0m, 0m, 1, true))
+        .Contains("Not reconciled", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Finance.BankingRules.FinaliseBlocker(StubBankingApiClient.SampleReview(0m, 0m, 1, true))
+        .Contains("still unmatched", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Finance.BankingRules.CanFinalise(StubBankingApiClient.SampleReview(110m, 110m, 0, true))
+    && QtsBilling.Ui.Pages.Finance.BankingRules.FinaliseBlocker(StubBankingApiClient.SampleReview(0m, 0m, 0, false))
+        .Contains("do not add up", StringComparison.Ordinal));
+Check("a lost bank answer keeps its key while a proven refusal releases it",
+    !QtsBilling.Ui.Pages.Finance.BankingRules.CommittedNothing(ApiErrorCodes.InternalError)
+        && QtsBilling.Ui.Pages.Finance.BankingRules.CommittedNothing(ApiErrorCodes.BankStatementFinalised)
+        && QtsBilling.Ui.Pages.Finance.BankingRules.CommittedNothing(ApiErrorCodes.BankStatementNotReconciled)
+        && QtsBilling.Ui.Pages.Finance.BankingRules.CommittedNothing(ApiErrorCodes.BankCorrectionReasonRequired)
+        && QtsBilling.Ui.Pages.Finance.BankingRules.RefusalSentence(
+            new ApiException(409, ApiErrorCodes.BankStatementFinalised, "x"), "this correction").Contains("reopen", StringComparison.OrdinalIgnoreCase)
+        && QtsBilling.Ui.Pages.Finance.BankingRules.NewKey("finalise", Guid.CreateVersion7()).Length <= 64);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -2028,6 +2084,106 @@ internal sealed class StubPricingApiClient : IPricingApiClient
 /// simulated: a goods received note is a server fact with a journal behind it, so the smoke never pretends to post
 /// one.
 /// </summary>
+internal sealed class StubBankingApiClient : IBankingApiClient
+{
+    public int Calls { get; private set; }
+
+    public int WriteCalls { get; private set; }
+
+    public static BankStatementLineDto SampleLine(decimal amount)
+        => new(Guid.CreateVersion7(), 1, new DateOnly(2026, 3, 31), "Bank charge", "FEE-1", amount, null, null, null, 1);
+
+    public static BankStatementReviewDto SampleReview(decimal matched, decimal ledgerSide, int unmatchedCount, bool addsUp)
+    {
+        var arithmetic = new BankStatementArithmeticDto(
+            1_000m, matched + 110m, addsUp ? 1_110m : 1_200m, 1_110m, matched,
+            110m - matched, unmatchedCount, ledgerSide, 110m, 1_110m, ledgerSide - matched,
+            addsUp, unmatchedCount == 0 && ledgerSide == matched && addsUp, 2, "Asia/Qatar");
+        return new BankStatementReviewDto(
+            new BankAccountDto(Guid.CreateVersion7(), "Operating", "****1234", null, "QAR",
+                Guid.CreateVersion7(), "1010", "Bank", true),
+            new BankStatementDetailDto(
+                new BankStatementImportDto(Guid.CreateVersion7(), Guid.CreateVersion7(), "statement.csv",
+                    new DateOnly(2026, 3, 31), 1_000m, 1_110m, 2, DateTimeOffset.UtcNow,
+                    BankReconciliationState.Open, 2, null, null, "Amina", "digest"),
+                [SampleLine(-15m)]),
+            arithmetic,
+            [new BankStatementLineReviewDto(Guid.NewGuid(), 1, [])],
+            [],
+            "March 2026",
+            false);
+    }
+
+    public Task<IReadOnlyList<BankAccountDto>> GetAccountsAsync(CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<BankAccountDto>>([]);
+    }
+
+    public Task<BankAccountDto> CreateAccountAsync(CreateBankAccountRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(new BankAccountDto(Guid.CreateVersion7(), request.Name, request.AccountNumberMasked, null,
+            request.Currency, request.LedgerAccountId, "1010", "Bank", true));
+    }
+
+    public Task<BankStatementDetailDto> ImportStatementAsync(Guid bankAccountId, string fileName, DateOnly statementDate,
+        decimal openingBalance, decimal closingBalance, ReadOnlyMemory<byte> csv, string idempotencyKey,
+        CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleReview(0m, 0m, 1, true).Statement);
+    }
+
+    public Task<BankStatementDetailDto> GetStatementAsync(Guid importId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(SampleReview(0m, 0m, 1, true).Statement);
+    }
+
+    public Task<IReadOnlyList<BankStatementImportDto>> ListStatementsAsync(Guid bankAccountId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult<IReadOnlyList<BankStatementImportDto>>([]);
+    }
+
+    public Task<BankStatementReviewDto> GetReviewAsync(Guid importId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(SampleReview(0m, 0m, 1, true));
+    }
+
+    public Task<BankStatementLineDto> MatchLineAsync(Guid lineId, MatchStatementLineRequest request, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleLine(125m));
+    }
+
+    public Task<BankStatementLineDto> UnmatchLineAsync(Guid lineId, UnmatchStatementLineRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleLine(125m));
+    }
+
+    public Task<BankStatementDetailDto> RecordMovementAsync(Guid lineId, RecordStatementMovementRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleReview(110m, 110m, 0, true).Statement);
+    }
+
+    public Task<BankStatementDetailDto> FinaliseStatementAsync(Guid importId, FinaliseStatementRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleReview(110m, 110m, 0, true).Statement);
+    }
+
+    public Task<BankStatementDetailDto> ReopenStatementAsync(Guid importId, ReopenStatementRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        WriteCalls++;
+        return Task.FromResult(SampleReview(110m, 110m, 0, true).Statement);
+    }
+}
+
 internal sealed class StubPurchasingApiClient(Guid branchId, Guid orderId) : IPurchasingApiClient
 {
     /// <summary>How often a screen asked for a read, so a prerender that loads is visible as a failure.</summary>

@@ -258,6 +258,16 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // Bank reconciliation (specification task 31): the review screen is a shared page this terminal routes too,
+        // so an accountant reconciling a statement on a counter talks to the same contract as the browser.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Banking.IBankingApiClient, QtsBilling.Contracts.Banking.BankingApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Sync.ISyncApiClient, QtsBilling.Contracts.Sync.SyncApiClient>((services, client) =>
             {
