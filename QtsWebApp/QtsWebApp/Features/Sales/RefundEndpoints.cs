@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Claims;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
@@ -34,6 +35,7 @@ public static class RefundEndpoints
         group.MapPost("/{id:guid}/refund", RefundAsync).RequireAuthorization(Permissions.SalesRefund);
         group.MapGet("/{id:guid}/refund", GetAsync).RequireAuthorization(Permissions.SalesPost);
         group.MapGet("/{id:guid}/refunds", GetAllAsync).RequireAuthorization(Permissions.SalesPost);
+        group.MapGet("/{id:guid}/refund-position", PositionAsync).RequireAuthorization(Permissions.SalesPost);
 
         return app;
     }
@@ -267,6 +269,17 @@ public static class RefundEndpoints
                 {
                     throw InvalidRefundLine("The requested refund exceeds the remaining sale amount.");
                 }
+
+                // The money has to come out of a drawer that holds it. The session is already locked for update,
+                // so this is the same derived figure the register workbench shows, judged before anything is
+                // written (specification D07, task 21 recipe step 4: insufficient drawer cash is an outcome).
+                await CashDrawerGuards.EnsureCashCoversAsync(
+                    db,
+                    businessId,
+                    session,
+                    refundAmount,
+                    $"refund of {refundAmount.ToString(CultureInfo.InvariantCulture)} for sale {saleEntity.SaleNumber}",
+                    cancellationToken).ConfigureAwait(false);
 
                 var accounts = await LedgerWriter.ResolveAccountsAsync(
                     db,
@@ -551,6 +564,222 @@ public static class RefundEndpoints
 
         return Results.Ok(results);
     }
+
+    /// <summary>
+    /// What the server still allows to be refunded on one sale (specification task 21, recipe step 2): the sold and
+    /// already-refunded quantities, the money left on each line at the original snapshots and cost, whether a
+    /// register refund is possible at all and why not, and the drawers of that branch that could pay it with the
+    /// cash the server can prove they hold. A screen shows these figures as limits; its own totals are previews.
+    /// </summary>
+    private static async Task<IResult> PositionAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        var sale = await db.Sales.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.BusinessId == businessId && candidate.Id == id, cancellationToken)
+            .ConfigureAwait(false);
+
+        if (sale is null)
+        {
+            return ApiResults.Problem(StatusCodes.Status404NotFound, ApiErrorCodes.NotFound, "The sale does not exist in this business.");
+        }
+
+        var business = await db.Businesses.AsNoTracking()
+            .FirstOrDefaultAsync(candidate => candidate.Id == businessId, cancellationToken)
+            .ConfigureAwait(false);
+
+        var saleLines = await db.SaleLines.AsNoTracking()
+            .Where(line => line.BusinessId == businessId && line.SaleId == id)
+            .OrderBy(line => line.LineNo)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var priorLines = await (from refundLine in db.RefundLines.AsNoTracking()
+            join priorRefund in db.Refunds.AsNoTracking()
+                on new { refundLine.RefundId, refundLine.BusinessId } equals new { RefundId = priorRefund.Id, priorRefund.BusinessId }
+            where priorRefund.BusinessId == businessId && priorRefund.SaleId == id
+            select new PriorRefundLine(refundLine.SaleLineId, refundLine.Quantity, refundLine.TaxAmount, refundLine.LineTotal))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var refundedByLine = priorLines.GroupBy(line => line.SaleLineId)
+            .ToDictionary(group => group.Key, group => new PriorLineTotals(
+                group.Sum(line => line.Quantity),
+                group.Sum(line => line.TaxAmount),
+                group.Sum(line => line.LineTotal)));
+
+        // Only the lines that actually took stock can give it back, and the workbench has to say which is which
+        // before an operator chooses a disposition (task 21, recipe step 2).
+        var lineIds = saleLines.Select(line => line.Id).ToArray();
+        var stockedLineIds = await db.InventoryMovements.AsNoTracking()
+            .Where(movement => movement.BusinessId == businessId
+                && movement.MovementType == MovementType.Sale
+                && movement.ReferenceType == "sale_line"
+                && lineIds.Contains(movement.ReferenceId))
+            .Select(movement => movement.ReferenceId)
+            .Distinct()
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var stocked = stockedLineIds.ToHashSet();
+
+        var linePositions = new List<SaleRefundLinePositionDto>(saleLines.Count);
+
+        foreach (var line in saleLines)
+        {
+            var prior = refundedByLine.GetValueOrDefault(line.Id) ?? new PriorLineTotals(0m, 0m, 0m);
+            var remaining = LedgerWriter.Round(line.Quantity - prior.Quantity);
+            var remainingAmount = remaining <= 0m ? 0m : CalculateLineRefund(line, remaining, remaining, prior).LineTotal;
+
+            linePositions.Add(new SaleRefundLinePositionDto(
+                line.Id,
+                line.LineNo,
+                line.ProductNameSnapshot,
+                line.SkuSnapshot,
+                line.Quantity,
+                prior.Quantity,
+                remaining,
+                line.UnitPrice,
+                line.DiscountAmount,
+                line.TaxRate,
+                line.TaxAmount,
+                line.LineTotal,
+                remainingAmount,
+                line.UnitCostSnapshot,
+                stocked.Contains(line.Id),
+                SalePosting.EffectiveTaxMode(line)));
+        }
+
+        var refundedAmount = LedgerWriter.Round(priorLines.Sum(line => line.LineTotal));
+        var remainingRefundable = LedgerWriter.Round(sale.TotalAmount - refundedAmount);
+
+        var payments = await db.Payments.AsNoTracking()
+            .Where(payment => payment.BusinessId == businessId && payment.SaleId == id)
+            .OrderBy(payment => payment.ReceivedAtUtc)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+        var payment = payments.Count == 1 ? payments[0] : null;
+
+        // Every register of the branch is listed, with the cash its open drawer can be proved to hold: where the
+        // money is, and whether it is enough, is the operator's question (requirement R07).
+        var registers = await db.CashRegisters.AsNoTracking()
+            .Where(register => register.BusinessId == businessId && register.LocationId == sale.LocationId)
+            .OrderBy(register => register.Name)
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var registerIds = registers.Select(register => register.Id).ToArray();
+
+        var openSessions = await db.CashRegisterSessions.AsNoTracking()
+            .Where(session => session.BusinessId == businessId
+                && session.Status == CashRegisterSessionStatus.Open
+                && registerIds.Contains(session.CashRegisterId))
+            .ToListAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        var drawers = new List<RefundDrawerOptionDto>(registers.Count);
+
+        foreach (var register in registers)
+        {
+            var session = openSessions.FirstOrDefault(candidate => candidate.CashRegisterId == register.Id);
+
+            if (session is null)
+            {
+                drawers.Add(new RefundDrawerOptionDto(
+                    register.Id,
+                    register.Name,
+                    null,
+                    null,
+                    null,
+                    business?.BaseCurrency ?? sale.Currency,
+                    register.IsActive ? "No open drawer" : "Retired register"));
+                continue;
+            }
+
+            var expected = await CashDrawerGuards.ExpectedCashAsync(db, businessId, session, cancellationToken)
+                .ConfigureAwait(false);
+
+            drawers.Add(new RefundDrawerOptionDto(
+                register.Id,
+                register.Name,
+                session.Id,
+                expected,
+                LedgerWriter.Round(Math.Min(expected, remainingRefundable)),
+                session.Currency,
+                !register.IsActive
+                    ? "Retired register with an open drawer"
+                    : expected > 0m
+                        ? "Open drawer holding " + Format(expected)
+                        : "Open drawer holding no cash"));
+        }
+
+        // The same verdicts the refund path itself will reach, stated before anybody promises money (task 21,
+        // recipe steps 2 and 4).
+        string? refusalCode = null;
+        string? refusalReason = null;
+
+        if (sale.Status != SaleStatus.Posted)
+        {
+            refusalCode = ApiErrorCodes.AlreadyRefunded;
+            refusalReason = "This sale is " + sale.Status + ", so nothing more can be refunded against it.";
+        }
+        else if (payment is null || payment.Method != PaymentMethod.Cash)
+        {
+            refusalCode = ApiErrorCodes.RefundNotSupported;
+            refusalReason = payments.Count != 1
+                ? "A register refund needs exactly one payment row on the sale; this sale has " + payments.Count
+                    + ", so the money is reconciled through the invoice workflow instead."
+                : "This sale was taken as " + payments[0].Method + ". A register refund pays cash back out of a "
+                    + "drawer; card or transfer money is returned through the invoice workflow (QB-11).";
+        }
+        else if (payment.Status != QtsBilling.Persistence.Postgres.PaymentStatus.Confirmed)
+        {
+            refusalCode = ApiErrorCodes.PaymentUnconfirmed;
+            refusalReason = "The payment on this sale is " + payment.Status + ", not confirmed cash. Nothing has been "
+                + "collected that could be paid back, so the attempt has to be resolved first.";
+        }
+        else if (remainingRefundable <= 0m || linePositions.All(line => line.RemainingQuantity <= 0m))
+        {
+            refusalCode = ApiErrorCodes.AlreadyRefunded;
+            refusalReason = "The whole sale has been refunded: " + Format(refundedAmount) + " of "
+                + Format(sale.TotalAmount) + " is already back.";
+        }
+        else if (drawers.All(drawer => drawer.OpenSessionId is null))
+        {
+            refusalCode = ApiErrorCodes.CashRegisterNotOpen;
+            refusalReason = "No register of this branch has an open drawer, so there is no accounted till to pay "
+                + "the cash out of. Open a drawer on the register workbench first.";
+        }
+
+        // Whether one particular drawer holds enough cash is answered per drawer above (AvailableForRefund) and
+        // authoritatively at commit with INSUFFICIENT_DRAWER_CASH: the branch may have several open tills, so the
+        // position never declares the whole sale unrefundable because one of them is short.
+
+        return Results.Ok(new SaleRefundPositionDto(
+            sale.Id,
+            sale.SaleNumber,
+            sale.Status.ToString(),
+            sale.Currency,
+            sale.TotalAmount,
+            sale.TaxAmount,
+            refundedAmount,
+            remainingRefundable,
+            payment?.Method.ToString() ?? (payments.Count == 0 ? "None" : "Several"),
+            payment?.Status.ToString() ?? (payments.Count == 0 ? "None" : "Several"),
+            RefundableAtRegister: refusalCode is null,
+            refusalCode,
+            refusalReason,
+            linePositions,
+            drawers));
+    }
+
+    private static string Format(decimal value) => value.ToString("0.####", CultureInfo.InvariantCulture);
 
     private static Dictionary<string, string[]> ValidatePayload(RefundSaleRequest request)
     {

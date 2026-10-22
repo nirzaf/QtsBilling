@@ -298,6 +298,8 @@ public static class SaleEndpoints
         DateTimeOffset? from,
         DateTimeOffset? to,
         Guid? locationId,
+        Guid? customerId,
+        string? search,
         string? cursor,
         int? pageSize,
         CancellationToken cancellationToken)
@@ -308,6 +310,15 @@ public static class SaleEndpoints
         }
 
         var size = Math.Clamp(pageSize ?? 25, 1, 200);
+
+        // The instant a sale is read by belongs to the business, not to the machine answering (finding F21), so the
+        // list shows the business-local reading beside the committed instant.
+        var timeZone = await db.Businesses.AsNoTracking()
+            .Where(business => business.Id == businessId)
+            .Select(business => business.TimeZone)
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
         var query = db.Sales.AsNoTracking().Where(sale => sale.BusinessId == businessId);
 
         if (from is { } start)
@@ -325,6 +336,20 @@ public static class SaleEndpoints
             query = query.Where(sale => sale.LocationId == location);
         }
 
+        // A customer reaches this filter as the record the operator chose by name, and a sale number is what a till
+        // roll shows - both are bounded searches, never a scan of the first page in the browser
+        // (specification task 21, recipe step 1; requirement R07).
+        if (customerId is { } customer)
+        {
+            query = query.Where(sale => sale.CustomerId == customer);
+        }
+
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var pattern = LikePattern.Contains(search.Trim());
+            query = query.Where(sale => EF.Functions.ILike(sale.SaleNumber, pattern));
+        }
+
         if (CursorPaging.TryDecode(cursor, out var cursorId))
         {
             query = query.Where(sale => sale.Id.CompareTo(cursorId) < 0);
@@ -333,17 +358,49 @@ public static class SaleEndpoints
         var rows = await query
             .OrderByDescending(sale => sale.Id)
             .Take(size + 1)
-            .Select(sale => new SaleSummaryRow(
+            .Select(sale => new SaleHistoryRow(
                 sale.Id,
                 sale.SaleNumber,
                 sale.Status,
+                sale.PaymentStatus,
                 sale.LocationId,
                 sale.CustomerId,
                 sale.Currency,
                 sale.TotalAmount,
                 sale.TaxAmount,
-                sale.PaymentStatus,
-                sale.PostedAtUtc))
+                sale.PostedAtUtc,
+                sale.Note,
+                db.BusinessLocations
+                    .Where(candidate => candidate.BusinessId == businessId && candidate.Id == sale.LocationId)
+                    .Select(candidate => candidate.Name)
+                    .FirstOrDefault(),
+                sale.CustomerId == null
+                    ? null
+                    : db.Customers
+                        .Where(candidate => candidate.BusinessId == businessId && candidate.Id == sale.CustomerId)
+                        .Select(candidate => candidate.Name)
+                        .FirstOrDefault(),
+                db.Payments
+                    .Where(payment => payment.BusinessId == businessId && payment.SaleId == sale.Id)
+                    .OrderBy(payment => payment.ReceivedAtUtc)
+                    .Select(payment => payment.Method)
+                    .FirstOrDefault(),
+                db.Payments
+                    .Where(payment => payment.BusinessId == businessId && payment.SaleId == sale.Id)
+                    .OrderBy(payment => payment.ReceivedAtUtc)
+                    .Select(payment => payment.Status)
+                    .FirstOrDefault(),
+                sale.PostedByUserId == null
+                    ? null
+                    : db.Users
+                        .Where(user => user.Id == sale.PostedByUserId)
+                        .Select(user => user.DisplayName)
+                        .FirstOrDefault(),
+                db.Refunds.Count(refund => refund.BusinessId == businessId && refund.SaleId == sale.Id),
+                db.Refunds
+                    .Where(refund => refund.BusinessId == businessId && refund.SaleId == sale.Id)
+                    .Select(refund => refund.Amount)
+                    .Sum()))
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
@@ -355,18 +412,32 @@ public static class SaleEndpoints
             nextCursor = CursorPaging.Encode(rows[^1].Id);
         }
 
+        // The enums are bridged in memory because they are stored as text (specification D09): a cast inside the
+        // projection would make EF compare a text column to an integer.
         var page = rows
-            .Select(row => new SaleCaptureResult(
+            .Select(row => new SaleHistoryDto(
                 row.Id,
                 row.SaleNumber,
+                EnumBridge.To<SaleState>(row.Status),
+                // The payment row is what the money actually is: a capture the server recorded but never confirmed
+                // stays pending here rather than being presented through the sale's own settled status.
+                EnumBridge.To<QtsBilling.Contracts.Sales.PaymentStatus>(row.PaymentRowStatus ?? row.PaymentStatus),
+                row.PaymentMethod is { } method ? method.ToString() : "None",
+                row.LocationId,
+                row.LocationName ?? "(this branch is no longer listed)",
+                row.CustomerId,
+                row.CustomerName,
                 row.Currency,
                 row.TotalAmount,
                 row.TaxAmount,
+                row.RefundedAmount,
+                row.RefundCount,
                 row.PostedAtUtc,
-                Provisional: false))
+                FormatLocal(timeZone, row.PostedAtUtc),
+                row.CashierName))
             .ToList();
 
-        return Results.Ok(new PagedResult<SaleCaptureResult>(page, nextCursor, size));
+        return Results.Ok(new PagedResult<SaleHistoryDto>(page, nextCursor, size));
     }
 
 
@@ -615,15 +686,23 @@ public static class SaleEndpoints
     // ---------------------------------------------------------------- local shapes
 
 
-    private sealed record SaleSummaryRow(
+    private sealed record SaleHistoryRow(
         Guid Id,
         string SaleNumber,
         SaleStatus Status,
+        QtsBilling.Persistence.Postgres.PaymentStatus PaymentStatus,
         Guid LocationId,
         Guid? CustomerId,
         string Currency,
         decimal TotalAmount,
         decimal TaxAmount,
-        QtsBilling.Persistence.Postgres.PaymentStatus PaymentStatus,
-        DateTimeOffset PostedAtUtc);
+        DateTimeOffset PostedAtUtc,
+        string? Note,
+        string? LocationName,
+        string? CustomerName,
+        PaymentMethod? PaymentMethod,
+        QtsBilling.Persistence.Postgres.PaymentStatus? PaymentRowStatus,
+        string? CashierName,
+        int RefundCount,
+        decimal RefundedAmount);
 }

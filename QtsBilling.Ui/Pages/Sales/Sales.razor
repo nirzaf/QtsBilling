@@ -1,0 +1,155 @@
+@page "/sales"
+@namespace QtsBilling.Ui.Pages.Sales
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Inventory
+@using QtsBilling.Contracts.Sales
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Layout
+@using QtsBilling.Ui.Models
+
+<PageTitle>Sales history - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Sales</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @_businessContext Every row below is a sale the server committed, with the payment state it holds.
+        </MudText>
+    </div>
+    <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="ReloadAsync" Disabled="@_list.IsBusy">
+        Reload
+    </MudButton>
+</MudStack>
+
+@*
+    What this list is and is not (specification task 21, recipe step 1): it is the server's posted sales, bounded by
+    number, date, branch and customer; it is never a device's provisional capture, and a payment the server has not
+    confirmed is shown as unconfirmed money rather than as cash in a till.
+*@
+<MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-4">
+    A sale listed here was written by the server in one transaction with its lines, its payment, its stock movement
+    and its journal. Money a terminal captured but never settled is not in this list - it stays a recovery case on
+    that terminal until the server accepts it. Open a sale to reprint its receipt, see what has already been paid
+    back and refund what is left.
+</MudAlert>
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="ReloadAsync">
+    <MudPaper Class="pa-4 mb-4" Elevation="2">
+        <MudGrid Spacing="2">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" Label="Sale number" Value="@_search" ValueChanged="SearchChangedAsync"
+                              Immediate="true" DebounceInterval="350" OnDebounceIntervalElapsed="SearchChangedAsync"
+                              Clearable="true" Variant="Variant.Outlined" Margin="Margin.Dense"
+                              Adornment="Adornment.Start" AdornmentIcon="@Icons.Material.Filled.Search"
+                              aria-label="Sale number" />
+                <MudText Typo="Typo.caption" Color="Color.Secondary">@SearchHelpText</MudText>
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudSelect T="Guid?" Label="Branch" Value="@_locationFilter" ValueChanged="LocationChangedAsync"
+                           Variant="Variant.Outlined" Margin="Margin.Dense" Clearable="true"
+                           aria-label="Branch">
+                    <MudSelectItem T="Guid?" Value="@((Guid?)null)">Every branch I may reach</MudSelectItem>
+                    @foreach (var location in _locations)
+                    {
+                        <MudSelectItem T="Guid?" Value="@((Guid?)location.Id)">@location.Name</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <ReferenceSelector Label="Customer (search by name)"
+                                   Value="@_customer"
+                                   ValueChanged="CustomerChangedAsync"
+                                   Search="SearchCustomersAsync"
+                                   HelpText="Chosen from the server's customer list - a customer id is never typed here." />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudDatePicker Date="_fromDay" DateChanged="FromDayChangedAsync" Label="@($"From ({DateZoneNote})")"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" sm="6" md="4">
+                <MudDatePicker Date="_toDay" DateChanged="ToDayChangedAsync" Label="@($"To ({DateZoneNote})")"
+                               Variant="Variant.Outlined" Margin="Margin.Dense" />
+            </MudItem>
+            <MudItem xs="12" md="4">
+                <MudStack Row="true" Spacing="1" Class="pt-2">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ClearFiltersAsync">Clear filters</MudButton>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="pt-2">
+                        @(_customer is null ? "Any customer" : $"Only sales of {_customer.Name}")
+                    </MudText>
+                </MudStack>
+            </MudItem>
+        </MudGrid>
+    </MudPaper>
+
+    <MudPaper Class="pa-4" Elevation="2">
+        <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+            <MudText Typo="Typo.h6">Posted sales</MudText>
+            <MudStack Row="true" Spacing="1">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoPrevious)">Previous</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextPageAsync"
+                           Disabled="@(_list.IsBusy || !_list.CanGoNext)">Next</MudButton>
+            </MudStack>
+        </MudStack>
+
+        <MudTable Items="_list.Rows" Dense="true" Hover="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                  aria-label="Posted sales">
+            <HeaderContent>
+                <MudTh>Sale</MudTh>
+                <MudTh>Posted (@(DateZoneNote))</MudTh>
+                <MudTh>Branch</MudTh>
+                <MudTh>Customer</MudTh>
+                <MudTh>Total</MudTh>
+                <MudTh>Tax</MudTh>
+                <MudTh>Paid</MudTh>
+                <MudTh>State</MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Sale">
+                    <MudLink Href="@($"/sales/{context.SaleId}")" Underline="Underline.Hover">@context.SaleNumber</MudLink>
+                </MudTd>
+                <MudTd DataLabel="Posted">@context.PostedAtLocal</MudTd>
+                <MudTd DataLabel="Branch">@context.LocationName</MudTd>
+                <MudTd DataLabel="Customer">@(context.CustomerName ?? "Counter sale")</MudTd>
+                <MudTd DataLabel="Total">@SalesRules.MoneyText(context.TotalAmount, context.Currency)</MudTd>
+                <MudTd DataLabel="Tax">@SalesRules.MoneyText(context.TaxAmount, context.Currency)</MudTd>
+                <MudTd DataLabel="Paid">
+                    @(context.PaymentStatus == PaymentStatus.Confirmed
+                        ? SalesRules.MoneyText(context.TotalAmount, context.Currency)
+                        : "-")
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">@context.PaymentMethod</MudText>
+                </MudTd>
+                <MudTd DataLabel="State">
+                    <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                             Color="@(SalesRules.IsUncollected(context) ? Color.Warning : context.RefundCount > 0 ? Color.Secondary : Color.Success)">
+                        @SalesRules.StateText(context)
+                    </MudChip>
+                    @if (context.RefundedAmount > 0m)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @SalesRules.MoneyText(context.RefundedAmount, context.Currency) back
+                        </MudText>
+                    }
+                </MudTd>
+            </RowTemplate>
+            <NoRecordsContent>
+                <MudText Typo="Typo.body2" Class="pa-4">No sale matches these filters.</MudText>
+            </NoRecordsContent>
+        </MudTable>
+
+        @if (_list.Message is { Length: > 0 } listMessage)
+        {
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mt-2">@listMessage</MudText>
+        }
+    </MudPaper>
+</ShellStates>
+
+@code {
+    private string SearchHelpText => SalesRules.SearchHelp(PageSize);
+}

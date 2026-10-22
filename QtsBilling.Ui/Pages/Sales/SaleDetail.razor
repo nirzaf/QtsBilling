@@ -1,0 +1,377 @@
+@page "/sales/{SaleId:guid}"
+@namespace QtsBilling.Ui.Pages.Sales
+@using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Clients
+@using QtsBilling.Contracts.Sales
+@using QtsBilling.Ui.Layout
+
+<PageTitle>Sale @SaleNumber - QTS Billing</PageTitle>
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-4">
+    <div>
+        <MudText Typo="Typo.h3">Sale @SaleNumber</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">
+            @SummaryLine
+        </MudText>
+    </div>
+    <MudStack Row="true" Spacing="1">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.ArrowBack"
+                   Href="@SalesRoute">Back to sales</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="LoadAsync" Disabled="@_busy">Reload</MudButton>
+    </MudStack>
+</MudStack>
+
+@if (_committed is not null)
+{
+    <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3">@_committed</MudAlert>
+}
+
+@if (_problem is not null)
+{
+    <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">@_problem</MudAlert>
+}
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync">
+    @if (_sale is { } sale)
+    {
+        @*
+            The money as the server wrote it (specification task 21, recipe step 4): a reprint and a refund both
+            read these snapshots, so a later price, tax or rename changes nothing here.
+        *@
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">As posted</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="@StateColor">
+                    @StateSentence
+                </MudChip>
+            </MudStack>
+
+            <MudGrid Spacing="1" Class="mt-2">
+                <MudItem xs="6" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Subtotal</MudText>
+                    <MudText Typo="Typo.body2">@SalesRules.MoneyText(sale.SubtotalAmount, sale.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Discount</MudText>
+                    <MudText Typo="Typo.body2">@SalesRules.MoneyText(sale.DiscountAmount, sale.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Tax</MudText>
+                    <MudText Typo="Typo.body2">@SalesRules.MoneyText(sale.TaxAmount, sale.Currency)</MudText>
+                </MudItem>
+                <MudItem xs="6" md="3">
+                    <MudText Typo="Typo.caption" Color="Color.Secondary">Total</MudText>
+                    <MudText Typo="Typo.body2">@SalesRules.MoneyText(sale.TotalAmount, sale.Currency)</MudText>
+                </MudItem>
+            </MudGrid>
+
+            @if (sale.Note is { Length: > 0 } note)
+            {
+                <MudText Typo="Typo.body2" Class="mt-2">Note on the sale: @note</MudText>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Lines, as the sale recorded them</MudText>
+            <MudTable Items="sale.Lines" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Sale lines">
+                <HeaderContent>
+                    <MudTh>#</MudTh>
+                    <MudTh>Item</MudTh>
+                    <MudTh>Quantity</MudTh>
+                    <MudTh>Unit price</MudTh>
+                    <MudTh>Discount</MudTh>
+                    <MudTh>Tax</MudTh>
+                    <MudTh>Line total</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="#">@context.LineNo</MudTd>
+                    <MudTd DataLabel="Item">
+                        @context.ProductNameSnapshot
+                        @if (context.SkuSnapshot is { Length: > 0 } sku)
+                        {
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@sku</MudText>
+                        }
+                    </MudTd>
+                    <MudTd DataLabel="Quantity">@context.Quantity.ToString("0.####")</MudTd>
+                    <MudTd DataLabel="Unit price">@SalesRules.MoneyText(context.UnitPrice, sale.Currency)</MudTd>
+                    <MudTd DataLabel="Discount">@SalesRules.MoneyText(context.DiscountAmount, sale.Currency)</MudTd>
+                    <MudTd DataLabel="Tax">
+                        @SalesRules.MoneyText(context.TaxAmount, sale.Currency)
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@context.TaxMode of @TaxRateText(context.TaxRate)</MudText>
+                    </MudTd>
+                    <MudTd DataLabel="Line total">@SalesRules.MoneyText(context.LineTotal, sale.Currency)</MudTd>
+                </RowTemplate>
+            </MudTable>
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudText Typo="Typo.h6" Class="mb-2">Payment</MudText>
+            <MudTable Items="sale.Payments" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm" aria-label="Payments on this sale">
+                <HeaderContent>
+                    <MudTh>Method</MudTh>
+                    <MudTh>State</MudTh>
+                    <MudTh>Amount</MudTh>
+                    <MudTh>Cash given</MudTh>
+                    <MudTh>Change</MudTh>
+                    <MudTh>Reference</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="Method">@context.Method</MudTd>
+                    <MudTd DataLabel="State">
+                        <MudChip T="string" Size="Size.Small" Variant="Variant.Text"
+                                 Color="@(context.Status == PaymentStatus.Confirmed ? Color.Success : Color.Warning)">
+                            @PaymentStateText(context.Status)
+                        </MudChip>
+                    </MudTd>
+                    <MudTd DataLabel="Amount">@SalesRules.MoneyText(context.Amount, context.Currency)</MudTd>
+                    <MudTd DataLabel="Cash given">@(context.CashReceived is { } received ? SalesRules.MoneyText(received, context.Currency) : "-")</MudTd>
+                    <MudTd DataLabel="Change">@(ChangeOf(context) is { } change ? SalesRules.MoneyText(change, context.Currency) : "-")</MudTd>
+                    <MudTd DataLabel="Reference">@(context.Reference ?? "-")</MudTd>
+                </RowTemplate>
+            </MudTable>
+
+            @if (Uncollected)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Warning" Class="mt-2" role="alert">
+                    @UncollectedNote
+                </MudText>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Receipt reprint</MudText>
+                <MudChip T="string" Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary">COPY</MudChip>
+            </MudStack>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                @ReprintSentence
+            </MudText>
+
+            @if (_receipt is { } receipt)
+            {
+                <MudSimpleTable Dense="true" aria-label="Reprinted receipt">
+                    <tbody>
+                        <tr><td>@receipt.BusinessName</td><td>@receipt.SaleNumber</td></tr>
+                        <tr><td>@receipt.LocationName</td><td>@receipt.PostedAtLocal</td></tr>
+                        <tr><td>Cashier</td><td>@(receipt.CashierName ?? "not recorded")</td></tr>
+                        <tr><td>Register</td><td>@(receipt.RegisterName ?? "not recorded")</td></tr>
+                        @foreach (var line in receipt.Lines)
+                        {
+                            <tr>
+                                <td>@($"{line.LineNo}. {line.ProductName} x {line.Quantity.ToString("0.####")}")</td>
+                                <td>@SalesRules.MoneyText(line.LineTotal, receipt.Currency)</td>
+                            </tr>
+                        }
+                        <tr><td>Discount</td><td>@SalesRules.MoneyText(receipt.DiscountAmount, receipt.Currency)</td></tr>
+                        <tr><td>Tax</td><td>@SalesRules.MoneyText(receipt.TaxAmount, receipt.Currency)</td></tr>
+                        <tr><td>Total</td><td>@SalesRules.MoneyText(receipt.TotalAmount, receipt.Currency)</td></tr>
+                        @foreach (var payment in receipt.Payments)
+                        {
+                            <tr>
+                                <td>@payment.Method (@payment.Status)</td>
+                                <td>@SalesRules.MoneyText(payment.Amount, receipt.Currency)</td>
+                            </tr>
+                        }
+                    </tbody>
+                </MudSimpleTable>
+            }
+            else
+            {
+                <MudText Typo="Typo.body2" Color="Color.Error" role="alert">@_receiptProblem</MudText>
+            }
+        </MudPaper>
+
+        <MudPaper Class="pa-4 mb-4" Elevation="2">
+            <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap">
+                <MudText Typo="Typo.h6">Refunded so far</MudText>
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@RefundTotalsSentence</MudText>
+            </MudStack>
+
+            @if (_refunds.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-2">
+                    Nothing has been paid back on this sale.
+                </MudText>
+            }
+            else
+            {
+                <MudTable Items="_refunds" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                          aria-label="Refunds on this sale" Class="mt-2">
+                    <HeaderContent>
+                        <MudTh>Refund</MudTh>
+                        <MudTh>Posted (UTC)</MudTh>
+                        <MudTh>Amount</MudTh>
+                        <MudTh>Lines and disposition</MudTh>
+                        <MudTh>Reason</MudTh>
+                        <MudTh>Journal</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Refund">@context.RefundNumber</MudTd>
+                        <MudTd DataLabel="Posted">@context.PostedAtUtc.ToString("yyyy-MM-dd HH:mm")</MudTd>
+                        <MudTd DataLabel="Amount">@SalesRules.MoneyText(context.Amount, context.Currency)</MudTd>
+                        <MudTd DataLabel="Lines and disposition">
+                            @foreach (var line in context.Lines)
+                            {
+                                <MudText Typo="Typo.caption">
+                                    @($"{line.LineNo}. {line.ProductName} x {line.Quantity.ToString("0.####")} - {line.Disposition}")
+                                </MudText>
+                            }
+                        </MudTd>
+                        <MudTd DataLabel="Reason">@context.Reason</MudTd>
+                        <MudTd DataLabel="Journal">@(context.JournalEntryNumber ?? "-")</MudTd>
+                    </RowTemplate>
+                </MudTable>
+            }
+        </MudPaper>
+
+        @if (_position is { } position)
+        {
+            <MudPaper Class="pa-4" Elevation="2">
+                <MudText Typo="Typo.h6" Class="mb-2">What the server still allows back</MudText>
+
+                @if (!position.RefundableAtRegister)
+                {
+                    <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert">
+                        @position.RefusalReason @(position.RefusalCode is { Length: > 0 } code ? $"({code})" : string.Empty)
+                    </MudAlert>
+                }
+
+                <MudTable Items="position.Lines" Dense="true" Striped="true" Breakpoint="Breakpoint.Sm"
+                          aria-label="Remaining refundable quantity per line">
+                    <HeaderContent>
+                        <MudTh>#</MudTh>
+                        <MudTh>Item</MudTh>
+                        <MudTh>Sold</MudTh>
+                        <MudTh>Back</MudTh>
+                        <MudTh>Left</MudTh>
+                        <MudTh>Worth</MudTh>
+                        <MudTh>Cost each</MudTh>
+                        <MudTh>Refund quantity</MudTh>
+                        <MudTh>Disposition</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="#">@context.LineNo</MudTd>
+                        <MudTd DataLabel="Item">@context.ProductName</MudTd>
+                        <MudTd DataLabel="Sold">@SalesRules.Money(context.SoldQuantity)</MudTd>
+                        <MudTd DataLabel="Back">@SalesRules.Money(context.RefundedQuantity)</MudTd>
+                        <MudTd DataLabel="Left">@SalesRules.Money(context.RemainingQuantity)</MudTd>
+                        <MudTd DataLabel="Worth">@SalesRules.MoneyText(context.RemainingAmount, position.Currency)</MudTd>
+                        <MudTd DataLabel="Cost each">@CostText(context)</MudTd>
+                        <MudTd DataLabel="Refund quantity">
+                            <MudNumericField T="decimal" Value="@QuantityFor(context)"
+                                             ValueChanged="@(value => SetQuantityAsync(context, value))"
+                                             Min="0m" Max="@context.RemainingQuantity" Step="0.001m"
+                                             Variant="Variant.Outlined" Margin="Margin.Dense"
+                                             Disabled="@(_refundUnresolved || _busy || !_canRefund)"
+                                             aria-label="@($"Quantity to refund on line {context.LineNo}")" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @SalesRules.QuantitySentence(context, position.Currency)
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Disposition">
+                            <MudSelect T="RefundDisposition" Value="@DispositionFor(context)"
+                                       ValueChanged="@(value => SetDispositionAsync(context, value))"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Disabled="@(_refundUnresolved || _busy || !_canRefund || !context.MovedStock)"
+                                       aria-label="@($"Disposition for line {context.LineNo}")">
+                                <MudSelectItem T="RefundDisposition" Value="@RefundDisposition.Restock">Restock</MudSelectItem>
+                                <MudSelectItem T="RefundDisposition" Value="@RefundDisposition.DamagedWriteOff">Damaged - write off</MudSelectItem>
+                            </MudSelect>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @SalesRules.DispositionSentence(context, DispositionFor(context))
+                            </MudText>
+                        </MudTd>
+                    </RowTemplate>
+                </MudTable>
+
+                @if (_canRefund)
+                {
+                    <MudText Typo="Typo.body2" Class="mt-3">@PreviewSentence</MudText>
+
+                    <MudGrid Spacing="2" Class="mt-2">
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string" Value="@_reason" ValueChanged="@((string value) => _reason = value)"
+                                          Label="Reason for the refund" MaxLength="500"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Disabled="@(_refundUnresolved || _busy)" Required="true"
+                                          aria-label="Reason for the refund" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                Recorded on the refund, its audit event and the drawer movement. It cannot be changed afterwards.
+                            </MudText>
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudTextField T="string" Value="@_note" ValueChanged="@((string value) => _note = value)"
+                                          Label="Note (optional)" MaxLength="2000" Lines="2"
+                                          Variant="Variant.Outlined" Margin="Margin.Dense"
+                                          Disabled="@(_refundUnresolved || _busy)"
+                                          aria-label="Note on the refund" />
+                        </MudItem>
+                        <MudItem xs="12" md="6">
+                            <MudSelect T="Guid?" Label="Drawer that pays it out" Value="@_drawerId"
+                                       ValueChanged="@((Guid? value) => { _drawerId = value; return Task.CompletedTask; })"
+                                       Variant="Variant.Outlined" Margin="Margin.Dense"
+                                       Disabled="@(_refundUnresolved || _busy)">
+                                <MudSelectItem T="Guid?" Value="@((Guid?)null)">Choose a drawer</MudSelectItem>
+                                @foreach (var drawer in position.Drawers.Where(drawer => drawer.OpenSessionId is not null))
+                                {
+                                    <MudSelectItem T="Guid?" Value="@((Guid?)drawer.RegisterId)">
+                                        @(@$"{drawer.RegisterName} - {drawer.Status}")
+                                    </MudSelectItem>
+                                }
+                            </MudSelect>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                @SalesRules.DrawerRuleNote
+                                @foreach (var drawer in position.Drawers.Where(drawer => drawer.OpenSessionId is null))
+                                {
+                                    <br />
+                                    @(@$"{drawer.RegisterName}: {drawer.Status} - not offered.")
+                                }
+                            </MudText>
+                        </MudItem>
+                        <MudItem xs="12" md="6" Class="d-flex align-items-center">
+                            <MudSwitch T="bool" Value="@_payoutConfirmed"
+                                       ValueChanged="@((bool value) => { _payoutConfirmed = value; return Task.CompletedTask; })"
+                                       Color="Color.Primary" Disabled="@(_refundUnresolved || _busy)"
+                                       Label="I am handing over that cash now" aria-label="Cash payout confirmed" />
+                        </MudItem>
+                    </MudGrid>
+
+                    <MudText Typo="Typo.body2" Class="mt-2">@PayoutSentenceText</MudText>
+
+                    @if (_refundUnresolved)
+                    {
+                        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-3" role="alert">
+                            @SalesRules.UnresolvedRefundNote
+                        </MudAlert>
+                    }
+
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mt-3">
+                        <MudButton Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="SendRefundAsync"
+                                   Disabled="@(!CanSendRefund)">
+                            @RefundButtonLabel
+                        </MudButton>
+                        @if (_refundUnresolved)
+                        {
+                            <MudButton Variant="Variant.Outlined" OnClick="AbandonRefundAsync" Disabled="@_busy">
+                                Abandon this attempt and start a new one
+                            </MudButton>
+                        }
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@KeyHeldNote</MudText>
+                    </MudStack>
+                }
+                else
+                {
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-3" role="status">
+                        @RefundAuthorityNote
+                    </MudText>
+                }
+            </MudPaper>
+        }
+    }
+</ShellStates>
+
+@code {
+    private const string SalesRoute = "/sales";
+}

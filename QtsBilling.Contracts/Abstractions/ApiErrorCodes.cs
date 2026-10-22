@@ -32,6 +32,9 @@ public static class ApiErrorCodes
     public const string PaymentMethodDisabled = "PAYMENT_METHOD_DISABLED";
     public const string InvalidPrice = "INVALID_PRICE";
     public const string CashRegisterNotOpen = "CASH_REGISTER_NOT_OPEN";
+
+    /// <summary>The drawer would be asked to hand over more cash than its own movements show it holds.</summary>
+    public const string InsufficientDrawerCash = "INSUFFICIENT_DRAWER_CASH";
     public const string AlreadyRefunded = "ALREADY_REFUNDED";
     public const string RefundNotSupported = "REFUND_NOT_SUPPORTED";
     public const string AlreadyReversed = "ALREADY_REVERSED";

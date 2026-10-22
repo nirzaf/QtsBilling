@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Sales;
 using QtsBilling.Persistence.Postgres;
 using QtsBilling.Persistence.Postgres.Entities;
@@ -84,7 +85,9 @@ public sealed class PartialRefundTests : IClassFixture<PostgresApiFixture>
             Assert.Equal(SaleStatus.Posted, sale.Status);
             Assert.Equal(PaymentStatus.Confirmed, sale.PaymentStatus);
             Assert.Equal(1, await db.InventoryMovements.CountAsync(movement => movement.BusinessId == _fixture.BusinessA.BusinessId
-                && movement.ReferenceType == "refund_line" && movement.MovementType == MovementType.SaleReversal));
+                && movement.ReferenceType == "refund_line" && movement.MovementType == MovementType.SaleReversal
+                && db.RefundLines.Any(row => row.Id == movement.ReferenceId
+                    && db.Refunds.Any(refund => refund.SaleId == saleId && refund.Id == row.RefundId))));
         });
 
         var tooMuch = await RefundAsync(client, saleId, registerId, saleLineId, 0.7m, RefundDisposition.Restock);
@@ -111,11 +114,14 @@ public sealed class PartialRefundTests : IClassFixture<PostgresApiFixture>
             Assert.Equal(PaymentStatus.Refunded, sale.PaymentStatus);
             Assert.Equal(PaymentStatus.Refunded, payment.Status);
             Assert.Equal(2, await db.JournalEntries.CountAsync(entry => entry.BusinessId == _fixture.BusinessA.BusinessId
-                && entry.SourceType == JournalSourceType.Refund));
+                && entry.SourceType == JournalSourceType.Refund
+                && db.Refunds.Any(refund => refund.SaleId == saleId && refund.Id == entry.SourceId)));
             Assert.Equal(115m, await db.CashRegisterMovements.Where(movement => movement.BusinessId == _fixture.BusinessA.BusinessId
                 && movement.SaleId == saleId && movement.MovementType == CashMovementType.Refund).SumAsync(movement => movement.Amount));
             Assert.Equal(0.4m, await db.InventoryMovements.Where(movement => movement.BusinessId == _fixture.BusinessA.BusinessId
-                && movement.ReferenceType == "refund_line" && movement.MovementType == MovementType.SaleReversal).SumAsync(movement => movement.QuantityDelta));
+                && movement.ReferenceType == "refund_line" && movement.MovementType == MovementType.SaleReversal
+                && db.RefundLines.Any(row => row.Id == movement.ReferenceId
+                    && db.Refunds.Any(refund => refund.SaleId == saleId && refund.Id == row.RefundId))).SumAsync(movement => movement.QuantityDelta));
 
             var accountIds = await db.Accounts.AsNoTracking()
                 .Where(account => account.BusinessId == _fixture.BusinessA.BusinessId && (account.Code == "5200" || account.Code == "5000"))
@@ -130,6 +136,80 @@ public sealed class PartialRefundTests : IClassFixture<PostgresApiFixture>
             Assert.Equal(damagedLines.Single(line => line.AccountId == accountIds["5200"]).DebitAmount,
                 damagedLines.Single(line => line.AccountId == accountIds["5000"]).CreditAmount);
         });
+    }
+
+    [Fact]
+    public async Task A_refund_or_a_paid_out_the_drawer_cannot_cover_is_refused_and_commits_nothing()
+    {
+        // The edge task 21's recipe step 4 exposes: money may only leave a drawer that holds it. Expected cash is
+        // derived from the session's own movements (specification D07), so a refund bigger than that is refused
+        // before any row, journal or movement exists - and a counted shortage at close is never the substitute.
+        var client = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
+        var sales = new SaleApiClient(client);
+        var registers = new CashRegisterApiClient(client);
+        var registerId = await CreateOpenRegisterAsync(client);
+        var session = await registers.GetCurrentSessionAsync(registerId);
+        var sessionId = session.Session.Id;
+
+        var posted = await sales.PostSaleAsync(new SaleCaptureRequest(
+            _fixture.BusinessA.LocationId,
+            null,
+            "QAR",
+            [new SaleLineRequest(_fixture.BusinessA.VariantId, 1m, 100m, 0m, 0.15m, null)],
+            new PaymentCaptureRequest("Cash", 115m, 115m, null),
+            "drawer sufficiency test",
+            registerId), "sufficiency-sale-" + Guid.NewGuid().ToString("N"));
+
+        // 50 float + 115 cash in = 165. A paid-out of 140 is real money leaving, and it is allowed.
+        await registers.AddMovementAsync(registerId, sessionId, new CashMovementRequest("cashOut", 140m, "rent paid"),
+            "sufficiency-out-" + Guid.NewGuid().ToString("N"));
+        Assert.Equal(25m, (await registers.GetCurrentSessionAsync(registerId)).ExpectedCash);
+
+        // The refund of 115 now exceeds what the till holds: refused with its own code, and nothing is written.
+        var saleLineId = await _fixture.WithFreshContextAsync(async db => await db.SaleLines.AsNoTracking()
+            .Where(line => line.SaleId == posted.SaleId).Select(line => line.Id).SingleAsync());
+
+        var refused = await RefundAsync(client, posted.SaleId, registerId, saleLineId, 1m, RefundDisposition.Restock);
+        var refusedBody = await refused.Content.ReadAsStringAsync();
+        Assert.Equal(HttpStatusCode.Conflict, refused.StatusCode);
+        Assert.Contains(ApiErrorCodes.InsufficientDrawerCash, refusedBody, StringComparison.Ordinal);
+
+        Assert.Equal(0, await _fixture.WithFreshContextAsync(db => db.Refunds.AsNoTracking()
+            .CountAsync(refund => refund.SaleId == posted.SaleId)));
+        Assert.Equal(0, await _fixture.WithFreshContextAsync(db => db.CashRegisterMovements.AsNoTracking()
+            .CountAsync(movement => movement.SaleId == posted.SaleId && movement.MovementType == CashMovementType.Refund)));
+        Assert.Equal(0, await _fixture.WithFreshContextAsync(async db => await db.JournalEntries.AsNoTracking()
+            .CountAsync(entry => entry.SourceType == JournalSourceType.Refund
+                && db.Refunds.Any(refund => refund.SaleId == posted.SaleId && refund.Id == entry.SourceId))));
+        Assert.Equal(25m, (await registers.GetCurrentSessionAsync(registerId)).ExpectedCash);
+        Assert.Equal(SaleStatus.Posted, (await _fixture.WithFreshContextAsync(async db => await db.Sales.AsNoTracking()
+            .SingleAsync(sale => sale.Id == posted.SaleId))).Status);
+
+        // A paid-out beyond the cash is refused by the same rule, so the till cannot be taken below zero either.
+        var overdrawn = await Assert.ThrowsAsync<ApiException>(() => registers.AddMovementAsync(
+            registerId, sessionId, new CashMovementRequest("cashOut", 100m, "more than the till holds"),
+            "sufficiency-over-" + Guid.NewGuid().ToString("N")));
+        Assert.Equal(409, overdrawn.StatusCode);
+        Assert.Equal(ApiErrorCodes.InsufficientDrawerCash, overdrawn.Code);
+        Assert.Equal(25m, (await registers.GetCurrentSessionAsync(registerId)).ExpectedCash);
+
+        // The server's own position states the chosen drawer's cash, so the shortage is visible before a person
+        // promises money; the authoritative refusal still comes from the command itself.
+        var blocked = await sales.GetRefundPositionAsync(posted.SaleId);
+        var ownDrawer = Assert.Single(blocked.Drawers, drawer => drawer.RegisterId == registerId);
+        Assert.Equal(25m, ownDrawer.ExpectedCash);
+        Assert.Equal(25m, ownDrawer.AvailableForRefund);
+        Assert.True(ownDrawer.AvailableForRefund < blocked.RemainingRefundableAmount);
+
+        // Cash taken in against real money makes the very same refund payable - the refusal was about the cash.
+        await registers.AddMovementAsync(registerId, sessionId, new CashMovementRequest("cashIn", 120m, "float topped up"),
+            "sufficiency-in-" + Guid.NewGuid().ToString("N"));
+
+        var paidBack = await RefundAsync(client, posted.SaleId, registerId, saleLineId, 1m, RefundDisposition.Restock);
+        var paidBody = await paidBack.Content.ReadAsStringAsync();
+        Assert.True(paidBack.StatusCode == HttpStatusCode.Created, $"the refund was refused with {(int)paidBack.StatusCode}: {paidBody}");
+        Assert.Equal(115m, JsonDocument.Parse(paidBody).RootElement.GetProperty("amount").GetDecimal());
+        Assert.Equal(30m, (await registers.GetCurrentSessionAsync(registerId)).ExpectedCash);
     }
 
     private async Task<Guid> CreateOpenRegisterAsync(HttpClient client)

@@ -121,6 +121,17 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // The sale history and refund workbench (specification task 21) is one shared page in both hosts. A
+        // terminal reads the server's posted sales and refunds through the same contract the browser uses; the
+        // drawer it pays out of is the server's own register session, never a locally invented balance.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Sales.ISaleApiClient, QtsBilling.Contracts.Sales.SaleApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(30);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Orders.IQuoteApiClient, QtsBilling.Contracts.Orders.QuoteApiClient>((services, client) =>
             {

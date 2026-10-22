@@ -465,8 +465,11 @@ public sealed class PostgresApiFixture : IAsyncLifetime
             ("5200", "Inventory shrinkage", AccountType.Expense),
 
             // The chart the fixture seeds mirrors the chart the product bootstraps, so a drawer that counts
-            // differently from its movements can be posted rather than refused (specification task 19).
+            // differently from its movements can be posted rather than refused (specification task 19). The sales
+            // returns account is the other half of that: a refund of cash posts revenue back through it, and the
+            // server refuses the refund while it is missing (task 21).
             ("5300", "Cash over short", AccountType.Expense),
+            ("4010", "Sales returns", AccountType.Revenue),
         })
         {
             db.Accounts.Add(new Account

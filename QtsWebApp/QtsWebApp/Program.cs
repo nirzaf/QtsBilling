@@ -354,6 +354,11 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Catalog.IProductApiClient, Q
 builder.Services.AddHttpClient<QtsBilling.Contracts.Sales.ICashRegisterApiClient, QtsBilling.Contracts.Sales.CashRegisterApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The sale history and refund workbench (specification task 21): the history reads and the refund command are the
+// same contract the browser posts through, so the shared pages resolve on this host as well.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Sales.ISaleApiClient, QtsBilling.Contracts.Sales.SaleApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 builder.Services.AddHttpClient<IQuoteApiClient, QuoteApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 

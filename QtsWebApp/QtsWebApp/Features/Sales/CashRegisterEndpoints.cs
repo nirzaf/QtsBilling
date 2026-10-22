@@ -572,6 +572,21 @@ public static class CashRegisterEndpoints
                             "Open a new session before recording drawer movements.");
                     }
 
+                    // Money may only leave a drawer that holds it. Judged on the locked session, from the same
+                    // append-only movements the workbench adds up, before any row exists
+                    // (specification D07; task 19's rule applied to paid-outs, which is the other way a till can be
+                    // taken below zero).
+                    if (movementType == CashMovementType.CashOut)
+                    {
+                        await CashDrawerGuards.EnsureCashCoversAsync(
+                            db,
+                            businessId,
+                            session,
+                            amount,
+                            $"the paid-out of {amount.ToString(System.Globalization.CultureInfo.InvariantCulture)}",
+                            cancellationToken).ConfigureAwait(false);
+                    }
+
                     var movement = new CashRegisterMovement
                     {
                         BusinessId = businessId,

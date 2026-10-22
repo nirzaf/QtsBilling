@@ -684,6 +684,131 @@ Check("only what the server cannot see needs a declared figure",
 Check("a command key stays inside the header bound the server validates",
     QtsBilling.Ui.Pages.Sales.RegisterRules.NewCommandKey("drawer-close").Length <= 64);
 
+// 12. The sale history and refund workbench (specification task 21): both screens are shipped shared pages, they
+//     read nothing during the prerender, the reprint is marked as a copy of a snapshot, the refund panel binds every
+//     limit to the server's own position, and an account without the refund authority is told what it lacks instead
+//     of being handed a button that would be refused.
+var saleLocationId = Guid.CreateVersion7();
+var saleRegisterId = Guid.CreateVersion7();
+var saleLineId = Guid.CreateVersion7();
+var stubSalesManager = new StubSaleApiClient(saleLocationId, saleRegisterId, saleLineId);
+var salesServices = new ServiceCollection();
+salesServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+salesServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+salesServices.AddMudServices();
+salesServices.AddSingleton<NavigationManager, StubNavigationManager>();
+salesServices.AddSingleton<ISaleApiClient>(stubSalesManager);
+salesServices.AddSingleton<ICustomerApiClient>(new StubCustomerApiClient());
+salesServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(saleLocationId));
+salesServices.AddSingleton<IBusinessSetupApiClient>(new StubBusinessSetupApiClient());
+salesServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var salesProvider = salesServices.BuildServiceProvider();
+await using var salesRenderer = new HtmlRenderer(salesProvider, salesProvider.GetRequiredService<ILoggerFactory>());
+
+var salesHtml = await salesRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var output = await salesRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Sales.Sales>(ParameterView.Empty);
+    return output.ToHtmlString();
+});
+
+var detailHtml = await salesRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var parameters = new Dictionary<string, object?> { ["SaleId"] = Guid.CreateVersion7() };
+    var output = await salesRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Sales.SaleDetail>(
+        ParameterView.FromDictionary(parameters));
+    return output.ToHtmlString();
+});
+
+Check("the sale history and the sale detail are shared pages with their own routes",
+    typeof(QtsBilling.Ui.Pages.Sales.Sales).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "sales")
+        && typeof(QtsBilling.Ui.Pages.Sales.SaleDetail).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+            .Any(route => route.Template.Trim('/') == "sales/{SaleId:guid}"));
+Check("the sales workbench reads nothing during the prerender",
+    stubSalesManager.Calls == 0, $"reads: {stubSalesManager.Calls}");
+Check("the sale history says what its rows are before any filter is touched",
+    salesHtml.Contains("A sale listed here was written by the server", StringComparison.Ordinal)
+        && salesHtml.Contains("it stays a recovery case", StringComparison.Ordinal)
+        && salesHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal));
+Check("the history search is stated as a server search over every record, not the loaded page",
+    QtsBilling.Ui.Pages.Sales.SalesRules.SearchHelp(20).Contains("Searches the sale number on the server", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.SearchHelp(20).Contains("20 rows at a time", StringComparison.Ordinal));
+Check("the sale detail renders its loading answer rather than an invented file",
+    detailHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && detailHtml.Contains("never allocates a second number", StringComparison.Ordinal) == false);
+Check("the sales workbench asks for no public resource and no identifier a human must type",
+    !salesHtml.Contains("http://", StringComparison.Ordinal) && !salesHtml.Contains("https://", StringComparison.Ordinal)
+        && !detailHtml.Contains("http://", StringComparison.Ordinal)
+        && !detailHtml.Contains("Sale id", StringComparison.Ordinal));
+
+// The sentences the two panels state, proven where they are written (the same rule the register workbench follows:
+// a shared page shows what a rule class states, so the wording is testable without a browser).
+Check("a reprint is stated as a copy that posts nothing and allocates no number",
+    QtsBilling.Ui.Pages.Sales.SalesRules.ReprintNote.Contains("marked COPY", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.ReprintNote.Contains("never allocates a second number", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.ReprintNote.Contains("never today's", StringComparison.OrdinalIgnoreCase));
+Check("the drawer rule and the preview rule are stated before an operator can act",
+    QtsBilling.Ui.Pages.Sales.SalesRules.DrawerRuleNote.Contains("refuses a payout bigger than the cash", StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.PreviewNote.Contains("the server decides the figure", StringComparison.Ordinal));
+Check("an account without the refund authority is told exactly what it lacks",
+    QtsBilling.Ui.Pages.Sales.SalesRules.RefundAuthorityNote(false)
+        .Contains(Permissions.SalesRefund, StringComparison.Ordinal)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.RefundAuthorityNote(true).Length == 0);
+Check("a refund cannot be offered before the payout is deliberately confirmed",
+    !QtsBilling.Ui.Pages.Sales.SalesRules.CanSubmit(
+        "customer changed their mind", saleRegisterId, false,
+        new Dictionary<Guid, decimal> { [saleLineId] = 1m }, StubSaleApiClient.SamplePosition(saleRegisterId, saleLineId))
+        && QtsBilling.Ui.Pages.Sales.SalesRules.CanSubmit(
+            "customer changed their mind", saleRegisterId, true,
+            new Dictionary<Guid, decimal> { [saleLineId] = 1m }, StubSaleApiClient.SamplePosition(saleRegisterId, saleLineId)));
+Check("a refund with no quantity, no drawer or a blank reason is not offered",
+    !QtsBilling.Ui.Pages.Sales.SalesRules.CanSubmit(
+        " ", saleRegisterId, true, new Dictionary<Guid, decimal> { [saleLineId] = 1m }, StubSaleApiClient.SamplePosition(saleRegisterId, saleLineId))
+        && !QtsBilling.Ui.Pages.Sales.SalesRules.CanSubmit(
+            "goods undeliverable", null, true, new Dictionary<Guid, decimal> { [saleLineId] = 1m }, StubSaleApiClient.SamplePosition(saleRegisterId, saleLineId))
+        && !QtsBilling.Ui.Pages.Sales.SalesRules.CanSubmit(
+            "goods undeliverable", saleRegisterId, true, new Dictionary<Guid, decimal>(), StubSaleApiClient.SamplePosition(saleRegisterId, saleLineId)));
+
+var stubSalesCashier = new StubSaleApiClient(saleLocationId, saleRegisterId, saleLineId);
+var cashierServices = new ServiceCollection();
+cashierServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+cashierServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+cashierServices.AddMudServices();
+cashierServices.AddSingleton<NavigationManager, StubNavigationManager>();
+cashierServices.AddSingleton<ISaleApiClient>(stubSalesCashier);
+cashierServices.AddSingleton<ICustomerApiClient>(new StubCustomerApiClient());
+cashierServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(saleLocationId));
+cashierServices.AddSingleton<IBusinessSetupApiClient>(new StubBusinessSetupApiClient());
+cashierServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([Permissions.SalesPost]));
+
+await using var cashierProvider = cashierServices.BuildServiceProvider();
+await using var cashierRenderer = new HtmlRenderer(cashierProvider, cashierProvider.GetRequiredService<ILoggerFactory>());
+
+var cashierDetailHtml = await cashierRenderer.Dispatcher.InvokeAsync(async () =>
+{
+    var parameters = new Dictionary<string, object?> { ["SaleId"] = Guid.CreateVersion7() };
+    var output = await cashierRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Sales.SaleDetail>(
+        ParameterView.FromDictionary(parameters));
+    return output.ToHtmlString();
+});
+Check("an account without the refund authority still resolves the screen and reads nothing early",
+    cashierDetailHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && stubSalesCashier.Calls == 0,
+    $"reads: {stubSalesCashier.Calls}");
+
+Check("a preview of the whole remainder repeats the server's residual instead of recomputing it",
+    QtsBilling.Ui.Pages.Sales.SalesRules.PreviewLineTotal(StubSaleApiClient.SampleLine(saleLineId), 3m) == 46.5m);
+Check("an unconfirmed payment is named as money that has not arrived",
+    QtsBilling.Ui.Pages.Sales.SalesRules.StateText(StubSaleApiClient.SampleRow(saleLocationId, PaymentStatus.Pending))
+        .Contains("not cash in a till", StringComparison.OrdinalIgnoreCase)
+        && QtsBilling.Ui.Pages.Sales.SalesRules.IsUncollected(StubSaleApiClient.SampleRow(saleLocationId, PaymentStatus.Pending)));
+Check("a refusal that proves nothing committed frees the attempt, a lost answer does not",
+    QtsBilling.Ui.Pages.Sales.SalesRules.CommittedNothing(ApiErrorCodes.InsufficientDrawerCash)
+        && !QtsBilling.Ui.Pages.Sales.SalesRules.CommittedNothing(ApiErrorCodes.TransientRetry));
+Check("a refund key stays inside the header bound the server validates",
+    QtsBilling.Ui.Pages.Sales.SalesRules.NewRefundKey("S-2026-0001").Length <= 64);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
@@ -1020,6 +1145,192 @@ internal sealed class StubProductApiClient : IProductApiClient
 
     public Task<ProductDetailDto> RestoreProductAsync(Guid id, RestoreProductRequest request, CancellationToken cancellationToken = default)
         => throw new NotSupportedException("The smoke never writes the catalog.");
+}
+
+/// <summary>
+/// The register contract as the render smoke sees it: reads are counted so a page that reaches for the network
+/// during the prerender fails the run, and no drawer command is executed here (specification task 19).
+/// </summary>
+/// <summary>
+/// The sale history and refund contract as the render smoke sees it: reads are counted so a page that reaches for
+/// data during the prerender fails the run, and neither a sale nor a refund is ever written here
+/// (specification task 21).
+/// </summary>
+internal sealed class StubSaleApiClient(Guid branchId, Guid tillId, Guid lineId) : ISaleApiClient
+{
+    /// <summary>How often a screen asked for its data, so a prerender that reads is visible as a failure.</summary>
+    public int Calls { get; private set; }
+
+    /// <summary>The server's refund position, as the screen receives it.</summary>
+    public static SaleRefundLinePositionDto SampleLine(Guid saleLineId) => new(
+        saleLineId,
+        1,
+        "Trainer",
+        "TRN-001",
+        SoldQuantity: 4m,
+        RefundedQuantity: 1m,
+        RemainingQuantity: 3m,
+        UnitPrice: 15m,
+        DiscountAmount: 0m,
+        TaxRate: 0.15m,
+        TaxAmount: 4.5m,
+        LineTotal: 60m,
+        RemainingAmount: 46.5m,
+        UnitCost: 9m,
+        MovedStock: true,
+        TaxMode: "Exclusive");
+
+    public static SaleRefundPositionDto SamplePosition(Guid registerId, Guid saleLineId) => new(
+        Guid.CreateVersion7(),
+        "S-2026-0001",
+        "Posted",
+        "QAR",
+        TotalAmount: 60m,
+        TaxAmount: 6m,
+        RefundedAmount: 13.5m,
+        RemainingRefundableAmount: 46.5m,
+        PaymentMethod: "Cash",
+        PaymentStatus: "Confirmed",
+        RefundableAtRegister: true,
+        RefusalCode: null,
+        RefusalReason: null,
+        Lines: [SampleLine(saleLineId)],
+        Drawers:
+        [
+            new RefundDrawerOptionDto(registerId, "Front till", Guid.CreateVersion7(), 120m, 46.5m, "QAR", "Open drawer holding 120"),
+            new RefundDrawerOptionDto(Guid.CreateVersion7(), "Back till", null, null, null, "QAR", "No open drawer"),
+        ]);
+
+    public static SaleHistoryDto SampleRow(Guid locationId, PaymentStatus status) => new(
+        Guid.CreateVersion7(),
+        "S-2026-0002",
+        SaleState.Posted,
+        status,
+        "Cash",
+        locationId,
+        "Main store",
+        CustomerId: null,
+        CustomerName: null,
+        "QAR",
+        TotalAmount: 115m,
+        TaxAmount: 15m,
+        RefundedAmount: 0m,
+        RefundCount: 0,
+        DateTimeOffset.UtcNow,
+        "2026-10-22 09:00:00",
+        CashierName: "Cashier");
+
+    public Task<SaleCaptureResult> PostSaleAsync(
+        SaleCaptureRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never posts a sale.");
+
+    public Task<SaleReceiptDto> GetReceiptAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new SaleReceiptDto(
+            saleId,
+            "S-2026-0001",
+            "Posted",
+            null,
+            "Trader",
+            null,
+            "Main store",
+            null,
+            "QAR",
+            DateTimeOffset.UtcNow,
+            "2026-10-22 09:00:00",
+            "Cashier",
+            "Front till",
+            Guid.CreateVersion7(),
+            [new SaleReceiptLineDto(1, "Trainer", "TRN-001", 4m, 15m, 0m, 0.15m, 4.5m, 60m)],
+            60m,
+            0m,
+            6m,
+            60m,
+            [new SaleReceiptPaymentDto("Cash", "Confirmed", 60m, 70m, 10m, null)]));
+    }
+
+    public Task<PagedResult<SaleHistoryDto>> GetSalesAsync(
+        DateTimeOffset? from = null,
+        DateTimeOffset? to = null,
+        Guid? locationId = null,
+        Guid? customerId = null,
+        string? search = null,
+        string? cursor = null,
+        int pageSize = 25,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new PagedResult<SaleHistoryDto>(
+            [SampleRow(branchId, PaymentStatus.Confirmed)], null, pageSize));
+    }
+
+    public Task<PostedSaleDto> GetSaleAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(new PostedSaleDto(
+            saleId,
+            "S-2026-0001",
+            SaleState.Posted,
+            branchId,
+            CustomerId: null,
+            "QAR",
+            SubtotalAmount: 60m,
+            DiscountAmount: 0m,
+            TaxAmount: 6m,
+            TotalAmount: 66m,
+            PaymentStatus.Confirmed,
+            Provisional: false,
+            Note: "regular sale",
+            DateTimeOffset.UtcNow,
+            Guid.CreateVersion7(),
+            ReversalOfSaleId: null,
+            Lines:
+            [
+                new PostedSaleLineDto(
+                    lineId, 1, Guid.CreateVersion7(), "Trainer", "TRN-001",
+                    4m, 15m, 0m, 0.15m, 6m, 66m, "Exclusive", 9m),
+            ],
+            Payments:
+            [
+                new PostedPaymentDto(
+                    Guid.CreateVersion7(), "Cash", PaymentStatus.Confirmed, 66m, "QAR",
+                    70m, null, null, DateTimeOffset.UtcNow),
+            ]));
+    }
+
+    public Task<SaleRefundPositionDto> GetRefundPositionAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult(SamplePosition(tillId, lineId));
+    }
+
+    public Task<IReadOnlyList<RefundDto>> GetRefundsAsync(Guid saleId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+
+        return Task.FromResult<IReadOnlyList<RefundDto>>(
+        [
+            new RefundDto(
+                Guid.CreateVersion7(), "R-2026-0001", saleId, "S-2026-0001", 13.5m, "QAR", "Cash",
+                "goods returned", null, DateTimeOffset.UtcNow, Guid.CreateVersion7(), Guid.CreateVersion7(),
+                "JE-2026-0001",
+                [new RefundLineDto(lineId, 1, "Trainer", "TRN-001", 1m, 15m, 1.5m, 13.5m, 9m, "Restock")]),
+        ]);
+    }
+
+    public Task<RefundDto> RefundSaleAsync(
+        Guid saleId,
+        RefundSaleRequest request,
+        string idempotencyKey,
+        CancellationToken cancellationToken = default)
+        => throw new NotSupportedException("The smoke never pays cash back.");
 }
 
 /// <summary>
