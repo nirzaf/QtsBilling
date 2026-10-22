@@ -32,8 +32,11 @@ foreach ($identifier in @($Database, $AdminUser, $MigratorUser, $AppUser)) {
     }
 }
 
-if ($Mode -eq "Psql" -and [string]::IsNullOrWhiteSpace($AdminPassword)) {
-    throw "AdminPassword is required in Psql mode."
+# The admin credential belongs to the provisioning path alone: only role creation and the grants change the
+# database as a superuser-adjacent owner, and both workflows call -Action Verify with the runtime role's own
+# password precisely so that admin credential never reaches a read-only boundary check (spec finding S13).
+if ($Mode -eq "Psql" -and $Action -in @("Both", "Provision") -and [string]::IsNullOrWhiteSpace($AdminPassword)) {
+    throw "AdminPassword is required to provision roles through psql."
 }
 if ($Action -in @("Both", "Provision") -and [string]::IsNullOrWhiteSpace($MigratorPassword)) {
     throw "MigratorPassword is required when provisioning roles."
