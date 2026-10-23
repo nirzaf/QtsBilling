@@ -196,7 +196,9 @@ public sealed class TaxAndZReportTests : IClassFixture<PostgresApiFixture>
         Assert.Equal(HttpStatusCode.OK, csvResponse.StatusCode);
         Assert.Equal(new byte[] { 0xEF, 0xBB, 0xBF }, csvBytes[..3]);
         var csv = System.Text.Encoding.UTF8.GetString(csvBytes);
-        Assert.Contains("\"Section\",\"Item\",\"Field\",\"Value\"", csv, StringComparison.Ordinal);
+        // The header is the export contract: the machine column name, and beside it the words an operator reads
+        // (task 33 added the Label column; the BOM and the formula guard above are unchanged).
+        Assert.Contains("\"Section\",\"Item\",\"Field\",\"Label\",\"Value\"", csv, StringComparison.Ordinal);
         Assert.Contains("'=Z report", csv, StringComparison.Ordinal);
     }
 

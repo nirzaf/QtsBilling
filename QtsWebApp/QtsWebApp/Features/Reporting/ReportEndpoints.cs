@@ -65,22 +65,92 @@ public static class ReportEndpoints
             return AgingAccountsNotConfigured();
         }
 
-        var agingDate = asOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var openInvoices = await db.Invoices.AsNoTracking()
+        // An aging run is a statement about one date, so it is rebuilt from the events that had taken effect by that
+        // date in the business's own zone: invoices that had been issued, receipts that had been applied, credits that
+        // had been raised, and voids that had happened. A document row's current BalanceDue and Status are today's
+        // mutable summary - reading them would let a payment received after the as-of date erase a debt the customer
+        // really owed on it (specification task 33, recipe step 1).
+        var agingDate = asOf ?? BusinessToday(business!);
+        var windowEnd = BusinessDateEndUtc(business!.TimeZone, agingDate);
+
+        var issuedInvoices = await db.Invoices.AsNoTracking()
             .Where(invoice => invoice.BusinessId == businessId
-                && (invoice.Status == InvoiceStatus.Issued || invoice.Status == InvoiceStatus.PartiallyPaid)
-                && invoice.BalanceDue > 0m)
+                && invoice.IssueDate <= agingDate
+                && invoice.Status != InvoiceStatus.Draft)
             .Select(invoice => new
             {
+                invoice.Id,
                 invoice.CustomerId,
                 DueDate = invoice.DueDate ?? invoice.IssueDate,
-                invoice.BalanceDue,
+                invoice.TotalAmount,
+                invoice.VoidedAtUtc,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // A receipt is a settlement from the moment it takes effect: cash and card the day they were received, a
+        // cheque or transfer only once the bank has cleared it, and a bounced tender never at all.
+        var allocatedInvoices = await (from allocation in db.PaymentAllocations.AsNoTracking()
+                                      join payment in db.Payments.AsNoTracking()
+                                          on new { allocation.PaymentId, allocation.BusinessId }
+                                              equals new { PaymentId = payment.Id, payment.BusinessId }
+                                      where allocation.BusinessId == businessId
+                                          && allocation.InvoiceId != null
+                                          && allocation.AllocatedAtUtc < windowEnd
+                                          && payment.Status != PaymentStatus.Bounced
+                                          && (payment.ClearedAtUtc == null || payment.ClearedAtUtc < windowEnd)
+                                      select new
+                                      {
+                                          PaymentId = allocation.PaymentId,
+                                          InvoiceId = allocation.InvoiceId!.Value,
+                                          allocation.AllocatedAmount,
+                                      })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var clearedReceipts = await db.Payments.AsNoTracking()
+            .Where(payment => payment.BusinessId == businessId
+                && payment.InvoiceId != null
+                && payment.Status != PaymentStatus.Bounced
+                && payment.ReceivedAtUtc < windowEnd
+                && (payment.ClearedAtUtc == null || payment.ClearedAtUtc < windowEnd))
+            .Select(payment => new { payment.Id, InvoiceId = payment.InvoiceId!.Value, payment.Amount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var creditedInvoices = await db.CreditNotes.AsNoTracking()
+            .Where(note => note.BusinessId == businessId && note.IssueDate <= agingDate)
+            .Select(note => new { note.InvoiceId, note.Amount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // A receipt that spread itself across invoices is counted through its applications; a receipt paid straight
+        // onto one invoice is counted through the receipt. Counting both would settle the same money twice.
+        var spreadReceiptIds = allocatedInvoices.Select(row => row.PaymentId).ToHashSet();
+        var paidByInvoice = allocatedInvoices
+            .Select(row => new { row.InvoiceId, row.AllocatedAmount })
+            .Concat(clearedReceipts
+                .Where(receipt => !spreadReceiptIds.Contains(receipt.Id))
+                .Select(receipt => new { receipt.InvoiceId, AllocatedAmount = receipt.Amount }))
+            .GroupBy(row => row.InvoiceId)
+            .ToDictionary(group => group.Key, group => group.Sum(row => row.AllocatedAmount));
+        var creditedByInvoice = creditedInvoices
+            .GroupBy(note => note.InvoiceId)
+            .ToDictionary(group => group.Key, group => group.Sum(note => note.Amount));
+
+        var openInvoices = issuedInvoices
+            .Select(invoice =>
+            {
+                var settled = LedgerWriter.Round(
+                    paidByInvoice.GetValueOrDefault(invoice.Id) + creditedByInvoice.GetValueOrDefault(invoice.Id));
+                var balance = invoice.VoidedAtUtc is { } voidedAt && voidedAt < windowEnd
+                    ? 0m
+                    : LedgerWriter.Round(Math.Max(0m, invoice.TotalAmount - settled));
+                return (invoice.CustomerId, invoice.DueDate, Balance: balance);
+            })
+            .Where(invoice => invoice.Balance > 0m)
+            .ToList();
 
         var openCreditSales = await db.Sales.AsNoTracking()
             .Where(sale => sale.BusinessId == businessId
                 && sale.Status == SaleStatus.Posted
+                && sale.PostedAtUtc < windowEnd
                 && (sale.PaymentStatus == PaymentStatus.Pending || sale.PaymentStatus == PaymentStatus.Bounced)
                 && sale.Currency == business!.BaseCurrency
                 && !db.Invoices.Any(invoice => invoice.BusinessId == businessId
@@ -93,6 +163,7 @@ public static class ReportEndpoints
         var openImportedReceivablesRaw = await db.OpenItems.AsNoTracking()
             .Where(item => item.BusinessId == businessId
                 && item.Kind == OpenItemKind.Receivable
+                && item.DocumentDate <= agingDate
                 && item.Currency == business!.BaseCurrency)
             .Select(item => new
             {
@@ -103,20 +174,26 @@ public static class ReportEndpoints
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
 
-        // An opening balance is now settleable from a customer's deposit (specification task 25), so the aging must
-        // report what is still owing on it rather than the amount the import recorded. Left as the original, the
-        // receivable report would count money twice: once as cash the customer already paid in, once as a debt they
-        // still owe - and the control account would no longer agree with the list.
+        // An opening balance is settleable from a customer's deposit (specification task 25), so the aging reports
+        // what was still owing on it at the date asked for rather than the amount the import recorded. Left as the
+        // original, the report would count money twice: once as cash the customer had already paid in, once as a debt
+        // they still owed - and the control account would no longer agree with the list.
         var appliedToOpenings = openImportedReceivablesRaw.Count == 0
             ? new Dictionary<Guid, decimal>()
-            : (await db.PaymentAllocations.AsNoTracking()
-                .Where(allocation => allocation.BusinessId == businessId
-                    && allocation.OpenItemId != null
-                    && openImportedReceivablesRaw.Select(item => item.Id).Contains(allocation.OpenItemId.Value))
-                .GroupBy(allocation => allocation.OpenItemId!.Value)
-                .Select(group => new { Id = group.Key, Applied = group.Sum(item => item.AllocatedAmount) })
+            : (await (from allocation in db.PaymentAllocations.AsNoTracking()
+                      join payment in db.Payments.AsNoTracking()
+                          on new { allocation.PaymentId, allocation.BusinessId }
+                              equals new { PaymentId = payment.Id, payment.BusinessId }
+                      where allocation.BusinessId == businessId
+                          && allocation.OpenItemId != null
+                          && allocation.AllocatedAtUtc < windowEnd
+                          && payment.Status != PaymentStatus.Bounced
+                          && (payment.ClearedAtUtc == null || payment.ClearedAtUtc < windowEnd)
+                          && openImportedReceivablesRaw.Select(item => item.Id).Contains(allocation.OpenItemId.Value)
+                      select new { OpenItemId = allocation.OpenItemId, allocation.AllocatedAmount })
                 .ToListAsync(cancellationToken).ConfigureAwait(false))
-                .ToDictionary(row => row.Id, row => row.Applied);
+                .GroupBy(row => row.OpenItemId!.Value)
+                .ToDictionary(group => group.Key, group => group.Sum(row => row.AllocatedAmount));
 
         var openImportedReceivables = openImportedReceivablesRaw
             .Select(item => new
@@ -138,8 +215,7 @@ public static class ReportEndpoints
             .ToDictionaryAsync(customer => customer.Id, customer => new { customer.Name, customer.PaymentTermsDays }, cancellationToken).ConfigureAwait(false);
 
         var openBalances = openInvoices
-            .Select(invoice => (CustomerId: invoice.CustomerId, DueDate: invoice.DueDate, Balance: invoice.BalanceDue))
-            .Concat(openImportedReceivables.Select(item => (CustomerId: item.CustomerId, DueDate: item.DueDate, Balance: item.Balance)))
+            .Concat(openImportedReceivables.Select(item => (CustomerId: (Guid?)item.CustomerId, item.DueDate, Balance: item.Balance)))
             .Concat(openCreditSales.Select(sale =>
             {
                 var termsDays = sale.CustomerId is { } id ? customers.GetValueOrDefault(id)?.PaymentTermsDays ?? 0 : 0;
@@ -165,7 +241,7 @@ public static class ReportEndpoints
             .OrderBy(row => row.CustomerName, StringComparer.OrdinalIgnoreCase)
             .ToArray();
 
-        var accountSums = await PostedSumsAsync(db, businessId, [settings.AccountsReceivableAccountId], null, null, cancellationToken).ConfigureAwait(false);
+        var accountSums = await PostedSumsAsync(db, businessId, [settings.AccountsReceivableAccountId], null, agingDate, cancellationToken).ConfigureAwait(false);
         var ledgerReceivable = LedgerWriter.Round(
             accountSums.GetValueOrDefault(settings.AccountsReceivableAccountId).Debit
             - accountSums.GetValueOrDefault(settings.AccountsReceivableAccountId).Credit);
@@ -209,29 +285,107 @@ public static class ReportEndpoints
             return AgingAccountsNotConfigured();
         }
 
-        var agingDate = asOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var openBills = await db.SupplierBills.AsNoTracking()
+        // The payable side is read the same way as the receivable side: the bills that had been issued by the date
+        // asked for, less the settlements and credit applications whose events had taken effect by then. A bill row's
+        // current BalanceDue is today's summary and answers a different question than a run dated in the past.
+        var agingDate = asOf ?? BusinessToday(business!);
+        var windowEnd = BusinessDateEndUtc(business!.TimeZone, agingDate);
+
+        var issuedBills = await db.SupplierBills.AsNoTracking()
             .Where(bill => bill.BusinessId == businessId
-                && (bill.Status == SupplierBillStatus.Issued || bill.Status == SupplierBillStatus.PartiallyPaid)
-                && bill.BalanceDue > 0m)
+                && bill.BillDate <= agingDate
+                && bill.Status != SupplierBillStatus.Draft)
             .Select(bill => new
             {
+                bill.Id,
                 bill.SupplierId,
                 DueDate = bill.DueDate ?? bill.BillDate,
-                bill.BalanceDue,
+                bill.TotalAmount,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
-        var openImportedPayables = await db.OpenItems.AsNoTracking()
+
+        var billSettlementRows = await (from allocation in db.SupplierPaymentAllocations.AsNoTracking()
+                                       join payment in db.SupplierPayments.AsNoTracking()
+                                           on new { allocation.SupplierPaymentId, allocation.BusinessId }
+                                               equals new { SupplierPaymentId = payment.Id, payment.BusinessId }
+                                       where allocation.BusinessId == businessId
+                                           && allocation.SupplierBillId != null
+                                           && payment.PaidOn <= agingDate
+                                       select new { BillId = allocation.SupplierBillId!.Value, Amount = allocation.AllocatedAmount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // Every use of a credit is one dated application row - including the one the credit makes against its own
+        // bill when it is issued - so applications are the only thing counted here, and one credit can never settle
+        // the same bill twice.
+        var creditApplicationRows = await db.SupplierCreditApplications.AsNoTracking()
+            .Where(application => application.BusinessId == businessId
+                && application.AppliedAtUtc < windowEnd)
+            .Select(application => new
+            {
+                application.SupplierBillId,
+                application.OpenItemId,
+                application.Amount,
+            })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var paidByBill = billSettlementRows
+            .Concat(creditApplicationRows
+                .Where(application => application.SupplierBillId != null)
+                .Select(application => new { BillId = application.SupplierBillId!.Value, application.Amount }))
+            .GroupBy(row => row.BillId)
+            .ToDictionary(group => group.Key, group => group.Sum(row => row.Amount));
+
+        var openBills = issuedBills
+            .Select(bill =>
+            {
+                var settled = LedgerWriter.Round(paidByBill.GetValueOrDefault(bill.Id));
+                var balance = LedgerWriter.Round(Math.Max(0m, bill.TotalAmount - settled));
+                return (bill.SupplierId, bill.DueDate, Balance: balance);
+            })
+            .Where(bill => bill.Balance > 0m)
+            .ToList();
+        var openImportedPayablesRaw = await db.OpenItems.AsNoTracking()
             .Where(item => item.BusinessId == businessId
                 && item.Kind == OpenItemKind.Payable
+                && item.DocumentDate <= agingDate
                 && item.Currency == business!.BaseCurrency)
             .Select(item => new
             {
+                item.Id,
                 item.SupplierId,
                 DueDate = item.DueDate ?? item.DocumentDate,
-                Balance = item.OriginalAmount,
+                item.OriginalAmount,
             })
             .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var openingSettlementRows = await (from allocation in db.SupplierPaymentAllocations.AsNoTracking()
+                                          join payment in db.SupplierPayments.AsNoTracking()
+                                              on new { allocation.SupplierPaymentId, allocation.BusinessId }
+                                                  equals new { SupplierPaymentId = payment.Id, payment.BusinessId }
+                                          where allocation.BusinessId == businessId
+                                              && allocation.OpenItemId != null
+                                              && payment.PaidOn <= agingDate
+                                          select new { OpenItemId = allocation.OpenItemId, Amount = allocation.AllocatedAmount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var appliedToOpenPayables = openImportedPayablesRaw.Count == 0
+            ? new Dictionary<Guid, decimal>()
+            : openingSettlementRows
+                .Concat(creditApplicationRows
+                    .Where(application => application.OpenItemId != null)
+                    .Select(application => new { OpenItemId = application.OpenItemId, Amount = application.Amount }))
+                .GroupBy(row => row.OpenItemId!.Value)
+                .ToDictionary(group => group.Key, group => group.Sum(row => row.Amount));
+
+        var openImportedPayables = openImportedPayablesRaw
+            .Select(item => new
+            {
+                item.SupplierId,
+                item.DueDate,
+                Balance = LedgerWriter.Round(Math.Max(0m, item.OriginalAmount - appliedToOpenPayables.GetValueOrDefault(item.Id))),
+            })
+            .Where(item => item.Balance > 0m)
+            .ToList();
 
         var supplierIds = openBills.Select(bill => bill.SupplierId)
             .Concat(openImportedPayables.Where(item => item.SupplierId.HasValue).Select(item => item.SupplierId!.Value))
@@ -241,7 +395,6 @@ public static class ReportEndpoints
             .ToDictionaryAsync(supplier => supplier.Id, supplier => supplier.Name, cancellationToken).ConfigureAwait(false);
 
         var openPayables = openBills
-            .Select(bill => (SupplierId: bill.SupplierId, bill.DueDate, Balance: bill.BalanceDue))
             .Concat(openImportedPayables.Where(item => item.SupplierId.HasValue)
                 .Select(item => (SupplierId: item.SupplierId!.Value, item.DueDate, item.Balance)))
             .ToArray();
@@ -263,7 +416,7 @@ public static class ReportEndpoints
             .ToArray();
 
         var accountIds = new[] { settings.AccountsPayableAccountId, settings.GrniClearingAccountId };
-        var accountSums = await PostedSumsAsync(db, businessId, accountIds, null, null, cancellationToken).ConfigureAwait(false);
+        var accountSums = await PostedSumsAsync(db, businessId, accountIds, null, agingDate, cancellationToken).ConfigureAwait(false);
         var apSums = accountSums.GetValueOrDefault(settings.AccountsPayableAccountId);
         var grniSums = accountSums.GetValueOrDefault(settings.GrniClearingAccountId);
         var ledgerPayables = LedgerWriter.Round(apSums.Credit - apSums.Debit);
@@ -357,6 +510,17 @@ public static class ReportEndpoints
         if (rangeFrom > rangeTo)
         {
             return InvalidRange();
+        }
+
+        // An unbounded window is a size control, not a convenience: the server refuses a span no report can state
+        // honestly and names the window to ask for instead of quietly answering a different question.
+        if (rangeTo.DayNumber - rangeFrom.DayNumber > MaxReportSpanDays)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The date range is too wide to report.",
+                $"A report covers at most {MaxReportSpanDays} days at a time; ask for a shorter window ending {rangeTo:yyyy-MM-dd}.");
         }
 
         var fromUtc = BusinessDateStartUtc(reportBusiness.TimeZone, rangeFrom);
@@ -571,6 +735,29 @@ public static class ReportEndpoints
             IncludesProvisional: false), "z-report.csv");
     }
 
+    /// <summary>
+    /// The business's own today, read from its accounting zone - never the date on the web server's clock
+    /// (specification F21). Every report that defaults an as-of or "to" date uses it, so a run dated "today" and the
+    /// events it counts are measured on one clock.
+    /// </summary>
+    private static DateOnly BusinessToday(Business business) => LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow);
+
+    /// <summary>
+    /// A quantity keeps the six decimals the movement column stores; only money is rounded to the settlement scale.
+    /// Rounding a quantity as if it were money would silently change what the shelf holds (task 33, recipe step 3).
+    /// </summary>
+    private static decimal QuantityOf(decimal quantity) => decimal.Round(quantity, 6, MidpointRounding.AwayFromZero);
+
+    /// <summary>The largest report the server will assemble; a wider question must be narrowed, not truncated.</summary>
+    private const int MaxReportRows = 2_000;
+
+    /// <summary>The widest window one report may cover, so an unbounded range is refused rather than streamed.</summary>
+    private const int MaxReportSpanDays = 3_660;
+
+    /// <summary>The first instant after the given business date, in the business's own zone.</summary>
+    private static DateTimeOffset BusinessDateEndUtc(string? timeZoneId, DateOnly date)
+        => BusinessDateStartUtc(timeZoneId, date.AddDays(1));
+
     private static DateTimeOffset BusinessDateStartUtc(string? timeZoneId, DateOnly date)
     {
         var localStart = DateTime.SpecifyKind(date.ToDateTime(TimeOnly.MinValue), DateTimeKind.Unspecified);
@@ -617,7 +804,7 @@ public static class ReportEndpoints
             return error;
         }
 
-        var cutOff = asOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var cutOff = asOf ?? BusinessToday(business!);
 
         var activity = await PostedActivityAsync(db, businessId, null, cutOff, cancellationToken).ConfigureAwait(false);
         var accounts = await db.Accounts.AsNoTracking()
@@ -721,12 +908,23 @@ public static class ReportEndpoints
             return error;
         }
 
-        var rangeTo = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var rangeTo = to ?? BusinessToday(business!);
         var rangeFrom = from ?? rangeTo.AddYears(-1);
 
         if (rangeFrom > rangeTo)
         {
             return InvalidRange();
+        }
+
+        // An unbounded window is a size control, not a convenience: the server refuses a span no report can state
+        // honestly and names the window to ask for instead of quietly answering a different question.
+        if (rangeTo.DayNumber - rangeFrom.DayNumber > MaxReportSpanDays)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The date range is too wide to report.",
+                $"A report covers at most {MaxReportSpanDays} days at a time; ask for a shorter window ending {rangeTo:yyyy-MM-dd}.");
         }
 
         var activity = await PostedActivityAsync(db, businessId, rangeFrom, rangeTo, cancellationToken).ConfigureAwait(false);
@@ -806,8 +1004,8 @@ public static class ReportEndpoints
             return error;
         }
 
-        var cutOff = asOf ?? DateOnly.FromDateTime(DateTime.UtcNow);
-        var cutOffExclusive = new DateTimeOffset(cutOff.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        var cutOff = asOf ?? BusinessToday(business!);
+        var windowEnd = BusinessDateEndUtc(business!.TimeZone, cutOff);
 
         if (locationId is { } filter)
         {
@@ -827,7 +1025,7 @@ public static class ReportEndpoints
 
         var groups = await db.InventoryMovements.AsNoTracking()
             .Where(movement => movement.BusinessId == businessId
-                && movement.OccurredAtUtc < cutOffExclusive
+                && movement.OccurredAtUtc < windowEnd
                 && (locationId == null || movement.LocationId == locationId))
             .GroupBy(movement => new { movement.LocationId, movement.VariantId })
             .Select(grouped => new
@@ -848,6 +1046,17 @@ public static class ReportEndpoints
 
         var variantIds = groups.Select(grouped => grouped.VariantId).Distinct().ToArray();
 
+        // A report that would fill a screen has stopped answering the question asked. The bound is stated as a
+        // refusal with the filter that narrows it, never as a silent truncation of the totals (task 33, recipe 3).
+        if (groups.Count > MaxReportRows)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The stock report is too large to state honestly.",
+                $"This as-of date covers {groups.Count} location and variant pairs, over the {MaxReportRows} a report may carry. Filter by location, or report a smaller window.");
+        }
+
         var variants = await db.ProductVariants.AsNoTracking()
             .Where(variant => variant.BusinessId == businessId && variantIds.Contains(variant.Id))
             .Select(variant => new { variant.Id, variant.Name, variant.Sku })
@@ -862,7 +1071,7 @@ public static class ReportEndpoints
                 grouped.VariantId,
                 variants[grouped.VariantId].Name,
                 variants[grouped.VariantId].Sku,
-                LedgerWriter.Round(grouped.Quantity),
+                QuantityOf(grouped.Quantity),
                 LedgerWriter.Round(grouped.Value),
                 grouped.LastMovementAtUtc))
             .OrderBy(row => row.LocationName)
@@ -874,7 +1083,7 @@ public static class ReportEndpoints
             cutOff,
             business!.BaseCurrency,
             rows,
-            LedgerWriter.Round(rows.Sum(row => row.OnHand)),
+            QuantityOf(rows.Sum(row => row.OnHand)),
             LedgerWriter.Round(rows.Sum(row => row.StockValue)),
             IncludesProvisional: false), "stock-summary.csv");
     }
@@ -902,12 +1111,23 @@ public static class ReportEndpoints
             return error;
         }
 
-        var rangeTo = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var rangeTo = to ?? BusinessToday(business!);
         var rangeFrom = from ?? rangeTo.AddYears(-1);
 
         if (rangeFrom > rangeTo)
         {
             return InvalidRange();
+        }
+
+        // An unbounded window is a size control, not a convenience: the server refuses a span no report can state
+        // honestly and names the window to ask for instead of quietly answering a different question.
+        if (rangeTo.DayNumber - rangeFrom.DayNumber > MaxReportSpanDays)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The date range is too wide to report.",
+                $"A report covers at most {MaxReportSpanDays} days at a time; ask for a shorter window ending {rangeTo:yyyy-MM-dd}.");
         }
 
         var accounts = await db.Accounts.AsNoTracking()
@@ -978,7 +1198,7 @@ public static class ReportEndpoints
             return error;
         }
 
-        var rangeTo = to ?? DateOnly.FromDateTime(DateTime.UtcNow);
+        var rangeTo = to ?? BusinessToday(business!);
         var rangeFrom = from ?? rangeTo.AddYears(-1);
 
         if (rangeFrom > rangeTo)
@@ -986,8 +1206,21 @@ public static class ReportEndpoints
             return InvalidRange();
         }
 
-        var fromUtc = new DateTimeOffset(rangeFrom.ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
-        var toUtcExclusive = new DateTimeOffset(rangeTo.AddDays(1).ToDateTime(TimeOnly.MinValue), TimeSpan.Zero);
+        // An unbounded window is a size control, not a convenience: the server refuses a span no report can state
+        // honestly and names the window to ask for instead of quietly answering a different question.
+        if (rangeTo.DayNumber - rangeFrom.DayNumber > MaxReportSpanDays)
+        {
+            return ApiResults.Problem(
+                StatusCodes.Status400BadRequest,
+                ApiErrorCodes.ValidationFailed,
+                "The date range is too wide to report.",
+                $"A report covers at most {MaxReportSpanDays} days at a time; ask for a shorter window ending {rangeTo:yyyy-MM-dd}.");
+        }
+
+        // The window is the business's own trading days, measured in its accounting zone: a sale posted at 01:30 in
+        // Doha on the first of a month belongs to that month's report even though UTC still calls it the last day.
+        var fromUtc = BusinessDateStartUtc(business!.TimeZone, rangeFrom);
+        var toUtcExclusive = BusinessDateEndUtc(business.TimeZone, rangeTo);
 
         var sales = await db.Sales.AsNoTracking()
             .Where(sale => sale.BusinessId == businessId

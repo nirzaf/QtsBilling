@@ -332,6 +332,10 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Administration.IDeviceAdmini
 builder.Services.AddHttpClient<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The reporting statements the manager's screens read, and the local CSV export beside them (task 33).
+builder.Services.AddHttpClient<QtsBilling.Contracts.Reports.IReportApiClient, QtsBilling.Contracts.Reports.ReportApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 // The supplier half of the party workbench (specification task 15) over the routes purchasing already publishes.
 builder.Services.AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();

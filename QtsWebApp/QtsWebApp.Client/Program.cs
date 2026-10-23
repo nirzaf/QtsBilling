@@ -30,6 +30,8 @@ builder.Services.AddScoped<IBusinessSetupApiClient, BusinessSetupApiClient>();
 builder.Services.AddScoped<IAdministrationUserApiClient, AdministrationUserApiClient>();
 builder.Services.AddScoped<IDeviceAdministrationApiClient, DeviceAdministrationApiClient>();
 builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>();
+// The manager's reports, read and exported through the same typed contract the desktop shell uses (task 33).
+builder.Services.AddScoped<QtsBilling.Contracts.Reports.IReportApiClient, QtsBilling.Contracts.Reports.ReportApiClient>();
 builder.Services.AddScoped<ISupplierApiClient, SupplierApiClient>();
 // Purchase orders, receiving and returns in the browser (specification task 26).
 builder.Services.AddScoped<IPurchasingApiClient, PurchasingApiClient>();
