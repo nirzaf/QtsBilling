@@ -1,3 +1,4 @@
+using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Inventory;
@@ -199,4 +200,134 @@ internal sealed class StubAccountingApiClient : IAccountingApiClient
         SaveBusinessAccountingSettingsRequest request,
         CancellationToken cancellationToken = default)
         => throw new NotSupportedException("the smoke render never writes the mapping");
+
+    /// <summary>How often an accounting screen tried to change the books. The smoke must never see this grow.</summary>
+    public int Writes { get; private set; }
+
+    public Task<AccountDto> CreateAccountAsync(SaveAccountRequest request, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(CashAccount);
+    }
+
+    public Task<AccountDto> UpdateAccountAsync(Guid accountId, UpdateAccountRequest request, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(CashAccount);
+    }
+
+    public Task<IReadOnlyList<AccountingPeriodDto>> ListPeriodsAsync(CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        IReadOnlyList<AccountingPeriodDto> rows = [SamplePeriod];
+        return Task.FromResult(rows);
+    }
+
+    public Task<AccountingPeriodDto> CreatePeriodAsync(SaveAccountingPeriodRequest request, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(SamplePeriod);
+    }
+
+    public Task<PeriodCloseEvidenceDto> GetPeriodCloseEvidenceAsync(Guid periodId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(SampleEvidence);
+    }
+
+    public Task<AccountingPeriodDto> ClosePeriodAsync(
+        Guid periodId, CloseAccountingPeriodRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(SamplePeriod);
+    }
+
+    public Task<FiscalYearEvidenceDto> GetYearCloseEvidenceAsync(int fiscalYear, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(SampleYearEvidence(fiscalYear));
+    }
+
+    public Task<FiscalYearCloseDto> CloseYearAsync(int fiscalYear, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(new FiscalYearCloseDto(fiscalYear, new DateOnly(fiscalYear, 12, 31), "JE-2026-0001", 0m, 1));
+    }
+
+    public Task<PagedResult<JournalEntrySummaryDto>> ListJournalsAsync(
+        string? cursor = null,
+        int? pageSize = null,
+        string? status = null,
+        string? origin = null,
+        DateOnly? from = null,
+        DateOnly? to = null,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        IReadOnlyList<JournalEntrySummaryDto> rows = [SampleSummary];
+        return Task.FromResult(new PagedResult<JournalEntrySummaryDto>(rows, null, pageSize ?? 25));
+    }
+
+    public Task<JournalEntryDto> GetJournalAsync(Guid entryId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(SampleEntry);
+    }
+
+    public Task<JournalEntryDto> PostJournalAsync(
+        PostJournalEntryRequest request, string? idempotencyKey = null, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(SampleEntry);
+    }
+
+    public Task<JournalEntryDto> ReverseJournalAsync(
+        Guid entryId, ReverseJournalRequest request, string idempotencyKey, CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(SampleEntry);
+    }
+
+    public Task<TrialBalanceDto> GetTrialBalanceAsync(
+        DateOnly from, DateOnly to, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new TrialBalanceDto(from, to, 100m, 100m, [SampleTrialRow]));
+    }
+
+    public static AccountingPeriodDto SamplePeriod { get; } = new(
+        Guid.NewGuid(), "March 2026", new DateOnly(2026, 3, 1), new DateOnly(2026, 3, 31), AccountingPeriodState.Open, 3);
+
+    public static JournalEntrySummaryDto SampleSummary { get; } = new(
+        Guid.NewGuid(), "JE-2026-0007", new DateOnly(2026, 3, 31), JournalEntryState.Posted, JournalOrigin.Manual,
+        100m, 100m, "accrual", DateTimeOffset.UtcNow, DateTimeOffset.UtcNow);
+
+    public static TrialBalanceRowDto SampleTrialRow { get; } = new(
+        Guid.NewGuid(), "1010", "Cash on hand", AccountKind.Asset, 100m, 0m, 100m);
+
+    public static JournalEntryDto SampleEntry { get; } = new(
+        SampleSummary.Id, SampleSummary.EntryNumber, SampleSummary.EntryDate, JournalEntryState.Posted,
+        JournalOrigin.Manual, null, "QAR", 100m, 100m, "accrual", DateTimeOffset.UtcNow, Guid.NewGuid(), null, 2,
+        DateTimeOffset.UtcNow,
+        [
+            new JournalLineDto(Guid.NewGuid(), 1, Guid.NewGuid(), "1010", "Cash on hand", 100m, 0m, "QAR", null, null),
+            new JournalLineDto(Guid.NewGuid(), 2, Guid.NewGuid(), "4000", "Sales revenue", 0m, 100m, "QAR", null, null),
+        ]);
+
+    public static PeriodCloseEvidenceDto SampleEvidence { get; } = new(
+        SamplePeriod, new DateOnly(2026, 4, 1), "Asia/Qatar", 2, true, 100m, 100m, 4, 0m, 40m, 25m, 60m, 12m, 7m, 100m, 1, 0, 0,
+        [
+            new PeriodOutstandingDto("open-sessions", "Register sessions still open", 1, 0m, true,
+                "A terminal holding uncounted cash keeps custody open (D07). Close the session, or carry its obligation forward under a named reason."),
+            new PeriodOutstandingDto("receivable", "Receivables owed to the business", 0, 40m, false,
+                "An open receivable is carried across the boundary; the customer statement is what proves it."),
+        ],
+        true, false, null, [SampleTrialRow]);
+
+    public static FiscalYearEvidenceDto SampleYearEvidence(int fiscalYear) => new(
+        fiscalYear, new DateOnly(fiscalYear, 1, 1), new DateOnly(fiscalYear, 12, 31), new DateOnly(fiscalYear + 1, 1, 1),
+        "Asia/Qatar", 2, 12, 1, 0, true, false, true, "3000", null, 900m, 400m, 500m,
+        [new PeriodOutstandingDto("retained-earnings", "Retained earnings account", 1, 0m, true,
+            "The transfer closes revenue and expense into an equity account.")],
+        []);
 }

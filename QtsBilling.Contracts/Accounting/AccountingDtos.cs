@@ -66,6 +66,75 @@ public sealed record AccountingPeriodDto(
 
 public sealed record SaveAccountingPeriodRequest(string Name, DateOnly StartDate, DateOnly EndDate);
 
+/// <summary>
+/// Closing a period is an explained act, not a click. The reviewer names the version they read, so a close cannot
+/// land on a period somebody else already moved, and the reason they would show an auditor. The body is optional on
+/// the route so a caller that only wants the bare gate still gets it; a screen always sends both.
+/// </summary>
+public sealed record CloseAccountingPeriodRequest(long ExpectedVersion, string? Reason = null);
+
+/// <summary>
+/// A reversal may be dated on the day it is recorded rather than the day of the entry it corrects, which is the only
+/// way a correction can be made after the original period has been closed. The requested date is validated against
+/// the business calendar and the period gates like any other posting.
+/// </summary>
+public sealed record ReverseJournalRequest(DateOnly? CorrectionDate = null, string? Reason = null);
+
+/// <summary>
+/// One outstanding item the reviewer must see before a period closes: what it is, how many, and the money involved.
+/// A balance legitimately carried across a period boundary (an open receivable) is told apart from an unfinished act
+/// inside the window (a draft journal), because only the second one is a reason not to close.
+/// </summary>
+public sealed record PeriodOutstandingDto(string Kind, string Title, int Count, decimal Amount, bool BlocksClose, string WhatItMeans);
+
+/// <summary>What closing a period would leave behind, read from posted facts, alongside the readiness of the year.</summary>
+public sealed record PeriodCloseEvidenceDto(
+    AccountingPeriodDto Period,
+    DateOnly BusinessToday,
+    string AccountingZone,
+    int SettlementScale,
+    bool PeriodOpen,
+    decimal PostedDebit,
+    decimal PostedCredit,
+    int PostedEntryCount,
+    decimal NetIncome,
+    decimal ReceivableBalance,
+    decimal PayableBalance,
+    decimal StockValue,
+    decimal TransitValue,
+    decimal UnappliedDeposits,
+    decimal DrawerCash,
+    int OpenCustodyCases,
+    int DraftJournalCount,
+    int UnconfirmedPaymentCount,
+    IReadOnlyList<PeriodOutstandingDto> Outstanding,
+    bool YearComplete,
+    bool YearAlreadyClosed,
+    string? YearGapFrom,
+    IReadOnlyList<TrialBalanceRowDto> TrialBalance);
+
+/// <summary>The year-end position: whether the close can run, what it would move, and what it produces.</summary>
+public sealed record FiscalYearEvidenceDto(
+    int FiscalYear,
+    DateOnly StartDate,
+    DateOnly EndDate,
+    DateOnly BusinessToday,
+    string AccountingZone,
+    int SettlementScale,
+    int PeriodCount,
+    int OpenPeriodCount,
+    int LockedPeriodCount,
+    bool CoversWholeYear,
+    bool AlreadyClosed,
+    bool RetainedEarningsReady,
+    string? RetainedEarningsCode,
+    string? GapFrom,
+    decimal Revenue,
+    decimal Expenses,
+    decimal NetIncome,
+    IReadOnlyList<PeriodOutstandingDto> Outstanding,
+    IReadOnlyList<JournalEntrySummaryDto> ClosingEntries);
+
 public sealed record FiscalYearCloseDto(int FiscalYear, DateOnly ClosingDate, string JournalEntryNumber, decimal NetIncome, int LockedPeriodCount);
 
 public sealed record BusinessAccountingSettingsDto(

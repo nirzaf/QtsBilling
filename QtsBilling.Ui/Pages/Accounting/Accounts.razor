@@ -1,0 +1,194 @@
+@page "/accounting/accounts"
+@namespace QtsBilling.Ui.Pages.Accounting
+@using QtsBilling.Contracts.Accounting
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Models
+
+<PageTitle>Chart of accounts and controls - QTS Billing</PageTitle>
+
+@* The chart and the control-account mapping (specification task 32, recipe step 1), on the contract the posting path
+   reads. Accounts are added, renamed and taken out of service as three separate acts; none of them posts anything,
+   and an account with history is never deleted - its posted activity stays readable. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Chart of accounts</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">The accounts this business owns, and the account each posting rule uses.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Book" Href="accounting/journals">Journals and trial balance</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DateRange" Href="accounting/periods">Periods and year close</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read the chart again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@AccountingRules.ChartRule @AccountingRules.StatementRule</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the chart again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read the chart back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Success" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (_create.Outstanding || _change.Outstanding || _mapping.Outstanding)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="unknown-outcome">
+            <MudText Typo="Typo.body2">One of these acts is still awaiting its answer. Its key and its exact figures are held, so pressing again asks the server about the same act instead of writing a second one.</MudText>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="pa-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Accounts</MudText>
+                <MudTable Items="_chart" Hover="true" Dense="true" ReadOnly="true" FixedHeader="true" Height="360px"
+                          data-qts-region="chart">
+                    <HeaderContent>
+                        <MudTh>Code</MudTh>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Kind</MudTh>
+                        <MudTh>Grows on</MudTh>
+                        <MudTh>Parent</MudTh>
+                        <MudTh>Status</MudTh>
+                        <MudTh>Next act</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Code">@context.Code</MudTd>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Kind">@context.AccountType</MudTd>
+                        <MudTd DataLabel="Grows on">@AccountingRules.NormalSide(context.AccountType)</MudTd>
+                        <MudTd DataLabel="Parent">@(AccountFor(context.ParentId ?? Guid.Empty) is { } parent ? $"{parent.Code} {parent.Name}" : "-")</MudTd>
+                        <MudTd DataLabel="Status">
+                            <MudText Typo="Typo.body2" Color="@(context.IsActive ? Color.Success : Color.Secondary)">
+                                @(context.IsActive ? "active" : "out of service")
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Next act">
+                            <MudStack Row="true" Spacing="1" Wrap="Wrap.Wrap">
+                                <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SelectAccount(context))"
+                                           Disabled="@_busy" data-qts-action="read-account">Read this account</MudButton>
+                                @if (_canPost && !_busy)
+                                {
+                                    @if (context.IsActive)
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
+                                                   OnClick="@(() => SetActiveAsync(context, false))" data-qts-action="deactivate">
+                                            Take out of service
+                                        </MudButton>
+                                    }
+                                    else
+                                    {
+                                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Primary"
+                                                   OnClick="@(() => SetActiveAsync(context, true))" data-qts-action="activate">
+                                            Put back in service
+                                        </MudButton>
+                                    }
+                                }
+                                else
+                                {
+                                    <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                        @(_busy ? "Reading the chart…" : "This account may not change the chart.")
+                                    </MudText>
+                                }
+                            </MudStack>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">No accounts have been added to this business.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                @if (_selected is { } chosen)
+                {
+                    <MudStack Spacing="2" Class="mt-3">
+                        <MudText Typo="Typo.body2" Color="Color.Secondary">@SelectedSentence(chosen)</MudText>
+                        <MudTextField T="string" @bind-Value="_rename" Label="Name" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                        <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="RenameAsync"
+                                       Disabled="@(_busy || !_canPost || _change.Outstanding)" data-qts-action="rename">
+                                Rename this account
+                            </MudButton>
+                            @if (!_canPost)
+                            {
+                                <MudTooltip Text="@($"Renaming needs the '{QtsBilling.Contracts.Identity.Permissions.AccountingPost}' authority.")">
+                                    <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+                                </MudTooltip>
+                            }
+                        </MudStack>
+                    </MudStack>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="pa-4 mb-4">
+                <MudText Typo="Typo.h6" Class="mb-2">Add an account</MudText>
+                <MudStack Spacing="2">
+                    <MudTextField T="string" @bind-Value="_newCode" Label="Code" Margin="Margin.Dense" Variant="Variant.Outlined"
+                                  HelperText="Unique in this business; a code already in use is refused." />
+                    <MudTextField T="string" @bind-Value="_newName" Label="Name" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    <MudSelect T="string" Value="@_newKindWord" ValueChanged="KindChosen" Label="Kind" Margin="Margin.Dense">
+                        @foreach (var (_, word) in Kinds)
+                        {
+                            <MudSelectItem T="string" Value="@word">@word</MudSelectItem>
+                        }
+                    </MudSelect>
+                    <ReferenceSelector Label="Parent account" HelpText="search by name or code" Value="@_parentChoice"
+                                       ValueChanged="@(item => _parentChoice = item)"
+                                       Search="SearchChartAsync" Disabled="@_busy" />
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                               Disabled="@(_busy || !_canPost || _create.Outstanding)" data-qts-action="create-account">
+                        Add the account
+                    </MudButton>
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+
+    @if (_settings is { } mapping)
+    {
+        <MudPaper Outlined="true" Class="pa-4" data-qts-region="controls">
+            <MudText Typo="Typo.h6" Class="mb-1">Control accounts</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+                The account each posting rule will use, read from the same mapping a journal reads. Choosing one here
+                changes nothing until it is saved; the server refuses an account of the wrong kind or another business.
+            </MudText>
+            <MudGrid>
+                <MudItem xs="12" sm="4" md="3">
+                    <MudTextField T="string" Value="@mapping.SettlementScale.ToString()"
+                                  ValueChanged="ChooseScale" Label="Settlement scale (decimal places)"
+                                  Margin="Margin.Dense" Variant="Variant.Outlined" />
+                </MudItem>
+            </MudGrid>
+            @foreach (var slot in Slots)
+            {
+                <MudStack Spacing="0" Class="mb-3">
+                    <MudText Typo="Typo.body2">@SlotSentence(slot)</MudText>
+                    <ReferenceSelector Label="@($"Map {slot.Title}")" HelpText="search by name or code"
+                                       Value="ReferenceFor(slot)" ValueChanged="@(item => ChooseSlotAccount(slot, item))"
+                                       Search="SearchChartAsync" Disabled="@(_busy || !_canClose)" />
+                </MudStack>
+            }
+            <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Class="mt-2">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="SaveMappingAsync"
+                           Disabled="@(_busy || !_canClose || _mapping.Outstanding)" data-qts-action="save-mapping">
+                    Save the mapping
+                </MudButton>
+                @if (!_canClose)
+                {
+                    <MudTooltip Text="@($"Saving the mapping needs the '{QtsBilling.Contracts.Identity.Permissions.AccountingClose}' authority.")">
+                        <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+                    </MudTooltip>
+                }
+            </MudStack>
+        </MudPaper>
+    }
+</ShellStates>

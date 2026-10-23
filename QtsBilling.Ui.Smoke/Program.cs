@@ -1264,6 +1264,77 @@ Check("a lost bank answer keeps its key while a proven refusal releases it",
             new ApiException(409, ApiErrorCodes.BankStatementFinalised, "x"), "this correction").Contains("reopen", StringComparison.OrdinalIgnoreCase)
         && QtsBilling.Ui.Pages.Finance.BankingRules.NewKey("finalise", Guid.CreateVersion7()).Length <= 64);
 
+// 18. The accounting operator surfaces (specification task 32): three shared pages that render with nothing loaded,
+//     state whose period owns a posting, that a posted entry is answered by a reversal rather than an edit, and that
+//     a close is decided by evidence the server computed - not by a confirmation on screen.
+var stubAccounting = new StubAccountingApiClient();
+var accountingServices = new ServiceCollection();
+accountingServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+accountingServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+accountingServices.AddMudServices();
+accountingServices.AddSingleton<NavigationManager, StubNavigationManager>();
+accountingServices.AddSingleton<IAccountingApiClient>(stubAccounting);
+accountingServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var accountingProvider = accountingServices.BuildServiceProvider();
+await using var accountingRenderer = new HtmlRenderer(accountingProvider, accountingProvider.GetRequiredService<ILoggerFactory>());
+
+var accountsHtml = await accountingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await accountingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Accounting.Accounts>(ParameterView.Empty)).ToHtmlString());
+var journalsHtml = await accountingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await accountingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Accounting.Journals>(ParameterView.Empty)).ToHtmlString());
+var periodsHtml = await accountingRenderer.Dispatcher.InvokeAsync(async () =>
+    (await accountingRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Accounting.Periods>(ParameterView.Empty)).ToHtmlString());
+
+Check("each accounting screen is a shared page with its own route and an honest nav row",
+    typeof(QtsBilling.Ui.Pages.Accounting.Accounts).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "accounting/accounts")
+    && typeof(QtsBilling.Ui.Pages.Accounting.Journals).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "accounting/journals")
+    && typeof(QtsBilling.Ui.Pages.Accounting.Periods).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "accounting/periods")
+    && QtsBilling.Ui.Layout.ShellNavigation.Routes
+        .Where(row => row.Href.StartsWith("accounting/", StringComparison.Ordinal))
+        .All(row => row.Availability == QtsBilling.Ui.Layout.ShellAvailability.Available && row.ArrivalNote is null));
+Check("no accounting screen reads or writes the ledger during the prerender",
+    stubAccounting.Calls == 0 && stubAccounting.Writes == 0,
+    $"reads {stubAccounting.Calls}, writes {stubAccounting.Writes}");
+Check("the chart screen states that a control account is chosen, and history is kept",
+    accountsHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && accountsHtml.Contains("taken out of service", StringComparison.Ordinal)
+        && accountsHtml.Contains("never deleted", StringComparison.Ordinal));
+Check("the journal screen states the period gate and that a posted entry is not edited",
+    journalsHtml.Contains("the period the effective date falls in", StringComparison.Ordinal)
+        && journalsHtml.Contains("never edited or deleted", StringComparison.Ordinal)
+        && journalsHtml.Contains("A cash summary answers a different question", StringComparison.Ordinal));
+Check("the period screen states what a close must show and that a year close is not a shutdown",
+    periodsHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && periodsHtml.Contains("unfinished acts", StringComparison.Ordinal)
+        && periodsHtml.Contains("not an application shutdown", StringComparison.Ordinal)
+        && periodsHtml.Contains("cannot be undone by editing rows", StringComparison.Ordinal));
+Check("a close is offered only on evidence, and a period is judged by the server's own read",
+    !QtsBilling.Ui.Pages.Accounting.AccountingRules.CanClose(StubAccountingApiClient.SampleEvidence, mayClose: true)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.CloseBlocker(StubAccountingApiClient.SampleEvidence)
+        .Contains("Register sessions still open", StringComparison.OrdinalIgnoreCase)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.Blocking(StubAccountingApiClient.SampleEvidence).Count == 1
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.OutstandingSentence(StubAccountingApiClient.SampleEvidence.Outstanding[1], 2)
+        .Contains("carried across the boundary", StringComparison.OrdinalIgnoreCase)
+    && !QtsBilling.Ui.Pages.Accounting.AccountingRules.CanCloseYear(StubAccountingApiClient.SampleYearEvidence(2026), mayClose: true)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.YearSentence(StubAccountingApiClient.SampleYearEvidence(2026))
+        .Contains("still open", StringComparison.OrdinalIgnoreCase)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.CanCloseYear(
+        StubAccountingApiClient.SampleYearEvidence(2026) with { OpenPeriodCount = 0 }, mayClose: true)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.YearSentence(
+        StubAccountingApiClient.SampleYearEvidence(2026) with { OpenPeriodCount = 0 })
+        .Contains("locks the year's periods", StringComparison.OrdinalIgnoreCase));
+Check("an unbalanced entry is described as unfinished work, not as a rounding footnote",
+    !QtsBilling.Ui.Pages.Accounting.AccountingRules.LooksBalanced([(100m, 0m), (0m, 90m)])
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.LooksBalanced([(100m, 0m), (0m, 100m)])
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.RefusalSentence(
+        new ApiException(409, ApiErrorCodes.AccountingPeriodClosed, "x"), "this posting").Contains("backdate", StringComparison.OrdinalIgnoreCase)
+    && QtsBilling.Ui.Pages.Accounting.AccountingRules.CommittedNothing(ApiErrorCodes.AccountingPeriodOverlap)
+    && !QtsBilling.Ui.Pages.Accounting.AccountingRules.CommittedNothing(ApiErrorCodes.InternalError));
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");

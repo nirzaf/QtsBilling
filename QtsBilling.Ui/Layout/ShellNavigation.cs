@@ -89,8 +89,12 @@ public static class ShellNavigation
         new("Receivables and receipts", "finance/receivables", Icons.Material.Filled.Paid, GroupFinance, Permissions.InvoicesIssue, ShellAvailability.Available),
         new("Bank feed and reconciliation", "finance/banking", Icons.Material.Filled.AccountBalanceWallet, GroupFinance, Permissions.AccountingPost, ShellAvailability.Available),
         new("Expenses", "expenses", Icons.Material.Filled.Receipt, GroupFinance, Permissions.ExpensesManage, ShellAvailability.Available),
-        new("Ledger, journals and periods", "accounting/accounts", Icons.Material.Filled.AccountTree, GroupFinance, Permissions.AccountingPost, ShellAvailability.Planned,
-            "Arrives with task 32."),
+        // Accounting: the books behind the money. Each row reaches a page that exists, at the authority that page's
+        // routes actually ask for - reading the journal is a reports right, posting is a posting right, and opening,
+        // closing or transferring a period belongs to the person who may close a period (specification task 32).
+        new("Chart of accounts", "accounting/accounts", Icons.Material.Filled.AccountTree, GroupFinance, Permissions.AccountingPost, ShellAvailability.Available),
+        new("Journals and trial balance", "accounting/journals", Icons.Material.Filled.Book, GroupFinance, Permissions.ReportsView, ShellAvailability.Available),
+        new("Periods and year close", "accounting/periods", Icons.Material.Filled.DateRange, GroupFinance, Permissions.AccountingClose, ShellAvailability.Available),
         new("Reports", "reports", Icons.Material.Filled.QueryStats, GroupFinance, Permissions.ReportsView, ShellAvailability.Planned,
             "Arrives with task 33."),
 

@@ -1,0 +1,285 @@
+@page "/accounting/journals"
+@namespace QtsBilling.Ui.Pages.Accounting
+@using QtsBilling.Contracts.Accounting
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Models
+
+<PageTitle>Journals and trial balance - QTS Billing</PageTitle>
+
+@* The journal (specification task 32, recipe steps 1-2 and 4): posted entries read back from the ledger, one entry
+   shown line by line, a manual entry offered for posting under the period the server chooses, a posted entry answered
+   by a reversal that names it, and a trial balance over a window. The screen quotes its own totals for review only -
+   the ledger decides balance, scale and period, and no posted line is edited or deleted here. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Journals</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Posted entries, a manual entry, a reversal, and the trial balance over a window.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AccountTree" Href="accounting/accounts">Chart of accounts</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.DateRange" Href="accounting/periods">Periods and year close</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read the journal again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+    @AccountingRules.PostingRule @AccountingRules.ReversalRule @AccountingRules.StatementRule
+</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the journal again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read the journal back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (_post.Outstanding || _reverse.Outstanding)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="unknown-outcome">
+            <MudText Typo="Typo.body2">One of these acts is still awaiting its answer. Its key and its exact lines are held, so pressing again asks the server about the same act instead of writing a second journal.</MudText>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" md="3">
+            <MudSelect T="string" Value="@_statusFilter" ValueChanged="@(value => _statusFilter = value ?? string.Empty)"
+                       Label="State" Margin="Margin.Dense" Dense="true">
+                <MudSelectItem T="string" Value="@((string?)null)">(any state)</MudSelectItem>
+                @foreach (var (_, word) in StatusChoices)
+                {
+                    <MudSelectItem T="string" Value="@word">@word</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudSelect T="string" Value="@_originFilter" ValueChanged="@(value => _originFilter = value ?? string.Empty)"
+                       Label="Produced by" Margin="Margin.Dense" Dense="true">
+                <MudSelectItem T="string" Value="@((string?)null)">(anything)</MudSelectItem>
+                @foreach (var (_, word) in OriginChoices)
+                {
+                    <MudSelectItem T="string" Value="@word">@word</MudSelectItem>
+                }
+            </MudSelect>
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudDatePicker @bind-Date="_from" Label="From" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" md="3">
+            <MudDatePicker @bind-Date="_to" Label="To" Margin="Margin.Dense" />
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" lg="6">
+            <MudPaper Outlined="true" Class="pa-4" data-qts-region="entries">
+                <MudText Typo="Typo.h6" Class="mb-2">Posted entries</MudText>
+                <MudTable Items="_entries" Dense="true" Hover="true" FixedHeader="true" Height="420px">
+                    <HeaderContent>
+                        <MudTh>Entry</MudTh>
+                        <MudTh>Date</MudTh>
+                        <MudTh>Produced by</MudTh>
+                        <MudTh Style="text-align:right">Debit</MudTh>
+                        <MudTh Style="text-align:right">Credit</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh>Read</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Entry">@context.EntryNumber</MudTd>
+                        <MudTd DataLabel="Date">@context.EntryDate.ToString("yyyy-MM-dd")</MudTd>
+                        <MudTd DataLabel="Produced by">@context.Origin</MudTd>
+                        <MudTd DataLabel="Debit" Style="text-align:right">@Money(context.TotalDebit)</MudTd>
+                        <MudTd DataLabel="Credit" Style="text-align:right">@Money(context.TotalCredit)</MudTd>
+                        <MudTd DataLabel="State">@AccountingRules.EntryStateText(context.Status)</MudTd>
+                        <MudTd DataLabel="Read">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => SelectAsync(context.Id))"
+                                       Disabled="@_busy" data-qts-action="read-entry">Read this entry</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">Nothing has been posted under these filters.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+                @if (HasMore)
+                {
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="LoadMoreAsync" Disabled="@_busy"
+                               Class="mt-2" data-qts-action="more-entries">Read the next page of the journal</MudButton>
+                }
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="6">
+            @if (_selected is { } entry)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="entry">
+                    <MudText Typo="Typo.h6" Class="mb-1">@entry.EntryNumber</MudText>
+                    <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                        @entry.EntryDate.ToString("yyyy-MM-dd") · @AccountingRules.EntryStateText(entry.Status) · @entry.Currency · @OriginSentence(entry.Origin)
+                    </MudText>
+                    @if (entry.Memo is { Length: > 0 } memo)
+                    {
+                        <MudText Typo="Typo.body2" Class="mb-2">@memo</MudText>
+                    }
+                    <MudTable Items="entry.Lines" Dense="true" ReadOnly="true">
+                        <HeaderContent>
+                            <MudTh>Line</MudTh>
+                            <MudTh>Account</MudTh>
+                            <MudTh>Side</MudTh>
+                            <MudTh Style="text-align:right">Debit</MudTh>
+                            <MudTh Style="text-align:right">Credit</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Line">@context.LineNo</MudTd>
+                            <MudTd DataLabel="Account">@($"{context.AccountCode} {context.AccountName}")</MudTd>
+                            <MudTd DataLabel="Side">@SideSentence(context)</MudTd>
+                            <MudTd DataLabel="Debit" Style="text-align:right">@(context.Debit == 0m ? "-" : Money(context.Debit))</MudTd>
+                            <MudTd DataLabel="Credit" Style="text-align:right">@(context.Credit == 0m ? "-" : Money(context.Credit))</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        @Money(entry.TotalDebit) debited against @Money(entry.TotalCredit) credited, over @entry.Lines.Count line(s).
+                    </MudText>
+
+                    @if (SourceDocument is { } source)
+                    {
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="@source.Href" Class="mt-2"
+                                   StartIcon="@Icons.Material.Filled.Description" data-qts-action="source-document">
+                            @source.Label
+                        </MudButton>
+                    }
+
+                    @if (entry.Origin == JournalOrigin.Reversal && entry.ReversalOfEntryId is not null)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">
+                            This entry answers another one; the entry it reverses stays posted exactly as it was.
+                        </MudText>
+                    }
+
+                    @if (entry.Status == JournalEntryState.Posted && entry.Origin != JournalOrigin.Reversal)
+                    {
+                        <MudStack Spacing="2" Class="mt-3">
+                            <MudTextField T="string" @bind-Value="_correctionReason" Label="Reason for the reversal"
+                                          Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+                            <MudDatePicker @bind-Date="_correctionDate" Label="Record it on (blank means the original's date)" />
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                                A correction dated into a closed period is refused by the ledger, not rounded away.
+                            </MudText>
+                            <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Secondary"
+                                       OnClick="ReverseAsync" Disabled="@(_busy || !_canPost || _reverse.Outstanding)"
+                                       data-qts-action="reverse-entry">Reverse this entry</MudButton>
+                        </MudStack>
+                    }
+                    else if (!_canPost)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2">
+                            @($"Reversing needs the '{QtsBilling.Contracts.Identity.Permissions.AccountingPost}' authority, which this account does not hold here.")
+                        </MudText>
+                    }
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" lg="7">
+            <MudPaper Outlined="true" Class="pa-4" data-qts-region="post">
+                <MudText Typo="Typo.h6" Class="mb-1">Post a manual entry</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+                    An accountant's own entry - a correction of a migrated opening, an accrual. Business documents post
+                    themselves and are read-only here. The date decides the period, and a closed or missing period is
+                    refused rather than posted around.
+                </MudText>
+                <MudGrid Class="mb-2">
+                    <MudItem xs="12" sm="4">
+                        <MudDatePicker @bind-Date="_entryDate" Label="Effective date" Margin="Margin.Dense" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField T="string" @bind-Value="_currency" Label="Currency (blank means the business's)"
+                                      Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    </MudItem>
+                    <MudItem xs="12" sm="4">
+                        <MudTextField T="string" @bind-Value="_memo" Label="Memo" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    </MudItem>
+                </MudGrid>
+                @foreach (var line in _lines)
+                {
+                    <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center" Wrap="Wrap.Wrap" Class="mb-2">
+                        <div style="min-width: 16rem;">
+                            <ReferenceSelector Label="Account" HelpText="search by name or code" Value="@line.Account"
+                                               ValueChanged="@(item => line.Account = item)" Search="SearchChartAsync"
+                                               Disabled="@(_busy || !_canPost)" />
+                        </div>
+                        <MudTextField T="string" @bind-Value="line.Debit" Label="Debit" Margin="Margin.Dense"
+                                      Variant="Variant.Outlined" Style="width: 8rem;" InputMode="InputMode.numeric" />
+                        <MudTextField T="string" @bind-Value="line.Credit" Label="Credit" Margin="Margin.Dense"
+                                      Variant="Variant.Outlined" Style="width: 8rem;" InputMode="InputMode.numeric" />
+                        <MudTextField T="string" @bind-Value="line.Description" Label="Line note" Margin="Margin.Dense"
+                                      Variant="Variant.Outlined" Style="min-width: 14rem;" />
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Color="Color.Secondary"
+                                   OnClick="@(() => RemoveLine(line))" Disabled="@(_lines.Count <= 2 || !_canPost)">
+                            Remove this line
+                        </MudButton>
+                    </MudStack>
+                }
+                <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">@BalanceSentence</MudText>
+                <MudStack Row="true" Spacing="2" AlignItems="AlignItems.Center">
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="AddLine" Disabled="@(!_canPost)">Add a line</MudButton>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="PostAsync"
+                               Disabled="@(!CanPostNow)" data-qts-action="post-entry">Post the entry</MudButton>
+                    @if (!_canPost)
+                    {
+                        <MudTooltip Text="@($"Posting needs the '{QtsBilling.Contracts.Identity.Permissions.AccountingPost}' authority.")">
+                            <MudIcon Icon="@Icons.Material.Filled.Lock" Size="Size.Small" />
+                        </MudTooltip>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="5">
+            <MudPaper Outlined="true" Class="pa-4" data-qts-region="trial-balance">
+                <MudText Typo="Typo.h6" Class="mb-1">Trial balance</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2 d-block">
+                    A financial statement derived from posted lines only - not a cash summary, which answers what came
+                    in and went out.
+                </MudText>
+                <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                    <MudDatePicker @bind-Date="_trialFrom" Label="First day" Margin="Margin.Dense" />
+                    <MudDatePicker @bind-Date="_trialTo" Label="Last day" Margin="Margin.Dense" />
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ReadTrialBalanceAsync" Disabled="@_busy"
+                               data-qts-action="read-trial-balance">Read the trial balance</MudButton>
+                </MudStack>
+                @if (_trial is { } balance)
+                {
+                    <MudTable Items="balance.Rows" Dense="true" ReadOnly="true" FixedHeader="true" Height="320px" Class="mt-3">
+                        <HeaderContent>
+                            <MudTh>Code</MudTh>
+                            <MudTh>Account</MudTh>
+                            <MudTh Style="text-align:right">Debit</MudTh>
+                            <MudTh Style="text-align:right">Credit</MudTh>
+                            <MudTh Style="text-align:right">Balance</MudTh>
+                        </HeaderContent>
+                        <RowTemplate>
+                            <MudTd DataLabel="Code">@context.Code</MudTd>
+                            <MudTd DataLabel="Account">@context.Name</MudTd>
+                            <MudTd DataLabel="Debit" Style="text-align:right">@Money(context.Debit)</MudTd>
+                            <MudTd DataLabel="Credit" Style="text-align:right">@Money(context.Credit)</MudTd>
+                            <MudTd DataLabel="Balance" Style="text-align:right">@Money(context.Balance)</MudTd>
+                        </RowTemplate>
+                    </MudTable>
+                    <MudText Typo="Typo.body2" Class="mt-2">
+                        @Money(balance.TotalDebit) debited against @Money(balance.TotalCredit) credited
+                        @(balance.TotalDebit == balance.TotalCredit ? "- in balance." : "- out of balance.")
+                    </MudText>
+                }
+            </MudPaper>
+        </MudItem>
+    </MudGrid>
+</ShellStates>

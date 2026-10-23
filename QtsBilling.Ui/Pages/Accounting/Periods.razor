@@ -1,0 +1,190 @@
+@page "/accounting/periods"
+@namespace QtsBilling.Ui.Pages.Accounting
+@using QtsBilling.Contracts.Accounting
+@using QtsBilling.Ui.Components
+
+<PageTitle>Periods and year close - QTS Billing</PageTitle>
+
+@* Accounting periods and the fiscal-year close (specification task 32, recipe step 3). A period is closed only after
+   its evidence has been read, a year transfer needs every period of that year closed and covered end to end, and
+   neither act is reversible by editing rows - a wrong close is answered by a new audited entry. The gates are the
+   server's: nothing on this page bypasses them by confirming. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Periods and year close</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">What each window holds, what a close would leave behind, and what the year transfer moves.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.AccountTree" Href="accounting/accounts">Chart of accounts</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Book" Href="accounting/journals">Journals</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read the periods again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@AccountingRules.CloseRule @AccountingRules.FiscalCloseRule</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the periods again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read the periods back</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" role="status">@_notice</MudAlert>
+    }
+
+    @if (_create.Outstanding || _close.Outstanding || _year.Outstanding)
+    {
+        <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="unknown-outcome">
+            <MudText Typo="Typo.body2">One of these acts is still awaiting its answer. Its key and its exact figures are held, so pressing again asks the server about the same act instead of closing a period or transferring a year twice.</MudText>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" lg="6">
+            <MudPaper Outlined="true" Class="pa-4" data-qts-region="periods">
+                <MudText Typo="Typo.h6" Class="mb-2">Periods</MudText>
+                <MudTable Items="_periods" Dense="true" Hover="true" ReadOnly="true" FixedHeader="true" Height="300px">
+                    <HeaderContent>
+                        <MudTh>Name</MudTh>
+                        <MudTh>Window</MudTh>
+                        <MudTh>State</MudTh>
+                        <MudTh>Read</MudTh>
+                    </HeaderContent>
+                    <RowTemplate>
+                        <MudTd DataLabel="Name">@context.Name</MudTd>
+                        <MudTd DataLabel="Window">@($"{context.StartDate:yyyy-MM-dd} to {context.EndDate:yyyy-MM-dd}")</MudTd>
+                        <MudTd DataLabel="State">
+                            <MudText Typo="Typo.body2" Color="@(context.Status == AccountingPeriodState.Open ? Color.Success : Color.Secondary)">
+                                @AccountingRules.StatusText(context.Status)
+                            </MudText>
+                        </MudTd>
+                        <MudTd DataLabel="Read">
+                            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="@(() => ReadAsync(context.Id))"
+                                       Disabled="@_busy" data-qts-action="read-period">Read its close</MudButton>
+                        </MudTd>
+                    </RowTemplate>
+                    <NoRecordsContent>
+                        <MudText Typo="Typo.body2" Class="pa-4">No accounting periods exist yet.</MudText>
+                    </NoRecordsContent>
+                </MudTable>
+
+                <MudStack Spacing="2" Class="mt-3">
+                    <MudText Typo="Typo.body2" Color="Color.Secondary">Open a window. Nothing is posted by opening one; posting stops working the day it closes.</MudText>
+                    <MudTextField T="string" @bind-Value="_name" Label="Name" Margin="Margin.Dense" Variant="Variant.Outlined" />
+                    <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap">
+                        <MudDatePicker @bind-Date="_start" Label="First day" Margin="Margin.Dense" />
+                        <MudDatePicker @bind-Date="_end" Label="Last day" Margin="Margin.Dense" />
+                    </MudStack>
+                    <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="CreateAsync"
+                               Disabled="@(_busy || !_canClose || _create.Outstanding)" data-qts-action="create-period">
+                        Open this period
+                    </MudButton>
+                    @if (!_canClose)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @($"Opening, closing and the year transfer need the '{QtsBilling.Contracts.Identity.Permissions.AccountingClose}' authority.")
+                        </MudText>
+                    }
+                </MudStack>
+            </MudPaper>
+        </MudItem>
+
+        <MudItem xs="12" lg="6">
+            @if (_evidence is { } evidence)
+            {
+                <MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="evidence">
+                    <MudText Typo="Typo.h6" Class="mb-1">@EvidenceHeading</MudText>
+                    <MudGrid Class="mb-2">
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Entries posted in the window</MudText>
+                            <MudText Typo="Typo.body1">@evidence.PostedEntryCount</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Debited</MudText>
+                            <MudText Typo="Typo.body1">@Money(evidence.PostedDebit)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Credited</MudText>
+                            <MudText Typo="Typo.body1">@Money(evidence.PostedCredit)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Result of the window</MudText>
+                            <MudText Typo="Typo.body1">@Money(evidence.NetIncome)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Cash on hand at the close</MudText>
+                            <MudText Typo="Typo.body1">@Money(evidence.DrawerCash)</MudText>
+                        </MudItem>
+                        <MudItem xs="6" sm="4">
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">Stock value at the close</MudText>
+                            <MudText Typo="Typo.body1">@Money(evidence.StockValue)</MudText>
+                        </MudItem>
+                    </MudGrid>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-2">
+                        Read as at @($"{evidence.Period.EndDate:yyyy-MM-dd}") in @evidence.AccountingZone; the business date is @($"{evidence.BusinessToday:yyyy-MM-dd}").
+                    </MudText>
+
+                    <MudText Typo="Typo.subtitle2" Class="mb-1">What the close would leave behind</MudText>
+                    @foreach (var item in evidence.Outstanding)
+                    {
+                        <MudText Typo="Typo.body2" Color="@(item.BlocksClose ? Color.Warning : Color.Default)"
+                                 Class="@(item.BlocksClose ? "mb-1" : "mb-1")"
+                                 data-qts-state="@(item.BlocksClose ? "blocking" : "carried")">
+                            @AccountingRules.OutstandingSentence(item, evidence.SettlementScale)
+                        </MudText>
+                    }
+
+                    <MudStack Spacing="2" Class="mt-3">
+                        <MudTextField T="string" @bind-Value="_reason" Label="Reason for closing this period"
+                                      Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">
+                            @AccountingRules.CloseBlocker(evidence)
+                        </MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="CloseAsync"
+                                   Disabled="@(!CanCloseNow)" data-qts-action="close-period">
+                            Close @evidence.Period.Name
+                        </MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="accounting/journals">
+                            Read the @evidence.TrialBalance.Count accounts in this window's trial balance
+                        </MudButton>
+                    </MudStack>
+                </MudPaper>
+            }
+        </MudItem>
+    </MudGrid>
+
+    <MudPaper Outlined="true" Class="pa-4" data-qts-region="year-close">
+        <MudText Typo="Typo.h6" Class="mb-1">Fiscal-year close</MudText>
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-2 d-block">
+            This is an accounting act on one year's books - it is not shutting the application down, and it cannot be
+            undone by editing rows. A wrong close is answered by a new audited entry.
+        </MudText>
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center">
+            <MudNumericField T="int" @bind-Value="_yearNumber" Label="Year" Margin="Margin.Dense" Variant="Variant.Outlined" Style="max-width: 10rem;" />
+            <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="ReadYearAsync" Disabled="@_busy"
+                       data-qts-action="read-year">Read the year-end</MudButton>
+            <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="CloseYearAsync"
+                       Disabled="@(!CanCloseYearNow)" data-qts-action="close-year">Transfer @YearCandidate to retained earnings</MudButton>
+        </MudStack>
+        @if (_yearEvidence is { } year)
+        {
+            <MudText Typo="Typo.body2" Class="mt-2"
+                     data-qts-state="@(AccountingRules.CanCloseYear(year, _canClose) ? "ready" : "not-ready")">
+                @AccountingRules.YearSentence(year)
+            </MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block">
+                @year.PeriodCount period(s) in @year.FiscalYear, @year.OpenPeriodCount still open; revenue @Money(year.Revenue), expenses @Money(year.Expenses); @((year.ClosingEntries).Count) closing entries on the record.
+            </MudText>
+            @foreach (var entry in year.ClosingEntries)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Secondary">@($"{entry.EntryNumber} · {entry.EntryDate:yyyy-MM-dd} · {Money(entry.TotalDebit)}")</MudText>
+            }
+        }
+    </MudPaper>
+</ShellStates>

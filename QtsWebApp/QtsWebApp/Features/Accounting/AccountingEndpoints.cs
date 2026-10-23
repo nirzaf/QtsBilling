@@ -38,7 +38,12 @@ public static class AccountingEndpoints
         var periods = app.MapGroup("/api/v1/accounting-periods").WithTags("Accounting");
         periods.MapGet("/", ListPeriodsAsync).RequireAuthorization(Permissions.ReportsView);
         periods.MapPost("/", CreatePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
+        periods.MapGet("/{id:guid}/close-evidence", GetPeriodCloseEvidenceAsync).RequireAuthorization(Permissions.ReportsView);
         periods.MapPost("/{id:guid}/close", ClosePeriodAsync).RequireAuthorization(Permissions.AccountingClose);
+
+        app.MapGet("/api/v1/accounting/periods/{fiscalYear:int}/close-year-evidence", GetYearCloseEvidenceAsync)
+            .WithTags("Accounting")
+            .RequireAuthorization(Permissions.ReportsView);
 
         app.MapPost("/api/v1/accounting/periods/{fiscalYear:int}/close-year", CloseFiscalYearAsync)
             .WithTags("Accounting")
@@ -525,7 +530,205 @@ public static class AccountingEndpoints
             new AccountingPeriodDto(entity.Id, entity.Name, entity.StartDate, entity.EndDate, AccountingPeriodState.Open, entity.Version));
     }
 
+    /// <summary>
+    /// Closes a period. The exclusive row lock that posting takes in share mode still decides whether an entry
+    /// belongs to an open window or the close wins - a posting is never silently backdated into a closed period.
+    /// A screen-driven close names the version it read and the reason an auditor would see, and rides one stable key,
+    /// so a retry answers the same close instead of racing a second decision against the first.
+    /// </summary>
     private static async Task<IResult> ClosePeriodAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        Guid id,
+        HttpContext http,
+        CancellationToken cancellationToken,
+        CloseAccountingPeriodRequest? request = null)
+    {
+        if (!principal.TryGetBusinessId(out var businessId) || !TryGetUserId(principal, out var userId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        // A caller that sends a body must explain the close; a reviewer's reason is part of the record, not optional.
+        if (request is not null && string.IsNullOrWhiteSpace(request.Reason))
+        {
+            return ApiResults.ValidationProblem("Closing a period needs a reason.", new Dictionary<string, string[]>
+            {
+                ["reason"] = ["Give the reason an auditor will read, in 1 to 500 characters."],
+            });
+        }
+
+        var key = http.Request.Headers["Idempotency-Key"].ToString().Trim();
+        if (request is not null && key.Length is 0 or > 128)
+        {
+            return ApiResults.ValidationProblem("An idempotency key is required.", new Dictionary<string, string[]>
+            {
+                ["Idempotency-Key"] = ["Send a client-generated key of 1-128 characters; a close is replayed under the same key, not repeated."],
+            });
+        }
+
+        var reason = request?.Reason?.Trim();
+        try
+        {
+            var execution = await IdempotencyExecutor.ExecuteAsync(
+                db,
+                businessId,
+                "accounting.close-period",
+                string.IsNullOrWhiteSpace(key) ? null : key,
+                new { id, request },
+                async () => await RunClosePeriodAsync(
+                    db, businessId, userId, id, request, reason, http, cancellationToken).ConfigureAwait(false),
+                cancellationToken).ConfigureAwait(false);
+
+            if (execution.Replayed)
+            {
+                return Results.Ok(execution.Body);
+            }
+
+            return execution.StatusCode switch
+            {
+                StatusCodes.Status200OK => Results.Ok(execution.Body),
+                StatusCodes.Status404NotFound => ApiResults.Problem(
+                    StatusCodes.Status404NotFound,
+                    ApiErrorCodes.NotFound,
+                    "The accounting period does not exist in this business."),
+                _ => ApiResults.Problem(
+                    StatusCodes.Status409Conflict,
+                    ApiErrorCodes.AccountingPeriodClosed,
+                    "The accounting period is already closed."),
+            };
+        }
+        catch (DomainRuleException exception)
+        {
+            return exception.ToResult();
+        }
+    }
+
+    /// <summary>
+    /// Applies one close. The command key already owns the transaction that writes the close and its receipt
+    /// together, so the close joins that transaction instead of beginning a second one on the same connection; a
+    /// caller that sent no key still gets the bare gate it always had, with the close owning its own transaction.
+    /// </summary>
+    private static async Task<(int StatusCode, AccountingPeriodDto Body)> RunClosePeriodAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid userId,
+        Guid id,
+        CloseAccountingPeriodRequest? request,
+        string? reason,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        if (db.Database.CurrentTransaction is not null)
+        {
+            return await ClosePeriodOnceAsync(db, businessId, userId, id, request, reason, http, cancellationToken).ConfigureAwait(false);
+        }
+
+        var strategy = db.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            db.ChangeTracker.Clear();
+
+            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
+            var outcome = await ClosePeriodOnceAsync(db, businessId, userId, id, request, reason, http, cancellationToken).ConfigureAwait(false);
+
+            if (outcome.StatusCode == StatusCodes.Status200OK)
+            {
+                await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
+            }
+            else
+            {
+                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
+            }
+
+            return outcome;
+        }).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// One close inside the transaction it is given. The exclusive row lock is the lock every posting takes in
+    /// share mode, so a posting either completes before the decision or reads the closed status - never a stale open
+    /// one (T10.04). A refused close leaves the period exactly as its reviewer found it.
+    /// </summary>
+    private static async Task<(int StatusCode, AccountingPeriodDto Body)> ClosePeriodOnceAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid userId,
+        Guid id,
+        CloseAccountingPeriodRequest? request,
+        string? reason,
+        HttpContext http,
+        CancellationToken cancellationToken)
+    {
+        var period = await db.AccountingPeriods
+            .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND id = {id} FOR UPDATE")
+            .FirstOrDefaultAsync(cancellationToken)
+            .ConfigureAwait(false);
+
+        if (period is null)
+        {
+            return (StatusCodes.Status404NotFound, default(AccountingPeriodDto)!);
+        }
+
+        if (period.Status != AccountingPeriodStatus.Open)
+        {
+            return (StatusCodes.Status409Conflict, default(AccountingPeriodDto)!);
+        }
+
+        // The version the reviewer read is the version this close is applied to; a period that has already moved is
+        // refused rather than closed over somebody else's decision.
+        if (request is not null && request.ExpectedVersion != period.Version)
+        {
+            throw new DomainRuleException(
+                StatusCodes.Status409Conflict,
+                ApiErrorCodes.OptimisticConcurrencyFailure,
+                "This period has changed since it was read.",
+                $"'{period.Name}' is at version {period.Version}; read the period back before closing it again.");
+        }
+
+        period.Status = AccountingPeriodStatus.Closed;
+
+        if (reason is { Length: > 0 })
+        {
+            db.AuditEvents.Add(new AuditEvent
+            {
+                BusinessId = businessId,
+                UserId = userId,
+                EntityType = "accounting_period",
+                EntityId = period.Id,
+                Action = "closed",
+                OccurredAtUtc = DateTimeOffset.UtcNow,
+                CorrelationId = http.TraceIdentifier,
+                Summary = System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    period.Name,
+                    period.StartDate,
+                    period.EndDate,
+                    reason,
+                    expectedVersion = request!.ExpectedVersion,
+                }),
+            });
+        }
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return (StatusCodes.Status200OK, new AccountingPeriodDto(
+            period.Id,
+            period.Name,
+            period.StartDate,
+            period.EndDate,
+            AccountingPeriodState.Closed,
+            period.Version));
+    }
+
+    /// <summary>
+    /// What closing this period would leave behind, read from posted facts only: the window's own entries, the
+    /// control-account balances the business carries across the boundary, the cash and in-transit positions that are
+    /// still moving, and the unfinished acts - a draft journal or an unconfirmed tender - that a close must not walk
+    /// past. A balance is shown as a balance; only an unfinished act is called a blocker (task 32, recipe step 3).
+    /// </summary>
+    private static async Task<IResult> GetPeriodCloseEvidenceAsync(
         ClaimsPrincipal principal,
         BillingDbContext db,
         Guid id,
@@ -536,35 +739,9 @@ public static class AccountingEndpoints
             return BusinessScope.MissingMembership();
         }
 
-        var strategy = db.Database.CreateExecutionStrategy();
-        AccountingPeriod? period = null;
-        var closed = false;
-
-        await strategy.ExecuteAsync(async () =>
-        {
-            db.ChangeTracker.Clear();
-
-            await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
-
-            // Closing takes the exclusive row lock that posting takes in share mode, so a posting either
-            // completes before the close decision or observes the closed status and is refused.
-            period = await db.AccountingPeriods
-                .FromSql($"SELECT * FROM accounting_periods WHERE business_id = {businessId} AND id = {id} FOR UPDATE")
-                .FirstOrDefaultAsync(cancellationToken)
-                .ConfigureAwait(false);
-
-            if (period is null || period.Status != AccountingPeriodStatus.Open)
-            {
-                await transaction.RollbackAsync(cancellationToken).ConfigureAwait(false);
-                return;
-            }
-
-            period.Status = AccountingPeriodStatus.Closed;
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
-            await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
-            closed = true;
-        }).ConfigureAwait(false);
-
+        var period = await db.AccountingPeriods.AsNoTracking()
+            .FirstOrDefaultAsync(row => row.BusinessId == businessId && row.Id == id, cancellationToken)
+            .ConfigureAwait(false);
         if (period is null)
         {
             return ApiResults.Problem(
@@ -573,21 +750,312 @@ public static class AccountingEndpoints
                 "The accounting period does not exist in this business.");
         }
 
-        if (!closed)
+        var business = await db.Businesses.AsNoTracking()
+            .SingleAsync(row => row.Id == businessId, cancellationToken).ConfigureAwait(false);
+        var settings = await LedgerWriter.ResolveSettingsAsync(db, businessId, cancellationToken).ConfigureAwait(false);
+        var scale = settings?.SettlementScale ?? 2;
+        var today = LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow);
+        var accounts = await LedgerWriter.ResolveAccountsAsync(
+            db, businessId, PeriodControlCodes, cancellationToken).ConfigureAwait(false);
+
+        // One read of posted activity, grouped by account: everything below is a slice of it, so two figures on the
+        // screen can never be computed against different sets of facts.
+        var activity = await (from line in db.JournalLines.AsNoTracking()
+                              join entry in db.JournalEntries.AsNoTracking()
+                                  on new { line.JournalEntryId, line.BusinessId } equals new { JournalEntryId = entry.Id, entry.BusinessId }
+                              where entry.BusinessId == businessId && entry.Status == EntryStatus.Posted
+                                  && entry.EntryDate <= period.EndDate
+                              select new { line.AccountId, entry.EntryDate, line.DebitAmount, line.CreditAmount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var netThrough = new Dictionary<Guid, decimal>();
+        var windowNet = new Dictionary<Guid, decimal>();
+        decimal postedDebit = 0m;
+        decimal postedCredit = 0m;
+        var postedEntryIds = new HashSet<Guid>();
+        foreach (var row in activity)
         {
-            return ApiResults.Problem(
-                StatusCodes.Status409Conflict,
-                ApiErrorCodes.AccountingPeriodClosed,
-                "The accounting period is already closed.");
+            var net = row.DebitAmount - row.CreditAmount;
+            netThrough[row.AccountId] = netThrough.GetValueOrDefault(row.AccountId) + net;
+            var inWindow = row.EntryDate >= period.StartDate;
+            if (!inWindow)
+            {
+                continue;
+            }
+
+            windowNet[row.AccountId] = windowNet.GetValueOrDefault(row.AccountId) + net;
+            postedDebit += row.DebitAmount;
+            postedCredit += row.CreditAmount;
         }
 
-        return Results.Ok(new AccountingPeriodDto(
-            period.Id,
-            period.Name,
-            period.StartDate,
-            period.EndDate,
-            AccountingPeriodState.Closed,
-            period.Version));
+        var postedEntries = await db.JournalEntries.AsNoTracking()
+            .Where(entry => entry.BusinessId == businessId && entry.Status == EntryStatus.Posted
+                && entry.EntryDate >= period.StartDate && entry.EntryDate <= period.EndDate)
+            .Select(entry => entry.Id)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        postedEntryIds = postedEntries.ToHashSet();
+        var draftEntries = await db.JournalEntries.AsNoTracking()
+            .Where(entry => entry.BusinessId == businessId && entry.Status == EntryStatus.Draft
+                && entry.EntryDate >= period.StartDate && entry.EntryDate <= period.EndDate)
+            .Select(entry => new { entry.Id, entry.TotalDebit })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var windowEnd = PeriodEndUtc(period.EndDate, business.TimeZone);
+
+        var unconfirmed = await db.Payments.AsNoTracking()
+            .Where(payment => payment.BusinessId == businessId && payment.Status == PaymentStatus.Pending
+                && payment.ReceivedAtUtc < windowEnd)
+            .Select(payment => payment.Amount)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var openSessions = await db.CashRegisterSessions.AsNoTracking()
+            .Where(session => session.BusinessId == businessId && session.Status == CashRegisterSessionStatus.Open
+                && session.OpenedAtUtc < windowEnd)
+            .Select(session => session.Id)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        // In transit means dispatched and not yet received: value that left one branch and has not reached the other.
+        var transitLines = await (from transfer in db.StockTransfers.AsNoTracking()
+                                  join line in db.StockTransferLines.AsNoTracking()
+                                      on new { StockTransferId = transfer.Id, transfer.BusinessId } equals new { line.StockTransferId, line.BusinessId }
+                                  where transfer.BusinessId == businessId && transfer.Status == StockTransferStatus.Dispatched
+                                      && transfer.DispatchedAtUtc < windowEnd
+                                  select line.ValueAtDispatch)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var transit = LedgerWriter.Round(transitLines.Sum(value => value ?? 0m));
+
+        var stockValue = LedgerWriter.Round(await db.InventoryBalances.AsNoTracking()
+            .Where(balance => balance.BusinessId == businessId)
+            .SumAsync(balance => balance.ValueOnHand, cancellationToken)
+            .ConfigureAwait(false));
+
+        decimal Control(string code, bool debitSide)
+            => accounts.TryGetValue(code, out var account)
+                ? LedgerWriter.Round(debitSide ? netThrough.GetValueOrDefault(account.Id) : -netThrough.GetValueOrDefault(account.Id))
+                : 0m;
+
+        var revenue = LedgerWriter.Round(PeriodControlCodes
+            .Where(code => code is "4000" or "4010")
+            .Select(code => accounts.TryGetValue(code, out var account) ? -windowNet.GetValueOrDefault(account.Id) : 0m)
+            .Sum());
+        var expenses = LedgerWriter.Round(PeriodControlCodes
+            .Where(code => code is "5000" or "5150" or "5200")
+            .Select(code => accounts.TryGetValue(code, out var account) ? windowNet.GetValueOrDefault(account.Id) : 0m)
+            .Sum());
+        var netIncome = LedgerWriter.Round(revenue - expenses);
+
+        var outstanding = new List<PeriodOutstandingDto>
+        {
+            new("draft-journals", "Draft journals in the window", draftEntries.Count, LedgerWriter.Round(draftEntries.Sum(entry => entry.TotalDebit)), true,
+                "A draft is an unfinished act inside the period. Post it or delete it before the window closes; a close does not carry a draft forward."),
+            new("unconfirmed-payments", "Tenders not yet confirmed", unconfirmed.Count, LedgerWriter.Round(unconfirmed.Sum()), true,
+                "Money the server recorded but nobody confirmed. Confirm or bounce each tender, because a close cannot say whether it was received."),
+            new("open-sessions", "Register sessions still open", openSessions.Count, 0m, true,
+                "A terminal holding uncounted cash keeps custody open (D07). Close the session, or carry its obligation forward under a named reason."),
+            new("in-transit", "Stock in transit at the period end", transitLines.Count, transit, false,
+                "Value that has left one branch and not reached another. It stays an asset in transit and is reconciled when the delivery is received."),
+            new("receivable", "Receivables owed to the business", 0, Control("1100", true), false,
+                "An open receivable is a balance the close carries forward, not an error - the statement for each customer is what proves it."),
+            new("payable", "Payables the business owes", 0, Control("2000", false), false,
+                "An open payable is carried across the boundary; the supplier statements and the GRNI clearing account are what prove it."),
+            new("deposits", "Customer deposits held", 0, Control("2105", false), false,
+                "Money received and not yet applied stays a liability until a settlement or a refund answers it."),
+            new("cash", "Cash on hand per the ledger", 0, Control("1000", true), false,
+                "The till balance the ledger carries; it is proved by the drawer counts, not by a figure typed here."),
+            new("stock", "Stock value per the ledger", 0, Control("1200", true), false,
+                $"The inventory account carries {stockValue.ToString(System.Globalization.CultureInfo.InvariantCulture)} across all branches; the two are read together, never reconciled by hand."),
+        };
+
+        var year = period.EndDate.Year;
+        var yearPeriods = await db.AccountingPeriods.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.StartDate <= new DateOnly(year, 12, 31) && row.EndDate >= new DateOnly(year, 1, 1))
+            .OrderBy(row => row.StartDate)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var yearComplete = yearPeriods.Count > 0
+            && yearPeriods.All(row => row.Status != AccountingPeriodStatus.Open)
+            && yearPeriods.OrderByDescending(row => row.EndDate).First().EndDate >= new DateOnly(year, 12, 31);
+        var gapFrom = YearGapStart(yearPeriods, year);
+
+        return Results.Ok(new PeriodCloseEvidenceDto(
+            new AccountingPeriodDto(period.Id, period.Name, period.StartDate, period.EndDate,
+                EnumBridge.To<AccountingPeriodState>(period.Status), period.Version),
+            today, business.TimeZone, scale,
+            period.Status == AccountingPeriodStatus.Open,
+            LedgerWriter.Round(postedDebit), LedgerWriter.Round(postedCredit), postedEntryIds.Count,
+            netIncome,
+            Control("1100", true), Control("2000", false), Control("1200", true), transit, Control("2105", false),
+            Control("1000", true), openSessions.Count, draftEntries.Count, unconfirmed.Count,
+            outstanding, yearComplete, yearPeriods.Any(row => row.Status == AccountingPeriodStatus.Locked),
+            gapFrom is { } gap ? gap.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : null,
+            await TrialBalanceRowsAsync(db, businessId, period.StartDate, period.EndDate, cancellationToken).ConfigureAwait(false)));
+    }
+
+    /// <summary>The year-end position, computed from the same facts the close itself reads.</summary>
+    private static async Task<IResult> GetYearCloseEvidenceAsync(
+        ClaimsPrincipal principal,
+        BillingDbContext db,
+        int fiscalYear,
+        CancellationToken cancellationToken)
+    {
+        if (!principal.TryGetBusinessId(out var businessId))
+        {
+            return BusinessScope.MissingMembership();
+        }
+
+        if (fiscalYear is < 1900 or > 9998)
+        {
+            return ApiResults.ValidationProblem("The fiscal year is invalid.", new Dictionary<string, string[]>
+            {
+                ["fiscalYear"] = ["Enter a year from 1900 through 9998."],
+            });
+        }
+
+        var start = new DateOnly(fiscalYear, 1, 1);
+        var end = new DateOnly(fiscalYear, 12, 31);
+        var business = await db.Businesses.AsNoTracking()
+            .SingleAsync(row => row.Id == businessId, cancellationToken).ConfigureAwait(false);
+        var settings = await LedgerWriter.ResolveSettingsAsync(db, businessId, cancellationToken).ConfigureAwait(false);
+        var accounts = await LedgerWriter.ResolveAccountsAsync(
+            db, businessId, PeriodControlCodes, cancellationToken).ConfigureAwait(false);
+        var periods = await db.AccountingPeriods.AsNoTracking()
+            .Where(row => row.BusinessId == businessId && row.StartDate <= end && row.EndDate >= start)
+            .OrderBy(row => row.StartDate)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var gapFrom = YearGapStart(periods, fiscalYear);
+
+        var window = await (from line in db.JournalLines.AsNoTracking()
+                            join entry in db.JournalEntries.AsNoTracking()
+                                on new { line.JournalEntryId, line.BusinessId } equals new { JournalEntryId = entry.Id, entry.BusinessId }
+                            where entry.BusinessId == businessId && entry.Status == EntryStatus.Posted
+                                && entry.EntryDate >= start && entry.EntryDate <= end
+                            select new { line.AccountId, line.DebitAmount, line.CreditAmount })
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        decimal Net(string code) => accounts.TryGetValue(code, out var account)
+            ? window.Where(row => row.AccountId == account.Id).Sum(row => row.DebitAmount - row.CreditAmount)
+            : 0m;
+
+        var revenue = LedgerWriter.Round(-Net("4000") - Net("4010"));
+        var expenses = LedgerWriter.Round(Net("5000") + Net("5150") + Net("5200"));
+        var retained = accounts.TryGetValue("3000", out var retainedAccount) ? retainedAccount : null;
+        var closingEntries = await db.JournalEntries.AsNoTracking()
+            .Where(entry => entry.BusinessId == businessId && entry.SourceType == JournalSourceType.FiscalYearClose
+                && entry.EntryDate >= start && entry.EntryDate <= end)
+            .OrderBy(entry => entry.EntryNumber)
+            .Select(entry => new JournalEntrySummaryDto(
+                entry.Id, entry.EntryNumber, entry.EntryDate, EnumBridge.To<JournalEntryState>(entry.Status),
+                EnumBridge.To<JournalOrigin>(entry.SourceType), entry.TotalDebit, entry.TotalCredit, entry.Memo,
+                entry.PostedAtUtc, entry.CreatedAtUtc))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+        var alreadyClosed = closingEntries.Count > 0 || periods.Any(row => row.Status == AccountingPeriodStatus.Locked);
+        var draftEntries = await db.JournalEntries.AsNoTracking()
+            .Where(entry => entry.BusinessId == businessId && entry.Status == EntryStatus.Draft
+                && entry.EntryDate >= start && entry.EntryDate <= end)
+            .Select(entry => entry.TotalDebit)
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        var outstanding = new List<PeriodOutstandingDto>
+        {
+            new("open-periods", "Accounting periods still open", periods.Count(row => row.Status == AccountingPeriodStatus.Open), 0m, true,
+                "Each open period is closed on its own screen, with its evidence, before the year transfers anything."),
+            new("coverage", "Days the periods do not cover", gapFrom is null ? 0 : 1, 0m, true,
+                gapFrom is null ? "The year's periods run end to end, so the transfer has a complete window."
+                    : $"No period covers {gapFrom:yyyy-MM-dd}; the year cannot be closed over a gap."),
+            new("draft-journals", "Draft journals in the year", draftEntries.Count, LedgerWriter.Round(draftEntries.Sum()), true,
+                "A draft is unfinished, not merely quiet. It is posted or deleted before the year closes."),
+            new("retained-earnings", "Retained earnings account", retained is null ? 0 : 1, 0m, true,
+                "The transfer closes revenue and expense into an equity account. Without a configured active equity account there is nowhere to put the year's result."),
+        };
+
+        return Results.Ok(new FiscalYearEvidenceDto(
+            fiscalYear, start, end,
+            LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow), business.TimeZone, settings?.SettlementScale ?? 2,
+            periods.Count, periods.Count(row => row.Status == AccountingPeriodStatus.Open),
+            periods.Count(row => row.Status == AccountingPeriodStatus.Locked),
+            periods.Count > 0 && gapFrom is null && periods.OrderByDescending(row => row.EndDate).First().EndDate >= end,
+            alreadyClosed,
+            retained is not null && retained.IsActive && retained.AccountType == AccountType.Equity,
+            retained?.Code,
+            gapFrom is { } gap ? gap.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) : null,
+            revenue, expenses, LedgerWriter.Round(revenue - expenses),
+            outstanding, closingEntries));
+    }
+
+    private static readonly string[] PeriodControlCodes =
+        ["1000", "1100", "1200", "2000", "2105", "3000", "4000", "4010", "5000", "5150", "5200"];
+
+    /// <summary>
+    /// The instant a business date stops being "today" for this business, in UTC. Every "as at the period end" read
+    /// uses it, so a tender received after the local midnight is not counted as if it had arrived inside the window
+    /// (specification F21 - one clock, the business's own).
+    /// </summary>
+    private static DateTimeOffset PeriodEndUtc(DateOnly date, string? timeZoneId)
+    {
+        var zone = TimeZoneInfo.Utc;
+        if (!string.IsNullOrWhiteSpace(timeZoneId))
+        {
+            try
+            {
+                zone = TimeZoneInfo.FindSystemTimeZoneById(timeZoneId);
+            }
+            catch (TimeZoneNotFoundException)
+            {
+            }
+            catch (InvalidTimeZoneException)
+            {
+            }
+        }
+
+        var localStartOfNextDay = new DateTime(date.Year, date.Month, date.Day, 23, 59, 59, DateTimeKind.Unspecified);
+        return new DateTimeOffset(localStartOfNextDay, zone.GetUtcOffset(localStartOfNextDay)).ToUniversalTime();
+    }
+
+    /// <summary>The first day of the year no period covers, or null when the windows run end to end.</summary>
+    private static DateOnly? YearGapStart(IReadOnlyList<AccountingPeriod> periods, int fiscalYear)
+    {
+        var cursor = new DateOnly(fiscalYear, 1, 1);
+        var end = new DateOnly(fiscalYear, 12, 31);
+        foreach (var period in periods.OrderBy(row => row.StartDate))
+        {
+            if (period.StartDate > cursor)
+            {
+                return cursor;
+            }
+
+            if (period.EndDate >= end)
+            {
+                return null;
+            }
+
+            cursor = period.EndDate.AddDays(1);
+        }
+
+        return cursor <= end ? cursor : null;
+    }
+
+    /// <summary>Trial balance rows for a window, derived from posted lines through the account's own activity.</summary>
+    private static async Task<IReadOnlyList<TrialBalanceRowDto>> TrialBalanceRowsAsync(
+        BillingDbContext db, Guid businessId, DateOnly startDate, DateOnly endDate, CancellationToken cancellationToken)
+    {
+        var rows = await (from line in db.JournalLines.AsNoTracking()
+                          join entry in db.JournalEntries.AsNoTracking()
+                              on new { line.JournalEntryId, line.BusinessId } equals new { JournalEntryId = entry.Id, entry.BusinessId }
+                          join account in db.Accounts.AsNoTracking()
+                              on new { line.AccountId, line.BusinessId } equals new { AccountId = account.Id, account.BusinessId }
+                          where entry.BusinessId == businessId && entry.Status == EntryStatus.Posted
+                              && entry.EntryDate >= startDate && entry.EntryDate <= endDate
+                          group new { line, account } by new { account.Id, account.Code, account.Name, account.AccountType } into grouped
+                          select new TrialBalanceRowDto(
+                              grouped.Key.Id,
+                              grouped.Key.Code,
+                              grouped.Key.Name,
+                              EnumBridge.To<AccountKind>(grouped.Key.AccountType),
+                              grouped.Sum(row => row.line.DebitAmount),
+                              grouped.Sum(row => row.line.CreditAmount),
+                              grouped.Sum(row => row.line.DebitAmount - row.line.CreditAmount)))
+            .ToListAsync(cancellationToken).ConfigureAwait(false);
+
+        return rows.OrderBy(row => row.Code, StringComparer.Ordinal).ToList();
     }
 
     private static async Task<IResult> CloseFiscalYearAsync(
@@ -908,6 +1376,7 @@ public static class AccountingEndpoints
         ClaimsPrincipal principal,
         BillingDbContext db,
         PostJournalEntryRequest request,
+        HttpContext http,
         CancellationToken cancellationToken)
     {
         if (!principal.TryGetBusinessId(out var businessId))
@@ -971,20 +1440,35 @@ public static class AccountingEndpoints
 
         try
         {
-            var entry = await PostEntryAsync(
+            // A stable key makes the posting exactly-once across a lost response. Without one the entry keeps the
+            // gates it always had - balance, account type and tenant, the period the effective date falls in.
+            var key = http.Request.Headers["Idempotency-Key"].ToString().Trim();
+            var execution = await IdempotencyExecutor.ExecuteAsync(
                 db,
                 businessId,
-                userId,
-                currency,
-                request.EntryDate,
-                request.Memo,
-                (JournalSourceType)request.Origin,
-                request.SourceId,
-                reversalOfEntryId: null,
-                lines,
+                "journal.post",
+                key.Length == 0 ? null : key,
+                request,
+                async () =>
+                {
+                    var entry = await PostEntryAsync(
+                        db,
+                        businessId,
+                        userId,
+                        currency,
+                        request.EntryDate,
+                        request.Memo,
+                        (JournalSourceType)request.Origin,
+                        request.SourceId,
+                        reversalOfEntryId: null,
+                        lines,
+                        cancellationToken).ConfigureAwait(false);
+
+                    return (StatusCodes.Status201Created, await ToDetailDtoAsync(db, entry, cancellationToken).ConfigureAwait(false));
+                },
                 cancellationToken).ConfigureAwait(false);
 
-            return Results.Created($"/api/v1/journal-entries/{entry.Id}", await ToDetailDtoAsync(db, entry, cancellationToken).ConfigureAwait(false));
+            return Results.Created($"/api/v1/journal-entries/{execution.Body.Id}", execution.Body);
         }
         catch (DomainRuleException exception)
         {
@@ -996,12 +1480,20 @@ public static class AccountingEndpoints
         }
     }
 
+    /// <summary>
+    /// Reverses a posted entry. The correction may be dated the day it is recorded rather than the day of the entry
+    /// it answers, which is the only way a mistaken posting can be corrected after its period has closed; the chosen
+    /// date is still gated by the ledger's own period rules, and the reversal is pointed at the original by the
+    /// server, never by a caller-supplied reference. The original entry is never edited or deleted (D10).
+    /// </summary>
     private static async Task<IResult> ReverseJournalAsync(
         ClaimsPrincipal principal,
         BillingDbContext db,
         Guid id,
-        string? memo,
-        CancellationToken cancellationToken)
+        HttpContext http,
+        CancellationToken cancellationToken,
+        ReverseJournalRequest? request = null,
+        string? memo = null)
     {
         if (!principal.TryGetBusinessId(out var businessId))
         {
@@ -1049,24 +1541,69 @@ public static class AccountingEndpoints
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
+        var reason = request?.Reason ?? memo;
+        var correctionDate = request?.CorrectionDate ?? original.EntryDate;
+        if (correctionDate < original.EntryDate)
+        {
+            return ApiResults.ValidationProblem("The correction date is invalid.", new Dictionary<string, string[]>
+            {
+                [nameof(correctionDate)] = [$"A correction is dated {original.EntryDate:yyyy-MM-dd} or later; it cannot be placed before the entry it answers."],
+            });
+        }
+
+        if (request is { CorrectionDate: not null })
+        {
+            if (string.IsNullOrWhiteSpace(reason))
+            {
+                return ApiResults.ValidationProblem("A dated correction needs a reason.", new Dictionary<string, string[]>
+                {
+                    ["reason"] = ["Give the reason an auditor will read, in 1 to 500 characters."],
+                });
+            }
+
+            var business = await db.Businesses.AsNoTracking()
+                .SingleAsync(row => row.Id == businessId, cancellationToken).ConfigureAwait(false);
+            var today = LedgerWriter.LocalDate(business.TimeZone, DateTimeOffset.UtcNow);
+            if (correctionDate > today)
+            {
+                return ApiResults.ValidationProblem("The correction date is invalid.", new Dictionary<string, string[]>
+                {
+                    [nameof(correctionDate)] = [$"The business date is {today:yyyy-MM-dd}; a correction cannot be recorded in a future period."],
+                });
+            }
+        }
+
+        var reversalMemo = string.IsNullOrWhiteSpace(reason) ? $"Reversal of {original.EntryNumber}" : reason.Trim();
+        var key = http.Request.Headers["Idempotency-Key"].ToString().Trim();
+
         try
         {
-            var reversal = await PostEntryAsync(
+            var execution = await IdempotencyExecutor.ExecuteAsync(
                 db,
                 businessId,
-                userId,
-                original.Currency,
-                original.EntryDate,
-                string.IsNullOrWhiteSpace(memo) ? $"Reversal of {original.EntryNumber}" : memo.Trim(),
-                JournalSourceType.Reversal,
-                original.Id,
-                reversalOfEntryId: original.Id,
-                originalLines,
+                "journal.reverse",
+                key.Length == 0 ? null : key,
+                new { id, correctionDate, reason },
+                async () =>
+                {
+                    var reversal = await PostEntryAsync(
+                        db,
+                        businessId,
+                        userId,
+                        original.Currency,
+                        correctionDate,
+                        reversalMemo,
+                        JournalSourceType.Reversal,
+                        original.Id,
+                        reversalOfEntryId: original.Id,
+                        originalLines,
+                        cancellationToken).ConfigureAwait(false);
+
+                    return (StatusCodes.Status201Created, await ToDetailDtoAsync(db, reversal, cancellationToken).ConfigureAwait(false));
+                },
                 cancellationToken).ConfigureAwait(false);
 
-            return Results.Created(
-                $"/api/v1/journal-entries/{reversal.Id}",
-                await ToDetailDtoAsync(db, reversal, cancellationToken).ConfigureAwait(false));
+            return Results.Created($"/api/v1/journal-entries/{execution.Body.Id}", execution.Body);
         }
         catch (DomainRuleException exception)
         {
@@ -1173,6 +1710,16 @@ public static class AccountingEndpoints
         IReadOnlyList<JournalLineRequest> lines,
         CancellationToken cancellationToken)
     {
+        // Inside an idempotency command the caller already holds the transaction and its retry strategy, so the
+        // entry is written into that transaction and committed together with the receipt - a second transaction on
+        // the same connection would be refused by the provider before anything was posted.
+        if (db.Database.CurrentTransaction is not null)
+        {
+            return await PostEntryOnceAsync(
+                db, businessId, userId, currency, entryDate, memo, sourceType, sourceId, reversalOfEntryId, lines,
+                cancellationToken).ConfigureAwait(false);
+        }
+
         var strategy = db.Database.CreateExecutionStrategy();
 
         return await strategy.ExecuteAsync(async () =>
@@ -1182,24 +1729,46 @@ public static class AccountingEndpoints
 
             await using var transaction = await db.Database.BeginTransactionAsync(cancellationToken).ConfigureAwait(false);
 
-            var entry = await LedgerWriter.PostWithinTransactionAsync(
-                db,
-                businessId,
-                userId,
-                currency,
-                entryDate,
-                memo,
-                sourceType,
-                sourceId,
-                reversalOfEntryId,
-                lines,
+            var entry = await PostEntryOnceAsync(
+                db, businessId, userId, currency, entryDate, memo, sourceType, sourceId, reversalOfEntryId, lines,
                 cancellationToken).ConfigureAwait(false);
 
-            await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
             await transaction.CommitAsync(cancellationToken).ConfigureAwait(false);
 
             return entry;
         }).ConfigureAwait(false);
+    }
+
+    /// <summary>Writes the entry and its lines in the transaction the caller owns; the caller commits it.</summary>
+    private static async Task<JournalEntry> PostEntryOnceAsync(
+        BillingDbContext db,
+        Guid businessId,
+        Guid userId,
+        string currency,
+        DateOnly entryDate,
+        string? memo,
+        JournalSourceType sourceType,
+        Guid? sourceId,
+        Guid? reversalOfEntryId,
+        IReadOnlyList<JournalLineRequest> lines,
+        CancellationToken cancellationToken)
+    {
+        var entry = await LedgerWriter.PostWithinTransactionAsync(
+            db,
+            businessId,
+            userId,
+            currency,
+            entryDate,
+            memo,
+            sourceType,
+            sourceId,
+            reversalOfEntryId,
+            lines,
+            cancellationToken).ConfigureAwait(false);
+
+        await db.SaveChangesAsync(cancellationToken).ConfigureAwait(false);
+
+        return entry;
     }
 
     /// <summary>
