@@ -14,6 +14,7 @@ using MudBlazor;
 using MudBlazor.Services;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Abstractions;
+using QtsBilling.Contracts.Diagnostics;
 using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Banking;
 using QtsBilling.Contracts.Catalog;
@@ -1417,6 +1418,75 @@ Check("an empty export is not a report and an oversized one is refused",
     Capture(() => new StoredFile("ar-aging.csv", [])) is ArgumentException
     && Capture(() => new StoredFile("ar-aging.csv", new byte[StoredFile.MaxContentBytes + 1])) is ArgumentException
     && new StoredFile("ar-aging-20261022.csv", ReportSmokeSamples.Csv).Bytes > 0);
+
+// 20. The operator's audit and diagnostics screens (specification task 34): shared pages that read nothing during the
+//     prerender, say that a warning is an act with a record behind it, and offer a support bundle that is written here
+//     rather than sent anywhere.
+var stubOperations = new StubOperationsApiClient();
+var stubBundleOutput = new StubLocalFileOutput();
+var operationsServices = new ServiceCollection();
+operationsServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+operationsServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+operationsServices.AddMudServices();
+operationsServices.AddSingleton<NavigationManager, StubNavigationManager>();
+operationsServices.AddSingleton<IOperationsApiClient>(stubOperations);
+operationsServices.AddSingleton<ILocalFileOutput>(stubBundleOutput);
+operationsServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+
+await using var operationsProvider = operationsServices.BuildServiceProvider();
+await using var operationsRenderer = new HtmlRenderer(operationsProvider, operationsProvider.GetRequiredService<ILoggerFactory>());
+
+var diagnosticsHtml = await operationsRenderer.Dispatcher.InvokeAsync(async () =>
+    (await operationsRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Administration.Diagnostics>(ParameterView.Empty)).ToHtmlString());
+var auditHtml = await operationsRenderer.Dispatcher.InvokeAsync(async () =>
+    (await operationsRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Administration.Audit>(ParameterView.Empty)).ToHtmlString());
+
+Check("the audit and diagnostics screens are shared pages with honest nav rows",
+    typeof(QtsBilling.Ui.Pages.Administration.Diagnostics).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "administration/diagnostics")
+    && typeof(QtsBilling.Ui.Pages.Administration.Audit).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "administration/audit")
+    && QtsBilling.Ui.Layout.ShellNavigation.Routes
+        .Where(row => row.Href.StartsWith("administration/audit", StringComparison.Ordinal)
+            || row.Href.StartsWith("administration/diagnostics", StringComparison.Ordinal))
+        .All(row => row.Availability == QtsBilling.Ui.Layout.ShellAvailability.Available
+            && row.RequiredPermission == Permissions.AuditView && row.ArrivalNote is null));
+Check("neither operator screen reads the instance during the prerender",
+    stubOperations.Calls == 0 && stubBundleOutput.Saves == 0,
+    $"reads {stubOperations.Calls}, saves {stubBundleOutput.Saves}");
+Check("the diagnostics screen states where its evidence comes from before any read",
+    diagnosticsHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && diagnosticsHtml.Contains("evidence this instance already holds", StringComparison.Ordinal)
+        && diagnosticsHtml.Contains("behind the audit authority", StringComparison.Ordinal)
+        && diagnosticsHtml.Contains("written on this machine", StringComparison.Ordinal)
+        && diagnosticsHtml.Contains("is not a fix", StringComparison.Ordinal)
+        && diagnosticsHtml.Contains("Nothing is fetched from a vendor", StringComparison.Ordinal));
+Check("the audit screen states that the feed is append-only before any read",
+    auditHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && auditHtml.Contains("append-only", StringComparison.Ordinal)
+        && auditHtml.Contains("never edited or removed here", StringComparison.Ordinal));
+Check("a warning is named as an act, with the record that proves it",
+    QtsBilling.Ui.Pages.Administration.DiagnosticsRules.SeverityWord("critical") == "needs an answer now"
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.IsCritical("critical")
+    && !QtsBilling.Ui.Pages.Administration.DiagnosticsRules.IsCritical("warning")
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.AlertSentence(new DiagnosticsAlertDto(
+            "operations-rejected", "critical", "1 refused capture", "A capture the ledger refused.",
+            "Open the audit feed.", "corr-1"))
+        .Contains("reference corr-1", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CapacitySentence(new CapacityDiagnosticsDto(
+            "/var/lib/postgresql", 64_000_000_000, 1_000_000_000, 98.4, 90, true, true))
+        .Contains("A full disk", StringComparison.Ordinal) == false
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CapacitySentence(new CapacityDiagnosticsDto(
+            "/nowhere", 0, 0, 0, 90, false, false))
+        .Contains("could not measure", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.BackupSentence(new BackupEvidenceDto(
+            false, null, null, null, null, null, null, 26, false, null))
+        .Contains("cannot prove it has a restore point", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CanRequestBundle("owner asked for it", busy: false)
+    && !QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CanRequestBundle("abc", busy: false)
+    && !QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CanRequestBundle("owner asked for it", busy: true)
+    && QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CommittedNothing(ApiErrorCodes.StoreUnavailable)
+    && !QtsBilling.Ui.Pages.Administration.DiagnosticsRules.CommittedNothing(ApiErrorCodes.InternalError));
 
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="

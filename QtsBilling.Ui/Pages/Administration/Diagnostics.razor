@@ -1,0 +1,152 @@
+@page "/administration/diagnostics"
+@namespace QtsBilling.Ui.Pages.Administration
+@using QtsBilling.Contracts.Diagnostics
+@using QtsBilling.Ui.Components
+
+<PageTitle>Diagnostics - QTS Billing</PageTitle>
+
+@* The instance's own operational picture (specification task 34): evidence this machine holds, an act per warning,
+   and a support bundle written locally on request. Nothing here phones a vendor, and nothing here deletes a fact to
+   make a warning go away. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Diagnostics</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Store, capacity, backups, terminals, the change feed and the signing material - from local evidence only.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.History" Href="administration/audit">Audit feed</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy" data-qts-action="reload-diagnostics">Read the diagnostics again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+    @DiagnosticsRules.EvidenceRule @DiagnosticsRules.LivenessRule @DiagnosticsRules.WarningRule @DiagnosticsRules.BundleRule
+</MudText>
+
+<ShellStates Kind="_state" Body="_message" RetryCallback="LoadAsync" RetryLabel="Read the diagnostics again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="refused">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy">Read them again</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" role="status" data-qts-state="bundle-written">@_notice</MudAlert>
+    }
+
+    @if (_diagnostics is { } diagnostics)
+    {
+        <MudGrid Class="mb-4">
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4" data-qts-region="store">
+                    <MudText Typo="Typo.h6" Class="mb-2">What answered</MudText>
+                    <MudAlert Severity="@(diagnostics.Store.Reachable ? Severity.Success : Severity.Error)" Variant="Variant.Outlined"
+                             role="status" data-qts-state="@(diagnostics.Store.Reachable ? "reachable" : "unreachable")">
+                        @DiagnosticsRules.StoreSentence(diagnostics.Store)
+                    </MudAlert>
+                    <MudSimpleTable Dense="true" Class="mt-2">
+                        <tbody>
+                            <tr><td>Server time</td><td>@diagnostics.Store.ServerTimeUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss") UTC</td></tr>
+                            <tr><td>Schema</td><td>@diagnostics.Store.SchemaVersion (@diagnostics.Store.AppliedMigrations migration(s))</td></tr>
+                            <tr><td>Audit entries in 24 h</td><td>@diagnostics.AuditEventsLast24Hours</td></tr>
+                        </tbody>
+                    </MudSimpleTable>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4" data-qts-region="capacity">
+                    <MudText Typo="Typo.h6" Class="mb-2">Room left</MudText>
+                    <MudAlert Severity="@(diagnostics.Capacity.Warning || !diagnostics.Capacity.Measured ? Severity.Warning : Severity.Success)"
+                             Variant="Variant.Outlined" role="status"
+                             data-qts-state="@(diagnostics.Capacity.Warning ? "nearly-full" : (diagnostics.Capacity.Measured ? "measured" : "unmeasured"))">
+                        @DiagnosticsRules.CapacitySentence(diagnostics.Capacity)
+                    </MudAlert>
+                    <MudText Typo="Typo.body2" Class="mt-2">@DiagnosticsRules.BackupSentence(diagnostics.Backup)</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">Directory: @(diagnostics.Backup.Directory ?? "not configured")</MudText>
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4" data-qts-region="fleet">
+                    <MudText Typo="Typo.h6" Class="mb-2">Terminals</MudText>
+                    <MudText Typo="Typo.body2">@DiagnosticsRules.DeviceSentence(diagnostics.Devices)</MudText>
+                    @if (diagnostics.Devices.SilentDeviceNames.Count > 0)
+                    {
+                        <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mt-1" role="status">
+                            Quiet: @string.Join(", ", diagnostics.Devices.SilentDeviceNames)
+                        </MudText>
+                    }
+                </MudPaper>
+            </MudItem>
+
+            <MudItem xs="12" md="6">
+                <MudPaper Outlined="true" Class="pa-4" data-qts-region="sync">
+                    <MudText Typo="Typo.h6" Class="mb-2">Captured operations and the feed</MudText>
+                    <MudText Typo="Typo.body2">@DiagnosticsRules.SyncSentence(diagnostics.Sync)</MudText>
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">
+                        Signing: @DiagnosticsRules.KeySentence(diagnostics.SigningKey)
+                    </MudText>
+                </MudPaper>
+            </MudItem>
+        </MudGrid>
+
+        <MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="alerts">
+            <MudText Typo="Typo.h6" Class="mb-2">What needs an answer</MudText>
+            @if (diagnostics.Alerts.Count == 0)
+            {
+                <MudText Typo="Typo.body2" Color="Color.Success" role="status" data-qts-state="clear">
+                    Nothing on this instance is warning right now. That is read from the same evidence, not assumed.
+                </MudText>
+            }
+            else
+            {
+                <MudList T="string" Dense="true" role="list">
+                    @foreach (var alert in Critical)
+                    {
+                        <MudListItem Icon="@Icons.Material.Filled.Report" IconColor="Color.Error"
+                                     data-qts-state="critical">
+                            <MudText Typo="Typo.body2" Color="Color.Error">@DiagnosticsRules.AlertSentence(alert)</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@DiagnosticsRules.SeverityWord(alert.Severity) · @alert.Code</MudText>
+                        </MudListItem>
+                    }
+                    @foreach (var alert in Warnings)
+                    {
+                        <MudListItem Icon="@Icons.Material.Filled.WarningAmber" IconColor="Color.Warning"
+                                     data-qts-state="warning">
+                            <MudText Typo="Typo.body2">@DiagnosticsRules.AlertSentence(alert)</MudText>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@DiagnosticsRules.SeverityWord(alert.Severity) · @alert.Code</MudText>
+                        </MudListItem>
+                    }
+                </MudList>
+            }
+        </MudPaper>
+
+        <MudPaper Outlined="true" Class="pa-4" data-qts-region="bundle">
+            <MudText Typo="Typo.h6" Class="mb-1">Support bundle</MudText>
+            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mb-2">
+                Written on this machine, with your reason inside it. It holds the diagnostics above and the last audit
+                entries with anything secret-shaped scrubbed; no key, token, password, connection string or raw document.
+            </MudText>
+            <MudTextField T="string" @bind-Value="_reason" Label="Why is this bundle being taken out"
+                          HelperText="Five characters at least. The reason is written into the file and into the audit."
+                          Margin="Margin.Dense" Variant="Variant.Outlined" Lines="2" />
+            <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" Class="mt-2">
+                <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary" OnClick="RequestBundleAsync"
+                           Disabled="@(!CanBundle)" data-qts-action="request-bundle">Write the bundle here</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" Color="Color.Default" OnClick="CarryBundleAsync"
+                           Disabled="@(!CanSaveBundle)" data-qts-action="carry-bundle">Hand it to this machine</MudButton>
+            </MudStack>
+            @if (_bundle.Outstanding)
+            {
+                <MudAlert Severity="Severity.Warning" Variant="Variant.Outlined" Class="mt-2" role="alert" data-qts-state="unknown-outcome">
+                    <MudText Typo="Typo.body2">The last request has not answered. Its reason is held, so pressing again does not write a second bundle nobody asked for.</MudText>
+                </MudAlert>
+            }
+        </MudPaper>
+    }
+</ShellStates>

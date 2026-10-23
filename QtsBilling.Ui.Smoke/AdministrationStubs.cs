@@ -2,6 +2,7 @@ using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Diagnostics;
 using QtsBilling.Contracts.Reports;
 using QtsBilling.Contracts.Sync;
 using QtsBilling.Ui.Smoke;
@@ -431,6 +432,63 @@ internal sealed class StubReportApiClient : IReportApiClient
         return Task.FromResult(new ReportExport(
             ReportApiClient.DefaultFileName(request.Kind),
             System.Text.Encoding.UTF8.GetBytes("\"Section\",\"Item\",\"Field\",\"Label\",\"Value\"\n")));
+    }
+}
+
+/// <summary>
+/// The audit feed and the instance's own diagnostics, as the operator's screens inject them: fixed local answers and
+/// a count of the reads, so the smoke can prove a screen reads nothing before it is asked to.
+/// </summary>
+internal sealed class StubOperationsApiClient : IOperationsApiClient
+{
+    public int Calls { get; private set; }
+
+    public int BundleRequests { get; private set; }
+
+    public Task<PagedResult<QtsBilling.Contracts.Audit.AuditEventDto>> ListAuditEventsAsync(
+        string? entityType = null,
+        string? action = null,
+        Guid? userId = null,
+        DateOnly? from = null,
+        DateOnly? to = null,
+        string? cursor = null,
+        int? pageSize = null,
+        CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        IReadOnlyList<QtsBilling.Contracts.Audit.AuditEventDto> rows =
+        [
+            new QtsBilling.Contracts.Audit.AuditEventDto(
+                Guid.NewGuid(), Guid.NewGuid(), Guid.NewGuid(), null, "invoice", Guid.NewGuid(), "posted",
+                DateTimeOffset.UtcNow, "0f2c7c10-0000-4000-8000-000000000001", """{"note":"posted"}"""),
+        ];
+        return Task.FromResult(new PagedResult<QtsBilling.Contracts.Audit.AuditEventDto>(rows, null, pageSize ?? 50));
+    }
+
+    public Task<DiagnosticsDto> GetDiagnosticsAsync(CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new DiagnosticsDto(
+            new StoreDiagnosticsDto(true, 4, "PostgreSQL 18.6", "20261022214334_AddBankReconciliationControl", 67, DateTimeOffset.UtcNow),
+            new CapacityDiagnosticsDto("/var/lib/postgresql", 64_000_000_000, 18_000_000_000, 71.9, 90, false, true),
+            new BackupEvidenceDto(true, "backups", "qtsbilling-20261020-160853.dump.json", DateTimeOffset.UtcNow.AddHours(-9), 246_654, "FD23", 9.0, 26, false, "no restore verification record was found in this directory"),
+            new DeviceFleetDiagnosticsDto(2, 0, 0, 1, 24, ["Counter 3"], 1, 12),
+            new SyncDiagnosticsDto(41_207, 12, 3, 1, 2, 1, "INSUFFICIENT_STOCK", DateTimeOffset.UtcNow.AddHours(-1), "0f2c7c10-0000-4000-8000-000000000002"),
+            new KeyExpiryDiagnosticsDto(false, null, null, null, 30, true, "no signing certificate is configured on this instance"),
+            7,
+            [new DiagnosticsAlertDto("operations-rejected", "critical", "1 captured operation was refused in the last 24 hours, newest code INSUFFICIENT_STOCK",
+                "A refused capture means money or stock a terminal took that the ledger has not accepted.",
+                "Open the audit feed, find the operation, and resolve it with the terminal's operator.",
+                "0f2c7c10-0000-4000-8000-000000000002")]));
+    }
+
+    public Task<SupportBundleDto> CreateSupportBundleAsync(string reason, CancellationToken cancellationToken = default)
+    {
+        BundleRequests++;
+        return Task.FromResult(new SupportBundleDto(
+            "qts-support-bundle-20261023-010000-abc12345.json", 4_096, DateTimeOffset.UtcNow, reason,
+            ["diagnostics", "recent audit entries (summaries scrubbed)"],
+            ["connection strings and any password inside them", "bearer tokens, refresh tokens and enrolment codes"]));
     }
 }
 

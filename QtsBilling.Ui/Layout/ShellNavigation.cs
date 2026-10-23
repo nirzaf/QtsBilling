@@ -101,8 +101,10 @@ public static class ShellNavigation
         new("Business and branches", "administration/business", Icons.Material.Filled.Storefront, GroupAdministration, Permissions.BusinessSettingsManage, ShellAvailability.Available),
         new("Users and handover tickets", "administration/users", Icons.Material.Filled.ManageAccounts, GroupAdministration, Permissions.UsersManage, ShellAvailability.Available),
         new("Terminals", "administration/devices", Icons.Material.Filled.PointOfSale, GroupAdministration, Permissions.DevicesManage, ShellAvailability.Available),
-        new("Audit and diagnostics", "administration/audit", Icons.Material.Filled.FactCheck, GroupAdministration, Permissions.AuditView, ShellAvailability.Planned,
-            "Arrives with task 34."),
+        // Both reach a page that exists, at the authority its routes actually ask for: the audit feed and the
+        // instance's own diagnostics are read under the audit authority, and neither edits a fact (task 34).
+        new("Audit feed", "administration/audit", Icons.Material.Filled.FactCheck, GroupAdministration, Permissions.AuditView, ShellAvailability.Available),
+        new("Diagnostics and support bundle", "administration/diagnostics", Icons.Material.Filled.Insights, GroupAdministration, Permissions.AuditView, ShellAvailability.Available),
     ];
 
     /// <summary>The group's entries for one session: permitted only, and never a silently broken link.</summary>

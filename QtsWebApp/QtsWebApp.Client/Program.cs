@@ -32,6 +32,8 @@ builder.Services.AddScoped<IDeviceAdministrationApiClient, DeviceAdministrationA
 builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient, QtsBilling.Contracts.Accounting.AccountingApiClient>();
 // The manager's reports, read and exported through the same typed contract the desktop shell uses (task 33).
 builder.Services.AddScoped<QtsBilling.Contracts.Reports.IReportApiClient, QtsBilling.Contracts.Reports.ReportApiClient>();
+// The audit feed and the instance's own diagnostics, read through the same typed contract on every host (task 34).
+builder.Services.AddScoped<QtsBilling.Contracts.Diagnostics.IOperationsApiClient, QtsBilling.Contracts.Diagnostics.OperationsApiClient>();
 builder.Services.AddScoped<ISupplierApiClient, SupplierApiClient>();
 // Purchase orders, receiving and returns in the browser (specification task 26).
 builder.Services.AddScoped<IPurchasingApiClient, PurchasingApiClient>();

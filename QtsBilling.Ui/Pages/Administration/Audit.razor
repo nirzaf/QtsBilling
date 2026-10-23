@@ -1,0 +1,96 @@
+@page "/administration/audit"
+@namespace QtsBilling.Ui.Pages.Administration
+@using QtsBilling.Contracts.Audit
+@using QtsBilling.Ui.Components
+
+<PageTitle>Audit feed - QTS Billing</PageTitle>
+
+@* The audit feed (specification task 34, recipe step 1): read-only, cursor-paged, filtered by what the operator can
+   name - a record type, an action, a date - and never by an identifier they were told to type. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Audit feed</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Who did what, to which record, when, under which correlation.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Insights" Href="administration/diagnostics">Diagnostics</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="LoadAsync" Disabled="@_busy">Read this page again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">@DiagnosticsRules.AuditRule</MudText>
+
+<ShellStates Kind="_state" Body="_message">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="refused">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="SearchAsync" Disabled="@_busy" data-qts-action="retry-search">Search again</MudButton>
+        </MudAlert>
+    }
+
+    <MudGrid Class="mb-4">
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" @bind-Value="_entityType" Label="Record type" HelperText="invoice, journal entry, device"
+                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="3">
+            <MudTextField T="string" @bind-Value="_action" Label="Action" HelperText="posted, changed, exported"
+                          Margin="Margin.Dense" Variant="Variant.Outlined" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker @bind-Date="_from" Label="From day" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" sm="6" md="2">
+            <MudDatePicker @bind-Date="_to" Label="To day" Margin="Margin.Dense" />
+        </MudItem>
+        <MudItem xs="12" md="2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                       OnClick="SearchAsync" Disabled="@(!CanSearch)" Class="mt-1" data-qts-action="search-audit">
+                Search the feed
+            </MudButton>
+        </MudItem>
+    </MudGrid>
+
+    @if (_rows.Count > 0)
+    {
+        <MudPaper Outlined="true" Class="pa-4" data-qts-region="entries">
+            <MudTable Items="_rows" Dense="true" Hover="true" ReadOnly="true" FixedHeader="true" Height="480px">
+                <HeaderContent>
+                    <MudTh>When (UTC)</MudTh>
+                    <MudTh>Record</MudTh>
+                    <MudTh>Action</MudTh>
+                    <MudTh>Whose</MudTh>
+                    <MudTh>Correlation</MudTh>
+                    <MudTh>What was said</MudTh>
+                </HeaderContent>
+                <RowTemplate>
+                    <MudTd DataLabel="When">@context.OccurredAtUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm:ss")</MudTd>
+                    <MudTd DataLabel="Record">@($"{context.EntityType} {context.EntityId:D}")</MudTd>
+                    <MudTd DataLabel="Action">@ActionWords(context.Action)</MudTd>
+                    <MudTd DataLabel="Whose">@(context.DeviceId is { } device && device != Guid.Empty
+                        ? $"terminal {device:N}"
+                        : context.UserId is { } actor && actor != Guid.Empty
+                            ? $"account {actor:N}"
+                            : "the instance itself")</MudTd>
+                    <MudTd DataLabel="Correlation">@(context.CorrelationId ?? "not carried")</MudTd>
+                    <MudTd DataLabel="What was said">@(string.IsNullOrWhiteSpace(context.Summary) ? "-" : context.Summary)</MudTd>
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">Nothing matches that filter.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+
+            <MudStack Row="true" Spacing="2" Class="mt-2">
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="PreviousPageAsync" Disabled="@(_busy || _cursors.Count == 0)"
+                           data-qts-action="previous-page">Previous page</MudButton>
+                <MudButton Size="Size.Small" Variant="Variant.Outlined" OnClick="NextPageAsync" Disabled="@(!CanGoNext || _busy)"
+                           data-qts-action="next-page">Next page</MudButton>
+            </MudStack>
+            <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2">
+                The page cursor is the server's, so this list cannot repeat or skip an entry while other work is being written.
+            </MudText>
+        </MudPaper>
+    }
+</ShellStates>

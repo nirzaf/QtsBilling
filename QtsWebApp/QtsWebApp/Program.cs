@@ -336,6 +336,10 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Accounting.IAccountingApiCli
 builder.Services.AddHttpClient<QtsBilling.Contracts.Reports.IReportApiClient, QtsBilling.Contracts.Reports.ReportApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// The audit feed and the local diagnostics the operator's screens read (specification task 34).
+builder.Services.AddHttpClient<QtsBilling.Contracts.Diagnostics.IOperationsApiClient, QtsBilling.Contracts.Diagnostics.OperationsApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 // The supplier half of the party workbench (specification task 15) over the routes purchasing already publishes.
 builder.Services.AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
@@ -500,6 +504,10 @@ app.MapAuditEndpoints();
 app.MapSyncOperationEndpoints();
 app.MapSyncChangeEndpoints();
 app.MapHealthEndpoints();
+
+// The operator's own diagnostics and the locally generated support bundle (specification task 34). The anonymous
+// liveness route above stays minimal; everything dependency-shaped lives behind the audit authority.
+app.MapDiagnosticsEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()

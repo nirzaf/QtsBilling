@@ -218,6 +218,16 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // The audit feed and the instance's diagnostics on the terminal too: a store that cannot reach a support
+        // desk reads its own health here, from the same typed contract (task 34).
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Diagnostics.IOperationsApiClient, QtsBilling.Contracts.Diagnostics.OperationsApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(120);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>((services, client) =>
             {

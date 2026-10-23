@@ -405,3 +405,7 @@ appsettings.*.local.json
 # are committed: they are the reviewed record an offline build is admitted against.
 /build-kit/*
 !/build-kit/dependency-manifest.json
+
+# Runtime diagnostics artefacts (task 34): a support bundle is written on the instance's own disk, on an operator's
+# request, and holds that business's audit trail - redacted or not, it is never committed and never uploaded.
+**/support-bundles/
