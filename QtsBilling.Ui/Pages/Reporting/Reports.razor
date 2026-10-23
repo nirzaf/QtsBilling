@@ -1,0 +1,153 @@
+@page "/reports"
+@namespace QtsBilling.Ui.Pages.Reporting
+@using QtsBilling.Contracts.Reports
+@using QtsBilling.Ui.Components
+@using QtsBilling.Ui.Models
+
+<PageTitle>Reports - QTS Billing</PageTitle>
+
+@* The manager's report surface (specification task 33): statements read from posted facts by the report client,
+   shown with the control-account comparison beside them, and exported to a file on this machine. The screen invents
+   no figure, no scale and no date - it asks the server and repeats what came back. *@
+
+<MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Class="mb-4" Wrap="Wrap.Wrap">
+    <div>
+        <MudText Typo="Typo.h3">Reports</MudText>
+        <MudText Typo="Typo.body2" Color="Color.Secondary">Statements from posted facts, the tie-out beside them, and a local CSV export.</MudText>
+    </div>
+    <MudStack Row="true" Spacing="2">
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Book" Href="accounting/journals">Journals and trial balance</MudButton>
+        <MudButton Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Refresh" OnClick="PrepareAsync" Disabled="@_busy">Read the report setup again</MudButton>
+    </MudStack>
+</MudStack>
+
+<MudText Typo="Typo.caption" Color="Color.Secondary" Class="mb-3 d-block">
+    @ReportRules.AsOfRule @ReportRules.TieOutRule @ReportRules.ProvisionalRule @ReportRules.ExportRule
+</MudText>
+
+<MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="ask">
+        <MudGrid>
+            <MudItem xs="12" md="4">
+                <MudSelect T="QtsBilling.Contracts.Reports.ReportKind" Value="@_kind" ValueChanged="Choose"
+                           Label="Statement" Margin="Margin.Dense" Dense="true">
+                    @foreach (var kind in ReportRules.Statements)
+                    {
+                        <MudSelectItem T="QtsBilling.Contracts.Reports.ReportKind" Value="@kind">@ReportRules.Label(kind)</MudSelectItem>
+                    }
+                </MudSelect>
+            </MudItem>
+
+            @if (ReportRules.IsWindowed(_kind))
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudDatePicker @bind-Date="_from" Label="First day" Margin="Margin.Dense" />
+                </MudItem>
+                <MudItem xs="12" sm="6" md="4">
+                    <MudDatePicker @bind-Date="_to" Label="Last day" Margin="Margin.Dense" />
+                </MudItem>
+            }
+            else
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudDatePicker @bind-Date="_asOf" Label="As at (blank means the business's own today)" Margin="Margin.Dense" />
+                </MudItem>
+            }
+
+            @if (ReportRules.TakesBranch(_kind) && _canChooseBranch)
+            {
+                <MudItem xs="12" md="4">
+                    <ReferenceSelector Label="Branch" HelpText="search by name" Value="@_branch"
+                                       ValueChanged="@(item => _branch = item)" Search="@SearchBranchesAsync" Disabled="@_busy" />
+                </MudItem>
+            }
+        </MudGrid>
+
+        <MudStack Row="true" Spacing="2" Wrap="Wrap.Wrap" AlignItems="AlignItems.Center" Class="mt-2">
+            <MudButton Variant="Variant.Filled" Color="Color.Primary" StartIcon="@Icons.Material.Filled.Search"
+                       OnClick="ReadAsync" Disabled="@(!CanRead)" data-qts-action="read-report">
+                Read @KindLabel
+            </MudButton>
+            <MudButton Variant="Variant.Outlined" Color="Color.Default" StartIcon="@Icons.Material.Filled.Download"
+                       OnClick="ExportAsync" Disabled="@(!CanExport)" data-qts-action="export-report">
+                Save this statement as a local file
+            </MudButton>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @WindowWords
+                @if (_reportCurrency is { Length: > 0 } currency)
+                {
+                    <text> · @currency</text>
+                }
+            </MudText>
+        </MudStack>
+
+    @if (_scaleNote is { Length: > 0 } note)
+    {
+        <MudText Typo="Typo.caption" Color="Color.Warning" Class="d-block mt-2" role="status">@note</MudText>
+    }
+</MudPaper>
+
+@* The question is always on screen; the answer appears beside it. A statement chooser hidden behind a loading
+   panel would leave the operator nothing to press, so only the figures sit inside the state panel. *@
+<ShellStates Kind="_state" Body="_message" RetryCallback="PrepareAsync" RetryLabel="Read the report setup again">
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="refused">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="ReadAsync" Disabled="@_busy" data-qts-action="retry-read">Read the statement again</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" role="status" data-qts-state="exported">@_notice</MudAlert>
+    }
+
+    @if (_report is not null)
+    {
+        <MudPaper Outlined="true" Class="pa-4 mb-4" data-qts-region="figures">
+            <MudGrid class="mb-3">
+                @foreach (var (caption, figure) in _headlines)
+                {
+                    <MudItem xs="6" sm="4" md="3">
+                        <MudText Typo="Typo.caption" Color="Color.Secondary">@caption</MudText>
+                        <MudText Typo="Typo.body1">@figure</MudText>
+                    </MudItem>
+                }
+            </MudGrid>
+
+            <MudAlert Severity="@(_reconciled && _balanced ? Severity.Success : Severity.Warning)" Variant="Variant.Outlined"
+                      Class="mb-3" role="status" data-qts-state="@(_reconciled && _balanced ? "tied" : "needs-attention")">
+                <MudText Typo="Typo.body2">@_reconciliation</MudText>
+                <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-1">@ReportRules.ProvisionalSentence(_includesProvisional)</MudText>
+            </MudAlert>
+
+            <MudTable Items="_rows" Dense="true" ReadOnly="true" Hover="true" FixedHeader="true" Height="420px">
+                <HeaderContent>
+                    @foreach (var header in _headers)
+                    {
+                        <MudTh>@header</MudTh>
+                    }
+                </HeaderContent>
+                <RowTemplate>
+                    @{
+                        var cells = (IReadOnlyList<string>)context;
+                    }
+                    @for (var index = 0; index < cells.Count; index++)
+                    {
+                        var cell = cells[index];
+                        <MudTd DataLabel="@(_headers.ElementAtOrDefault(index) ?? "Figure")">@cell</MudTd>
+                    }
+                </RowTemplate>
+                <NoRecordsContent>
+                    <MudText Typo="Typo.body2" Class="pa-4">Nothing carries a balance under this statement and window.</MudText>
+                </NoRecordsContent>
+            </MudTable>
+
+            @if (DrillHref is { Length: > 0 } href)
+            {
+                <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Lens"
+                           Href="@href" Class="mt-2" data-qts-action="drill-through">@DrillLabel</MudButton>
+            }
+        </MudPaper>
+    }
+</ShellStates>

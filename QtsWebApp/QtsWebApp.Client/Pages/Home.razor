@@ -1,12 +1,13 @@
 ﻿@page "/"
 @inject IAccountApiClient Accounts
 @inject IBusinessSetupApiClient Business
+@using QtsBilling.Ui.Components
 
 @*
-    The browser landing page (specification task 13). It answers three questions an operator has on a fresh
-    instance - which company am I looking at, is it ready to trade, and where do I go next - and it refuses to
-    impersonate a dashboard: no financial totals are invented here, because those numbers arrive with the report
-    surface in task 33 and must come from a report rather than from a count of rows.
+    The browser landing page (specification task 13, dashboard added by task 33). It answers three questions an
+    operator has on a fresh instance - which company am I looking at, is it ready to trade, and where do I go next -
+    and now carries the manager's pulse: a few figures that each come from a report, so they are tied to the posted
+    facts behind them instead of counting rows. A figure that could not be read is said to be missing.
 *@
 
 <PageTitle>QTS Billing</PageTitle>
@@ -137,9 +138,11 @@ else
                     }
 
                     <MudAlert Severity="Severity.Info" Class="mt-4" Variant="Variant.Outlined">
-                        Turnover, receivable and stock totals are not shown here on purpose: they come from the
-                        reporting surface (task 33), which ties out against the posted ledger instead of counting rows.
+                        The figures below are each a report read, so they tie to the posted ledger - a number that
+                        could not be read is named as missing rather than shown as zero. Open the reports page for the
+                        full statement and its local export.
                     </MudAlert>
+                    <FinancialPulse />
                 </MudCardContent>
             </MudCard>
         </MudItem>

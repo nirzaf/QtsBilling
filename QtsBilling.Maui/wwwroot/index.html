@@ -28,6 +28,9 @@
     <!-- Local-only document output for this device (specification task 24): the authenticated client has already
          fetched the snapshot, so printing never navigates a WebView at a bearer route and never writes a file. -->
     <script src="document-output.js"></script>
+    <!-- Local file output for a report export (specification task 33): the bytes were fetched by the authenticated
+         client and this bridge receives a bare file name, so an export never needs a URL in the WebView either. -->
+    <script src="file-output.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
 
 </body>

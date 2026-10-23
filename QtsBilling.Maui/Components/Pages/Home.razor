@@ -3,6 +3,7 @@
 @inject IServerSettings Settings
 @inject IDeviceConnectivity Connectivity
 @inject NavigationManager Navigation
+@using QtsBilling.Ui.Components
 
 <PageTitle>QTS Billing</PageTitle>
 
@@ -47,6 +48,13 @@
                            Class="mt-2">
                     Customers (shared component)
                 </MudButton>
+                <MudButton Href="reports"
+                           Variant="Variant.Outlined"
+                           Color="Color.Default"
+                           StartIcon="@Icons.Material.Filled.QueryStats"
+                           Class="mt-2 ml-2">
+                    Reports
+                </MudButton>
                 <MudButton Href="login"
                            Variant="Variant.Outlined"
                            Color="Color.Default"
@@ -54,6 +62,17 @@
                            Class="mt-2 ml-2">
                     Sign in
                 </MudButton>
+            </MudCardContent>
+        </MudCard>
+    </MudItem>
+
+    <MudItem xs="12">
+        <MudCard>
+            <MudCardContent>
+                @* The same shared dashboard the browser shows, read through the device's own bearer session
+                     (specification task 33, recipe step 4): posted facts, an as-of date, and an offline device says so
+                     instead of showing a stale figure as if it were current. *@
+                <FinancialPulse />
             </MudCardContent>
         </MudCard>
     </MudItem>

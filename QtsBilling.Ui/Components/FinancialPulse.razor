@@ -1,0 +1,68 @@
+@namespace QtsBilling.Ui.Components
+@using QtsBilling.Ui.Pages.Reporting
+
+@* The home shell's dashboard (specification task 33, recipe step 4). Every figure is a report read, so each one is
+   tied to the posted facts behind it; a card that could not be read says so instead of showing zero, and the alerts
+   name the workbench that answers them. *@
+
+<div class="mt-4" data-qts-region="pulse">
+    <MudText Typo="Typo.h6">This morning, from the posted books</MudText>
+    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-2">
+        @ReportRules.AsOfRule @ReportRules.ProvisionalRule
+    </MudText>
+
+    @if (_loading)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary" data-qts-state="loading">Reading the reports behind these figures…</MudText>
+    }
+    else if (!_mayRead)
+    {
+        <MudText Typo="Typo.body2" Color="Color.Secondary" data-qts-state="forbidden">
+            @(_statedAt ?? "These figures need the reporting authority, which this account does not hold here. Ask an owner for the 'reports.view' authority to see them.")
+        </MudText>
+    }
+    else
+    {
+        <MudGrid>
+            @foreach (var figure in _figures)
+            {
+                <MudItem xs="12" sm="6" md="4">
+                    <MudCard>
+                        <MudCardContent>
+                            <MudText Typo="Typo.caption" Color="Color.Secondary">@figure.Caption</MudText>
+                            <MudText Typo="Typo.h5" Color="@(figure.Missing ? Color.Secondary : Color.Default)"
+                                     data-qts-state="@(figure.Missing ? "stale" : "posted")">@figure.Value</MudText>
+                            <MudText Typo="Typo.body2" Color="Color.Secondary" Class="mt-1">@figure.Detail</MudText>
+                        </MudCardContent>
+                    </MudCard>
+                </MudItem>
+            }
+        </MudGrid>
+
+        @if (_alerts.Count > 0)
+        {
+            <MudText Typo="Typo.subtitle2" Class="mt-4">Needs an answer today</MudText>
+            <MudList T="string" Dense="true" Class="mt-1" role="list">
+                @foreach (var alert in _alerts)
+                {
+                    <MudListItem Icon="@Icons.Material.Filled.WarningAmber" IconColor="Color.Warning">
+                        <MudText Typo="Typo.body2">@alert.Sentence</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" Href="@alert.Href" Class="mt-1"
+                                   data-qts-action="pulse-drill">@alert.Label</MudButton>
+                    </MudListItem>
+                }
+            </MudList>
+        }
+        else
+        {
+            <MudText Typo="Typo.body2" Color="Color.Success" Class="mt-3" role="status" data-qts-state="clear">
+                Nothing is overdue past 30 days and nothing fails to tie in what this account may read.
+            </MudText>
+        }
+
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-3">
+            Figures stated @(_asOfLabel is { Length: > 0 } date ? $"as at {date}" : "by each report's own date")@(_statedAt is { Length: > 0 } window ? $", cash over {window}" : ""). These are posted facts, not provisional device captures, and a full statement is on the @("reports") page.
+            <MudButton Size="Size.Small" Variant="Variant.Text" Href="reports" data-qts-action="open-reports">Open the reports</MudButton>
+        </MudText>
+    }
+</div>

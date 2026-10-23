@@ -95,8 +95,7 @@ public static class ShellNavigation
         new("Chart of accounts", "accounting/accounts", Icons.Material.Filled.AccountTree, GroupFinance, Permissions.AccountingPost, ShellAvailability.Available),
         new("Journals and trial balance", "accounting/journals", Icons.Material.Filled.Book, GroupFinance, Permissions.ReportsView, ShellAvailability.Available),
         new("Periods and year close", "accounting/periods", Icons.Material.Filled.DateRange, GroupFinance, Permissions.AccountingClose, ShellAvailability.Available),
-        new("Reports", "reports", Icons.Material.Filled.QueryStats, GroupFinance, Permissions.ReportsView, ShellAvailability.Planned,
-            "Arrives with task 33."),
+        new("Reports", "reports", Icons.Material.Filled.QueryStats, GroupFinance, Permissions.ReportsView, ShellAvailability.Available),
 
         // Administration: the instance itself.
         new("Business and branches", "administration/business", Icons.Material.Filled.Storefront, GroupAdministration, Permissions.BusinessSettingsManage, ShellAvailability.Available),

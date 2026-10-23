@@ -1335,11 +1335,108 @@ Check("an unbalanced entry is described as unfinished work, not as a rounding fo
     && QtsBilling.Ui.Pages.Accounting.AccountingRules.CommittedNothing(ApiErrorCodes.AccountingPeriodOverlap)
     && !QtsBilling.Ui.Pages.Accounting.AccountingRules.CommittedNothing(ApiErrorCodes.InternalError));
 
+// 19. The report surface and the manager's dashboard (specification task 33): a shipped shared page that reads
+//     nothing until a statement is asked for, states that a report answers for the date it names and that a
+//     difference is shown rather than adjusted, and hands the export to this machine as a bare file name.
+var stubReports = new StubReportApiClient();
+var stubFileOutput = new StubLocalFileOutput();
+var reportServices = new ServiceCollection();
+reportServices.AddLogging(builder => builder.SetMinimumLevel(LogLevel.Warning));
+reportServices.AddSingleton<IJSRuntime>(new StubJsRuntime());
+reportServices.AddMudServices();
+reportServices.AddSingleton<NavigationManager, StubNavigationManager>();
+reportServices.AddSingleton<IReportApiClient>(stubReports);
+reportServices.AddSingleton<ILocalFileOutput>(stubFileOutput);
+reportServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
+reportServices.AddSingleton<IBusinessSetupApiClient>(new StubBusinessSetupApiClient());
+reportServices.AddSingleton<IAccountingApiClient>(new StubAccountingApiClient());
+
+await using var reportProvider = reportServices.BuildServiceProvider();
+await using var reportRenderer = new HtmlRenderer(reportProvider, reportProvider.GetRequiredService<ILoggerFactory>());
+
+var reportsHtml = await reportRenderer.Dispatcher.InvokeAsync(async () =>
+    (await reportRenderer.RenderComponentAsync<QtsBilling.Ui.Pages.Reporting.Reports>(ParameterView.Empty)).ToHtmlString());
+var pulseHtml = await reportRenderer.Dispatcher.InvokeAsync(async () =>
+    (await reportRenderer.RenderComponentAsync<QtsBilling.Ui.Components.FinancialPulse>(ParameterView.Empty)).ToHtmlString());
+
+Check("the reports screen and the dashboard are shared pages with an honest nav row",
+    typeof(QtsBilling.Ui.Pages.Reporting.Reports).GetCustomAttributes(typeof(RouteAttribute), false).Cast<RouteAttribute>()
+        .Any(route => route.Template.Trim('/') == "reports")
+    && QtsBilling.Ui.Layout.ShellNavigation.Routes
+        .Single(route => route.Href == "reports").Availability == QtsBilling.Ui.Layout.ShellAvailability.Available
+    && QtsBilling.Ui.Layout.ShellNavigation.Routes.Single(route => route.Href == "reports").ArrivalNote is null
+    && typeof(QtsBilling.Ui.Components.FinancialPulse).Assembly == typeof(QtsBilling.Ui.Pages.Reporting.Reports).Assembly);
+Check("no report is read and no file is written during the prerender",
+    stubReports.Calls == 0 && stubFileOutput.Saves == 0,
+    $"reads {stubReports.Calls}, saves {stubFileOutput.Saves}");
+Check("the reports screen states its rules before a figure is read",
+    reportsHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && reportsHtml.Contains("the date it names", StringComparison.Ordinal)
+        && reportsHtml.Contains("never adjusted away", StringComparison.Ordinal)
+        && reportsHtml.Contains("no BI service", StringComparison.Ordinal)
+        && reportsHtml.Contains("local file", StringComparison.Ordinal));
+Check("the dashboard says a missing figure is missing and offers the statement behind it",
+    pulseHtml.Contains("data-qts-region=\"pulse\"", StringComparison.Ordinal)
+        && pulseHtml.Contains("Reading the reports behind these figures", StringComparison.Ordinal)
+        && pulseHtml.Contains("could not be read", StringComparison.OrdinalIgnoreCase) == false
+        && QtsBilling.Ui.Pages.Reporting.ReportRules.StaleSentence("Cash per the ledger", "offline")
+            .Contains("Nothing is shown in its place", StringComparison.Ordinal));
+Check("a report is named, windowed and drilled without a typed identifier",
+    QtsBilling.Ui.Pages.Reporting.ReportRules.Label(QtsBilling.Contracts.Reports.ReportKind.ReceivableAging)
+        .Contains("how late", StringComparison.OrdinalIgnoreCase)
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.IsWindowed(QtsBilling.Contracts.Reports.ReportKind.ProfitAndLoss)
+    && !QtsBilling.Ui.Pages.Reporting.ReportRules.IsWindowed(QtsBilling.Contracts.Reports.ReportKind.BalanceSheet)
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.TakesBranch(QtsBilling.Contracts.Reports.ReportKind.StockSummary)
+    && !QtsBilling.Ui.Pages.Reporting.ReportRules.WindowIsSane(new DateOnly(1900, 1, 1), new DateOnly(2100, 1, 1))
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.WindowIsSane(new DateOnly(2026, 10, 1), new DateOnly(2026, 10, 22))
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.ExportName(
+        QtsBilling.Contracts.Reports.ReportKind.ReceivableAging, new DateOnly(2026, 10, 22), null, null, null)
+        == "ar-aging-20261022.csv");
+Check("the export is a bare file name and the numbers keep their exactness",
+    QtsBilling.Ui.Pages.Reporting.ReportRules.ReconciliationSentence(860m, 710m, 150m, false)
+        .Contains("shown as it stands", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.ReconciliationSentence(860m, 860m, 0m, true)
+        .Contains("same posted facts", StringComparison.Ordinal)
+    && QtsBilling.Ui.Pages.Reporting.ReportRules.Money(1_234.5m, 2) == "1,234.50"
+    && !QtsBilling.Ui.Pages.Reporting.ReportRules.ProvisionalSentence(false).Contains("includes", StringComparison.OrdinalIgnoreCase));
+
+foreach (var rejected in new[]
+{
+    ("a path", "../elsewhere.csv"),
+    ("a folder", "reports/2026.csv"),
+    ("a drive", @"C:\books.csv"),
+    ("an extension that is not the report", "books.xlsx"),
+})
+{
+    var nameRefusal = Capture(() => new StoredFile(rejected.Item2, ReportSmokeSamples.Csv));
+    Check($"a local export refuses {rejected.Item1} inside its name", nameRefusal is ArgumentException,
+        nameRefusal?.Message ?? "accepted");
+}
+
+Check("an empty export is not a report and an oversized one is refused",
+    Capture(() => new StoredFile("ar-aging.csv", [])) is ArgumentException
+    && Capture(() => new StoredFile("ar-aging.csv", new byte[StoredFile.MaxContentBytes + 1])) is ArgumentException
+    && new StoredFile("ar-aging-20261022.csv", ReportSmokeSamples.Csv).Bytes > 0);
+
 Console.WriteLine(failures == 0
     ? "== smoke PASSED: the same customer component builds and renders with injected feature interfaces =="
     : $"== smoke FAILED: {failures} check(s) failed ==");
 
 return failures == 0 ? 0 : 1;
+
+/// <summary>The exception a guard raised, or null when the thing was accepted. A guard that never fires is not a guard.</summary>
+static Exception? Capture(Action action)
+{
+    try
+    {
+        action();
+        return null;
+    }
+    catch (Exception exception)
+    {
+        return exception;
+    }
+}
 
 static InvoiceDetailDto InvoiceSample(Guid id, InvoiceState status, InvoiceRecognitionMode mode, Guid locationId, Guid customerId) => new(
     new InvoiceSummaryDto(

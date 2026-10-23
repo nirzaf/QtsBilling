@@ -52,6 +52,7 @@ builder.Services.AddScoped<IPaymentApiClient, PaymentApiClient>();
 // Local document output (specification task 24): the authenticated client fetches the snapshot, this hands it to
 // the browser's own print dialogue. No navigation, no token in a URL, no temporary file.
 builder.Services.AddScoped<IDocumentOutput, WebDocumentOutput>();
+builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.ILocalFileOutput, WebFileOutput>();
 builder.Services.AddScoped<IPosCheckoutOrchestrator, WebPosCheckoutOrchestrator>();
 
 builder.Services.AddBlazoredLocalStorage();

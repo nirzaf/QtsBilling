@@ -170,6 +170,7 @@ public static class MauiProgram
         // URL. Registering it here is the same cross-host gate F25 asks for - without it the terminal's operator
         // would get a print button that throws.
         builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.IDocumentOutput, NativeDocumentOutput>();
+        builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.ILocalFileOutput, NativeFileOutput>();
 
         // The administration screens live in the shared library, and this host routes them (Routes.razor adds the
         // whole QtsBilling.Ui assembly). Registering their clients here is the cross-host gate specification finding

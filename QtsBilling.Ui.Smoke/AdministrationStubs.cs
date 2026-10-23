@@ -2,6 +2,7 @@ using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Administration;
 using QtsBilling.Contracts.Inventory;
+using QtsBilling.Contracts.Reports;
 using QtsBilling.Contracts.Sync;
 using QtsBilling.Ui.Smoke;
 
@@ -330,4 +331,128 @@ internal sealed class StubAccountingApiClient : IAccountingApiClient
         [new PeriodOutstandingDto("retained-earnings", "Retained earnings account", 1, 0m, true,
             "The transfer closes revenue and expense into an equity account.")],
         []);
+}
+
+/// <summary>
+/// The report statements, as the manager's screens inject them: fixed local answers, a count of the reads, and an
+/// export the smoke can be shown without a device writing a file.
+/// </summary>
+internal sealed class StubReportApiClient : IReportApiClient
+{
+    public int Calls { get; private set; }
+
+    public Task<ReceivableAgingDto> GetReceivableAgingAsync(DateOnly? asOf = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new ReceivableAgingDto(
+            Guid.NewGuid(), asOf ?? new DateOnly(2026, 10, 22), "QAR",
+            [new ReceivableAgingRowDto(Guid.NewGuid(), "Harbour Supplies", 250m, 400m, 120m, 0m, 90m, 860m)],
+            860m, 860m, 0m, true, false));
+    }
+
+    public Task<PayableAgingDto> GetPayableAgingAsync(DateOnly? asOf = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new PayableAgingDto(
+            Guid.NewGuid(), asOf ?? new DateOnly(2026, 10, 22), "QAR",
+            [new PayableAgingRowDto(Guid.NewGuid(), "Gulf Wholesale", 500m, 0m, 0m, 210m, 0m, 710m)],
+            710m, 710m, 40m, 750m, 710m, -40m, false, false));
+    }
+
+    public Task<TaxSummaryDto> GetTaxSummaryAsync(DateOnly? from = null, DateOnly? to = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new TaxSummaryDto(
+            Guid.NewGuid(), from ?? new DateOnly(2026, 10, 1), to ?? new DateOnly(2026, 10, 22), "QAR",
+            [new TaxSummaryRowDto(0.05m, "Inclusive", 150m, 40m, 110m)], 150m, 40m, 110m, false));
+    }
+
+    public Task<ZReportDto> GetZReportAsync(Guid sessionId, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new ZReportDto(
+            Guid.NewGuid(), sessionId, Guid.NewGuid(), "Main counter", Guid.NewGuid(), "QAR", "Open",
+            DateTimeOffset.UtcNow, null, 500m, 12, 2_400m, 100m, 110m, 2_290m, 2_400m,
+            [new PaymentMethodTotalDto("Cash", 9, 1_800m)], 1, 60m, [new PaymentMethodTotalDto("Cash", 1, 60m)],
+            0m, 0m, 2_340m, null, null, false));
+    }
+
+    public Task<BalanceSheetDto> GetBalanceSheetAsync(DateOnly? asOf = null, string? currency = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new BalanceSheetDto(
+            Guid.NewGuid(), asOf ?? new DateOnly(2026, 10, 22), "QAR",
+            [new StatementAccountDto(Guid.NewGuid(), "1000", "Cash on hand", 2_340m),
+             new StatementAccountDto(Guid.NewGuid(), "1100", "Accounts receivable", 860m)],
+            [new StatementAccountDto(Guid.NewGuid(), "2000", "Accounts payable", 710m)],
+            [new StatementAccountDto(Guid.NewGuid(), "3000", "Retained earnings", 1_200m)],
+            3_200m, 710m, 1_200m, 1_290m, 3_200m, true, false));
+    }
+
+    public Task<ProfitAndLossDto> GetProfitAndLossAsync(DateOnly? from = null, DateOnly? to = null, string? currency = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new ProfitAndLossDto(
+            Guid.NewGuid(), from ?? new DateOnly(2026, 10, 1), to ?? new DateOnly(2026, 10, 22), "QAR",
+            [new StatementAccountDto(Guid.NewGuid(), "4000", "Sales revenue", 2_290m)],
+            [new StatementAccountDto(Guid.NewGuid(), "5000", "Cost of goods sold", 1_000m)],
+            2_290m, 1_000m, 1_290m, false));
+    }
+
+    public Task<StockSummaryDto> GetStockSummaryAsync(DateOnly? asOf = null, Guid? locationId = null, string? currency = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new StockSummaryDto(
+            Guid.NewGuid(), asOf ?? new DateOnly(2026, 10, 22), "QAR",
+            [new StockSummaryRowDto(Guid.NewGuid(), "Main counter", Guid.NewGuid(), "Rice 25kg", "RICE-25", 12.5m, 1_000m, DateTimeOffset.UtcNow)],
+            12.5m, 1_000m, false));
+    }
+
+    public Task<CashSummaryDto> GetCashSummaryAsync(DateOnly? from = null, DateOnly? to = null, string? currency = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new CashSummaryDto(
+            Guid.NewGuid(), from ?? new DateOnly(2026, 10, 1), to ?? new DateOnly(2026, 10, 22), "QAR",
+            [new CashSummaryRowDto(Guid.NewGuid(), "1000", "Cash on hand", 500m, 1_800m, 0m, 2_300m)],
+            500m, 1_800m, 0m, 2_300m, false));
+    }
+
+    public Task<SalesSummaryDto> GetSalesSummaryAsync(DateOnly? from = null, DateOnly? to = null, string? currency = null, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new SalesSummaryDto(
+            Guid.NewGuid(), from ?? new DateOnly(2026, 10, 1), to ?? new DateOnly(2026, 10, 22), "QAR",
+            12, 2_200m, 100m, 110m, 2_210m, [new PaymentMethodTotalDto("Cash", 9, 1_800m)], false));
+    }
+
+    public Task<ReportExport> ExportAsync(ReportRequest request, CancellationToken cancellationToken = default)
+    {
+        Calls++;
+        return Task.FromResult(new ReportExport(
+            ReportApiClient.DefaultFileName(request.Kind),
+            System.Text.Encoding.UTF8.GetBytes("\"Section\",\"Item\",\"Field\",\"Label\",\"Value\"\n")));
+    }
+}
+
+/// <summary>A host that can put a file in the operator's hands, and remembers whether it was asked to.</summary>
+internal sealed class StubLocalFileOutput : ILocalFileOutput
+{
+    public int Saves { get; private set; }
+
+    public StoredFile? Last { get; private set; }
+
+    public bool CanSaveFiles => true;
+
+    public Task<bool> SaveAsync(StoredFile file, CancellationToken cancellationToken = default)
+    {
+        Saves++;
+        Last = file;
+        return Task.FromResult(true);
+    }
+}
+
+/// <summary>The report statements the manager's screens read, and the local file the export writes.</summary>
+internal static class ReportSmokeSamples
+{
+    public static byte[] Csv => System.Text.Encoding.UTF8.GetBytes("\"Section\",\"Item\",\"Field\",\"Label\",\"Value\"\n");
 }

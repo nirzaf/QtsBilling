@@ -384,6 +384,7 @@ builder.Services.AddHttpClient<IInvoiceApiClient, InvoiceApiClient>(client => cl
 // the circuit is interactive-server rather than WebAssembly, so the print contract must resolve in the server
 // process as well - a host that forgot it would hand the operator a print button that throws.
 builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.IDocumentOutput, QtsWebApp.Client.Services.WebDocumentOutput>();
+builder.Services.AddScoped<QtsBilling.Contracts.Abstractions.ILocalFileOutput, QtsWebApp.Client.Services.WebFileOutput>();
 
 builder.Services.AddHttpClient<IInventoryApiClient, InventoryApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
