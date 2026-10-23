@@ -287,6 +287,61 @@ public sealed class LocalDocumentTests : IClassFixture<PostgresApiFixture>
         Assert.All(inventory.Items, row => Assert.Equal(_fixture.BusinessA.BusinessId, row.BusinessId));
     }
 
+    [Fact]
+    public async Task T39_evidence_belongs_to_its_document_even_when_that_document_has_no_branch()
+    {
+        // An expense may be booked without a branch, and the aggregate check has to tell "no branch" apart from "no
+        // document" - otherwise evidence would be refused against a real record, or granted to a caller who named an
+        // identifier that belongs to nothing.
+        var http = await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.OwnerA);
+        var documents = new DocumentApiClient(http);
+
+        var expenseId = Guid.CreateVersion7();
+        await _fixture.WithFreshContextAsync(async db =>
+        {
+            db.Expenses.Add(new Expense
+            {
+                Id = expenseId,
+                BusinessId = _fixture.BusinessA.BusinessId,
+                LocationId = null,
+                Description = "the landlord's invoice for the yard",
+                Amount = 480m,
+                OccurredOn = DateOnly.FromDateTime(DateTime.UtcNow),
+            });
+            await db.SaveChangesAsync();
+        });
+
+        var attached = await documents.AttachAsync(new AttachDocumentEvidenceRequest(
+            DocumentAggregates.Expense, expenseId, "landlord invoice", "application/pdf", Pdf,
+            "the paper the payment was made from"));
+
+        Assert.Equal(DocumentAggregates.Expense, attached.AggregateType);
+        Assert.Equal(expenseId, attached.AggregateId);
+        Assert.Null(attached.LocationId);
+        Assert.Equal("Linked", attached.Status);
+        Assert.Equal(1, attached.Version);
+
+        var read = await documents.DownloadAsync(attached.Id);
+        Assert.Equal(Pdf, read.Content);
+        Assert.Equal(attached.Sha256, read.Sha256);
+        Assert.Equal("landlord-invoice-v1.pdf", read.FileName);
+        Assert.Single(await documents.ListEvidenceAsync(DocumentAggregates.Expense, expenseId));
+
+        // The note travels with the record, and the aggregate's own authority is what answers.
+        Assert.Contains("payment was made from", (await documents.ListEvidenceAsync(DocumentAggregates.Expense, expenseId)).Single().Note ?? string.Empty, StringComparison.Ordinal);
+
+        var cashier = new DocumentApiClient(await _fixture.CreateAuthenticatedClientAsync(_fixture.Users.Cashier));
+        var refused = await Assert.ThrowsAsync<ApiException>(() => cashier.AttachAsync(new AttachDocumentEvidenceRequest(
+            DocumentAggregates.Expense, expenseId, "at the counter", "application/pdf", Pdf, null)));
+        Assert.True(refused.IsForbidden, $"a cashier's expense evidence answered {refused.StatusCode}");
+        Assert.Contains(QtsBilling.Contracts.Identity.Permissions.ExpensesManage, refused.Message, StringComparison.Ordinal);
+
+        // A document that does not exist in this business is nothing to attach to, branch or no branch.
+        var missing = await Assert.ThrowsAsync<ApiException>(() => documents.AttachAsync(new AttachDocumentEvidenceRequest(
+            DocumentAggregates.Expense, Guid.CreateVersion7(), "a record that is not here", "application/pdf", Pdf, null)));
+        Assert.True(missing.IsNotFound, $"evidence was attached to a document that does not exist ({missing.StatusCode})");
+    }
+
     // ------------------------------------------------------------------ helpers
 
     private static string Sha(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();

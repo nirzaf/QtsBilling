@@ -1049,6 +1049,12 @@ purchasingServices.AddSingleton<IInventoryApiClient>(new StubInventoryApiClient(
 purchasingServices.AddSingleton<IAccountApiClient>(new StubAccountApiClient([.. Permissions.All]));
 purchasingServices.AddSingleton<IDocumentOutput>(new StubDocumentOutput());
 
+// The evidence panel the purchase-order workbench now carries (specification task 39), on the same fixed local answers
+// the invoice workbench uses.
+var purchaseEvidence = new StubDocumentApiClient();
+purchasingServices.AddSingleton<IDocumentApiClient>(purchaseEvidence);
+purchasingServices.AddSingleton<ILocalFileOutput>(new StubLocalFileOutput());
+
 await using var purchasingProvider = purchasingServices.BuildServiceProvider();
 await using var purchasingRenderer = new HtmlRenderer(purchasingProvider, purchasingProvider.GetRequiredService<ILoggerFactory>());
 
@@ -1098,6 +1104,12 @@ Check("the order list states the commitment rule and the billing rule it will no
 Check("the order screen says a received quantity cannot be typed, and receiving says what a GRN does",
     purchaseEditorHtml.Contains("no field here lets a person overwrite", StringComparison.Ordinal)
         && receivingQueueHtml.Contains("quantities land in the named branch", StringComparison.Ordinal));
+Check("the purchase-order workbench reads no evidence and claims none during the prerender",
+    !purchaseEditorHtml.Contains("data-qts-region=\"document-evidence\"", StringComparison.Ordinal)
+        && !purchaseEditorHtml.Contains("Nothing is held for this purchase order", StringComparison.Ordinal)
+        && purchaseEditorHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && purchaseEvidence.Reads == 0 && purchaseEvidence.Writes == 0,
+    $"reads {purchaseEvidence.Reads}, writes {purchaseEvidence.Writes}");
 Check("an order's lifecycle is stated by its state, and outstanding is never below zero",
     QtsBilling.Ui.Pages.Purchasing.PurchasingRules.AllowedActions(QtsBilling.Contracts.Purchasing.PurchaseOrderState.Ordered)
         .Contains(QtsBilling.Ui.Pages.Purchasing.PurchaseOrderAction.Receive)

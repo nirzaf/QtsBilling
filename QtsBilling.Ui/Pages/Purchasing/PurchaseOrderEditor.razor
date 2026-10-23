@@ -1,5 +1,6 @@
 @page "/purchasing/orders/{OrderId:guid}"
 @namespace QtsBilling.Ui.Pages.Purchasing
+@using QtsBilling.Contracts.Documents
 @using QtsBilling.Contracts.Purchasing
 @using QtsBilling.Ui.Components
 @using QtsBilling.Ui.Pages.Invoices
@@ -206,5 +207,12 @@
                 <MudText Typo="Typo.caption" Color="Color.Secondary">@PurchasingRules.BillingRule</MudText>
             </MudStack>
         </MudPaper>
+
+        @if (_detail is { } ordered)
+        {
+            @* The paperwork that arrived with the goods (specification task 39, recipe step 4): the supplier's own
+               file, kept here in versions under this order's own authority. *@
+            <DocumentEvidence AggregateType="@DocumentAggregates.PurchaseOrder" AggregateId="@ordered.Order.Id" MayManage="@_canManage" />
+        }
     }
 </ShellStates>

@@ -60,11 +60,19 @@ public sealed class DocumentJourneyTests : IClassFixture<PostgresApiFixture>
         // 2. Both document screens place it, and no host that can render them fails to name the client.
         var invoicePage = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Invoices/InvoiceActions.razor"));
         Assert.Contains(panel.Name, invoicePage, StringComparison.Ordinal);
-        Assert.Contains(DocumentAggregates.Invoice, invoicePage, StringComparison.Ordinal);
+
+        // Each screen names its aggregate through the contract's own constant, never a hand-typed string - so a page
+        // cannot invent an aggregate the server does not know.
+        Assert.Contains($"{nameof(DocumentAggregates)}.{nameof(DocumentAggregates.Invoice)}", invoicePage, StringComparison.Ordinal);
 
         var expensePage = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Expenses/ExpenseEditor.razor"));
         Assert.Contains(panel.Name, expensePage, StringComparison.Ordinal);
-        Assert.Contains(DocumentAggregates.Expense, expensePage, StringComparison.Ordinal);
+        Assert.Contains($"{nameof(DocumentAggregates)}.{nameof(DocumentAggregates.Expense)}", expensePage, StringComparison.Ordinal);
+
+        // The procurement side of the same story: the supplier's own file belongs to the order it arrived against.
+        var purchasePage = await File.ReadAllTextAsync(Path.Combine(root, @"QtsBilling.Ui/Pages/Purchasing/PurchaseOrderEditor.razor"));
+        Assert.Contains(panel.Name, purchasePage, StringComparison.Ordinal);
+        Assert.Contains($"{nameof(DocumentAggregates)}.{nameof(DocumentAggregates.PurchaseOrder)}", purchasePage, StringComparison.Ordinal);
 
         foreach (var startup in new[]
         {
