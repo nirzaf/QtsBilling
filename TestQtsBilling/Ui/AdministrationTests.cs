@@ -297,6 +297,10 @@ public sealed class AdministrationTests(PostgresApiFixture fixture) : IClassFixt
             ("administration/business", "Business and branches", "/api/v1/business-settings", Permissions.BusinessSettingsManage),
             ("administration/users", "Users and handover tickets", "/api/v1/administration/users", Permissions.UsersManage),
             ("administration/devices", "Terminals", "/api/v1/devices", Permissions.DevicesManage),
+            // The two operator screens task 34 shipped read the instance itself, so they sit behind the audit
+            // authority their routes actually ask for - and a role without it is refused, not offered a refusal.
+            ("administration/audit", "Audit feed", "/api/v1/audit-events", Permissions.AuditView),
+            ("administration/diagnostics", "Diagnostics and support bundle", "/api/v1/diagnostics", Permissions.AuditView),
         };
 
         string[] shipped = [.. typeof(QtsBilling.Ui.Pages.Administration.BusinessSettings).Assembly
@@ -384,12 +388,19 @@ public sealed class AdministrationTests(PostgresApiFixture fixture) : IClassFixt
                 CashOverShortAccountId: Guid.Empty)));
         Assert.True(mappingSave.IsForbidden, "the mapping save answered something other than a refusal");
 
-        // 4. Audit and diagnostics stays a promise with its task named, not a link into nothing.
-        var audit = ShellNavigation.Routes.Single(row => row.Href == "administration/audit");
-        Assert.Equal(ShellAvailability.Planned, audit.Availability);
-        Assert.False(ShellNavigation.IsNavigable(audit));
-        Assert.Contains("task 34", ShellNavigation.DisabledReason(audit), StringComparison.Ordinal);
-        Assert.DoesNotContain(audit.Href, shipped);
+        // 4. Audit and diagnostics are shipped pages, not promises: both rows are navigable, both addresses exist
+        //    in the shared library, and neither one is left as a disabled link naming the task that wrote it.
+        foreach (var href in new[] { "administration/audit", "administration/diagnostics" })
+        {
+            var row = ShellNavigation.Routes.Single(candidate => candidate.Href == href);
+            Assert.Equal(ShellAvailability.Available, row.Availability);
+            Assert.True(ShellNavigation.IsNavigable(row), $"{href} is offered as a page but is not navigable");
+            Assert.Contains(href, shipped);
+        }
+
+        Assert.DoesNotContain(
+            ShellNavigation.Routes.Where(row => row.Availability == ShellAvailability.Planned).Select(row => row.Href),
+            candidate => candidate == "administration/audit");
 
         Assert.All(ShellNavigation.Usable(owner), row => Assert.True(
             row.RequiredPermission is null || owner.Permissions.Contains(row.RequiredPermission, StringComparer.Ordinal)));
