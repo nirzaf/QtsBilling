@@ -1,6 +1,7 @@
 using QtsBilling.Contracts.Abstractions;
 using QtsBilling.Contracts.Accounting;
 using QtsBilling.Contracts.Administration;
+using QtsBilling.Contracts.Documents;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Diagnostics;
 using QtsBilling.Contracts.Reports;
@@ -513,4 +514,106 @@ internal sealed class StubLocalFileOutput : ILocalFileOutput
 internal static class ReportSmokeSamples
 {
     public static byte[] Csv => System.Text.Encoding.UTF8.GetBytes("\"Section\",\"Item\",\"Field\",\"Label\",\"Value\"\n");
+}
+
+/// <summary>
+/// The evidence panel's typed client (specification task 39): fixed local answers, a count of every read, and no disk
+/// and no network - so the smoke can prove the panel renders without reaching for the instance, and can be present on
+/// a host that holds no evidence at all.
+/// </summary>
+internal sealed class StubDocumentApiClient : IDocumentApiClient
+{
+    public int Reads { get; private set; }
+
+    public int Writes { get; private set; }
+
+    public List<DocumentEvidenceDto> Rows { get; } = [];
+
+    public Task<IReadOnlyList<DocumentEvidenceDto>> ListEvidenceAsync(
+        string aggregateType,
+        Guid aggregateId,
+        bool includeHistory = true,
+        CancellationToken cancellationToken = default)
+    {
+        Reads++;
+        return Task.FromResult<IReadOnlyList<DocumentEvidenceDto>>(
+            includeHistory ? Rows : Rows.Where(row => row.Current).ToArray());
+    }
+
+    public Task<DocumentEvidenceDto> AttachAsync(
+        AttachDocumentEvidenceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        var row = Evidence(request.Title, request.Content.Length, version: Rows.Count + 1, current: true);
+        Rows.Add(row);
+        return Task.FromResult(row);
+    }
+
+    public Task<DocumentEvidenceDto> ReplaceAsync(
+        Guid replacesId,
+        ReplaceDocumentEvidenceRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        var row = Evidence(request.Title, request.Content.Length, version: Rows.Count + 1, current: true);
+        Rows.Add(row);
+        return Task.FromResult(row);
+    }
+
+    public Task<DocumentContentDto> DownloadAsync(Guid evidenceId, CancellationToken cancellationToken = default)
+    {
+        Reads++;
+        var row = Rows.FirstOrDefault(candidate => candidate.Id == evidenceId)
+            ?? throw new InvalidOperationException("the smoke was asked for evidence it never held");
+
+        return Task.FromResult(new DocumentContentDto(
+            QtsBilling.Contracts.Documents.DocumentEvidenceRules.ComposeFileName(row.Title, row.Version, row.FileExtension),
+            row.ContentType,
+            row.Sha256,
+            row.SizeBytes,
+            [0x25, 0x50, 0x44, 0x46]));
+    }
+
+    public Task<DocumentEvidenceInventoryDto> GetInventoryAsync(CancellationToken cancellationToken = default)
+    {
+        Reads++;
+        return Task.FromResult(new DocumentEvidenceInventoryDto(
+            DateTimeOffset.UnixEpoch, Rows.Count, Rows.Count(row => row.Current), Rows.Sum(row => row.SizeBytes),
+            "the smoke's own directory", Rows));
+    }
+
+    public Task<DocumentEvidenceCleanupDto> CleanOrphanedEvidenceAsync(CancellationToken cancellationToken = default)
+    {
+        Writes++;
+        return Task.FromResult(new DocumentEvidenceCleanupDto(0, [], 0, 0, DateTimeOffset.UnixEpoch));
+    }
+
+    public static DocumentEvidenceDto Evidence(
+        string title,
+        long bytes,
+        int version,
+        bool current,
+        string aggregateType = DocumentAggregates.Invoice,
+        Guid? aggregateId = null)
+        => new(
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            Guid.CreateVersion7(),
+            aggregateType,
+            aggregateId ?? Guid.CreateVersion7(),
+            title,
+            "application/pdf",
+            "pdf",
+            bytes,
+            new string('a', 64),
+            version,
+            null,
+            current ? null : Guid.CreateVersion7(),
+            current ? "Linked" : "Superseded",
+            current,
+            DateTimeOffset.UnixEpoch,
+            Guid.CreateVersion7(),
+            null,
+            DateTimeOffset.UnixEpoch.AddDays(2555));
 }

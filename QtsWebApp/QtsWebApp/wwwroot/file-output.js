@@ -17,8 +17,25 @@ window.qtsFiles = window.qtsFiles || {
         if (fileName.indexOf("/") >= 0
             || fileName.indexOf("\\") >= 0
             || fileName.indexOf(":") >= 0
-            || fileName.indexOf("..") >= 0
-            || !/\.csv$/i.test(fileName)) {
+            || fileName.indexOf("..") >= 0) {
+            return false;
+        }
+
+        // The type is taken from the extension, and only from this closed list: a report export and the evidence
+        // formats this instance holds. Anything else - a script, a markup document - has no business being written
+        // out by the application on an operator's behalf (specification tasks 33 and 39).
+        var types = {
+            csv: "text/csv;charset=utf-8",
+            pdf: "application/pdf",
+            jpg: "image/jpeg",
+            jpeg: "image/jpeg",
+            png: "image/png",
+        };
+
+        var lastDot = fileName.lastIndexOf(".");
+        var extension = lastDot > 0 ? fileName.slice(lastDot + 1).toLowerCase() : "";
+
+        if (!Object.prototype.hasOwnProperty.call(types, extension)) {
             return false;
         }
 
@@ -41,7 +58,7 @@ window.qtsFiles = window.qtsFiles || {
             return false;
         }
 
-        var blob = new Blob([bytes], { type: "text/csv;charset=utf-8" });
+        var blob = new Blob([bytes], { type: types[extension] });
         var url = URL.createObjectURL(blob);
         var anchor = document.createElement("a");
         anchor.href = url;

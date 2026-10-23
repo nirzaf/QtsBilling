@@ -2,6 +2,7 @@
 @page "/expenses/{Id:guid}"
 @implements IAsyncDisposable
 @using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Documents
 @using QtsBilling.Contracts.Expenses
 @using QtsBilling.Ui.Components
 @using QtsBilling.Ui.Layout
@@ -185,5 +186,12 @@
                 </MudGrid>
             }
         </MudPaper>
+
+        @if (_expense is { } opened)
+        {
+            @* The paper behind this expense (specification task 39): the receipt or invoice the business was given,
+               kept here in versions, under this expense's own authority. *@
+            <DocumentEvidence AggregateType="@DocumentAggregates.Expense" AggregateId="@opened.Id" MayManage="@_canManage" />
+        }
     }
 </ShellStates>

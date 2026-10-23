@@ -34,6 +34,9 @@ builder.Services.AddScoped<QtsBilling.Contracts.Accounting.IAccountingApiClient,
 builder.Services.AddScoped<QtsBilling.Contracts.Reports.IReportApiClient, QtsBilling.Contracts.Reports.ReportApiClient>();
 // The audit feed and the instance's own diagnostics, read through the same typed contract on every host (task 34).
 builder.Services.AddScoped<QtsBilling.Contracts.Diagnostics.IOperationsApiClient, QtsBilling.Contracts.Diagnostics.OperationsApiClient>();
+// Local document evidence in the browser too: the panel on an invoice, expense or purchase screen injects the same
+// typed contract, and the bytes travel only over this authenticated channel (specification task 39).
+builder.Services.AddScoped<QtsBilling.Contracts.Documents.IDocumentApiClient, QtsBilling.Contracts.Documents.DocumentApiClient>();
 builder.Services.AddScoped<ISupplierApiClient, SupplierApiClient>();
 // Purchase orders, receiving and returns in the browser (specification task 26).
 builder.Services.AddScoped<IPurchasingApiClient, PurchasingApiClient>();

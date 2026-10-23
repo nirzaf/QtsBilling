@@ -4,9 +4,14 @@
 # to the host, together with a sidecar manifest carrying the SHA-256 digest. The manifest describes a
 # real dump; it is never treated as - or mistaken for - the backup itself.
 #
+# Local document evidence (specification task 39) is copied alongside the dump and inventoried file by file, because
+# the bytes live outside the database: restoring a dump alone would bring back documents whose evidence is gone.
+# A directory that does not exist is recorded as absent, never as empty.
+#
 # Example:
 #   powershell -File scripts/backup-postgres.ps1
 #   powershell -File scripts/backup-postgres.ps1 -OutDir D:\qts-backups
+#   powershell -File scripts/backup-postgres.ps1 -EvidenceDirectory D:\qts-evidence
 
 [CmdletBinding()]
 param(
@@ -14,7 +19,8 @@ param(
     [string]$Database = "qtsbilling",
     [string]$User = "qtsbilling",
     [string]$OutDir = "backups",
-    [string]$ConnectionString = ""
+    [string]$ConnectionString = "",
+    [string]$EvidenceDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -79,9 +85,49 @@ $manifest = [ordered]@{
 }
 
 $manifestPath = "$targetPath.json"
-$manifest | ConvertTo-Json | Set-Content -Path $manifestPath -Encoding UTF8
+
+# The evidence this instance holds on its own disk, copied and inventoried beside the dump.
+$evidenceSource = if ([string]::IsNullOrWhiteSpace($EvidenceDirectory)) {
+    Join-Path $repoRoot 'QtsWebApp/QtsWebApp/document-evidence/files'
+}
+elseif ([System.IO.Path]::IsPathRooted($EvidenceDirectory)) {
+    $EvidenceDirectory
+}
+else {
+    Join-Path $repoRoot $EvidenceDirectory
+}
+
+$evidenceOut = Join-Path $resolvedOut "evidence-$stamp"
+$evidenceFiles = @()
+$evidencePresent = Test-Path -LiteralPath $evidenceSource -PathType Container
+
+if ($evidencePresent) {
+    New-Item -ItemType Directory -Path $evidenceOut -Force | Out-Null
+
+    foreach ($item in Get-ChildItem -LiteralPath $evidenceSource -File | Sort-Object Name) {
+        $copy = Join-Path $evidenceOut $item.Name
+        Copy-Item -LiteralPath $item.FullName -Destination $copy
+        $evidenceFiles += [ordered]@{
+            name      = $item.Name
+            sizeBytes = $item.Length
+            sha256    = (Get-FileHash -LiteralPath $item.FullName -Algorithm SHA256).Hash
+        }
+    }
+}
+
+$manifest.evidence = [ordered]@{
+    present     = [bool]$evidencePresent
+    directory   = $evidenceSource
+    copy        = $evidenceOut
+    fileCount   = $evidenceFiles.Count
+    totalBytes  = [long]((($evidenceFiles | Measure-Object -Property sizeBytes -Sum).Sum))
+    files       = @($evidenceFiles)
+}
+
+$manifest | ConvertTo-Json -Depth 8 | Set-Content -Path $manifestPath -Encoding UTF8
 
 Write-Output "backup file     : $($file.FullName)"
 Write-Output "size (bytes)    : $($file.Length)"
 Write-Output "sha256          : $hash"
+Write-Output "evidence files  : $(if ($evidencePresent) { $evidenceFiles.Count } else { 'no evidence directory at ' + $evidenceSource })"
 Write-Output "manifest        : $manifestPath"

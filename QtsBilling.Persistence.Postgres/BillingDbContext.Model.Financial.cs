@@ -1193,6 +1193,47 @@ public partial class BillingDbContext
             b.HasIndex(e => new { e.EntityType, e.EntityId });
         });
 
+        // Local document evidence (specification task 39). The bytes live on this machine's disk, outside webroot;
+        // this row is the metadata that makes them attributable to one aggregate of one business, with the digest
+        // and the random storage key. No column carries a path a client supplied.
+        modelBuilder.Entity<DocumentEvidence>(b =>
+        {
+            b.ToTable("document_evidence");
+            RequireTenantKey(b);
+            HasBusinessFk(b);
+            b.Property(e => e.AggregateType).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Title).HasMaxLength(200).IsRequired();
+            b.Property(e => e.ContentType).HasMaxLength(64).IsRequired();
+            b.Property(e => e.FileExtension).HasMaxLength(8).IsRequired();
+            b.Property(e => e.Sha256).HasMaxLength(64).IsRequired();
+            b.Property(e => e.StorageKey).HasMaxLength(64).IsRequired();
+            b.Property(e => e.Status).HasMaxLength(32).IsRequired();
+            b.Property(e => e.Note).HasMaxLength(500);
+            b.HasOne<BusinessLocation>()
+                .WithMany()
+                .HasForeignKey(e => new { e.LocationId, e.BusinessId })
+                .HasPrincipalKey(l => new { l.Id, l.BusinessId })
+                .OnDelete(DeleteBehavior.Restrict);
+            b.HasOne<User>().WithMany().HasForeignKey(e => e.UploadedByUserId).OnDelete(DeleteBehavior.Restrict);
+
+            // The two version links are plain columns, not foreign keys. A composite key would be the tenant-safe
+            // shape, but PostgreSQL only waives a multi-column key when every column is null, and the first version of
+            // a document's evidence has no version to replace - so the honest form here is a reference this instance
+            // writes from a row it has just read, indexed both ways, with the tenant filter on every read.
+            b.HasIndex(e => e.ReplacesId);
+            b.HasIndex(e => e.ReplacedById);
+            b.HasIndex(e => new { e.BusinessId, e.AggregateType, e.AggregateId, e.VersionNumber }).IsUnique();
+            b.HasIndex(e => new { e.BusinessId, e.AggregateType, e.AggregateId });
+            b.HasIndex(e => e.Sha256);
+            b.HasIndex(e => e.StorageKey).IsUnique();
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_document_evidence_size_bounded",
+                "size_bytes > 0 AND size_bytes <= 5242880"));
+            b.ToTable(t => t.HasCheckConstraint(
+                "ck_document_evidence_version_positive",
+                "version_number > 0"));
+        });
+
         modelBuilder.Entity<ProcessedOperation>(b =>
         {
             b.ToTable("processed_operations");

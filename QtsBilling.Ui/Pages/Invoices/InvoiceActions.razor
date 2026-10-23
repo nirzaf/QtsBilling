@@ -1,4 +1,5 @@
 @using QtsBilling.Contracts.Abstractions
+@using QtsBilling.Contracts.Documents
 @using QtsBilling.Contracts.Invoices
 @using QtsBilling.Contracts.Sales
 
@@ -308,6 +309,10 @@
             </MudTable>
         </MudStack>
     </MudPaper>
+
+    @* The paper behind the document (specification task 39): the versions of the supplier's or customer's own file
+       this instance holds, managed under this invoice's own authority and kept on this machine. *@
+    <DocumentEvidence AggregateType="@DocumentAggregates.Invoice" AggregateId="@Invoice.Id" MayManage="@Access.CanManage" />
 </MudStack>
 
 @code {

@@ -20,6 +20,7 @@ using QtsBilling.Contracts.Banking;
 using QtsBilling.Contracts.Catalog;
 using QtsBilling.Contracts.Clients;
 using QtsBilling.Contracts.Customers;
+using QtsBilling.Contracts.Documents;
 using QtsBilling.Contracts.Identity;
 using QtsBilling.Contracts.Inventory;
 using QtsBilling.Contracts.Invoices;
@@ -173,6 +174,7 @@ var settledDetail = InvoiceSample(settledId, InvoiceState.PartiallyPaid, Invoice
 
 StubInvoiceApiClient? invoiceStub = null;
 StubDocumentOutput? outputStub = null;
+StubDocumentApiClient? evidenceStub = null;
 
 async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
 {
@@ -186,6 +188,14 @@ async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
     editorServices.AddSingleton<ICashRegisterApiClient, StubCashRegisterApiClient>();
     var documentOutput = new StubDocumentOutput();
     editorServices.AddSingleton<IDocumentOutput>(documentOutput);
+
+    // The evidence panel of the document (specification task 39). It answers from fixed local rows, so the smoke can
+    // see what the panel renders and how many times it reaches for anything.
+    var evidenceApi = new StubDocumentApiClient();
+    evidenceApi.Rows.Add(StubDocumentApiClient.Evidence("the note the supplier handed over", 4_210, version: 1, current: false));
+    evidenceApi.Rows.Add(StubDocumentApiClient.Evidence("a clearer copy of the same note", 88_300, version: 2, current: true));
+    editorServices.AddSingleton<IDocumentApiClient>(evidenceApi);
+    editorServices.AddSingleton<ILocalFileOutput>(new StubLocalFileOutput());
     var invoiceApi = new StubInvoiceApiClient(
         draft: InvoiceSample(draftId, InvoiceState.Draft, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
         issued: InvoiceSample(issuedId, InvoiceState.Issued, InvoiceRecognitionMode.Service, smokeLocationId, smokeCustomerId),
@@ -195,6 +205,7 @@ async Task<string> RenderInvoiceEditor(Guid? invoiceId, string[] permissions)
     editorServices.AddSingleton<NavigationManager, StubNavigationManager>();
     invoiceStub = invoiceApi;
     outputStub = documentOutput;
+    evidenceStub = evidenceApi;
 
     await using var editorProvider = editorServices.BuildServiceProvider();
     await using var editorRenderer = new HtmlRenderer(editorProvider, editorProvider.GetRequiredService<ILoggerFactory>());
@@ -273,6 +284,35 @@ Check("the events of the document are read back as history, not as an editable l
         && settlementHtml.Contains("Cash recorded", StringComparison.Ordinal));
 Check("no field asks the operator for an identifier a human could not know",
     !settlementHtml.Contains("Invoice id", StringComparison.Ordinal) && !settlementHtml.Contains("Register id", StringComparison.Ordinal));
+
+// 5c. The evidence panel beside the document (specification task 39, recipe step 4): it says where the bytes live
+//     before it asks for anything, shows a version and the version it replaced, hands a copy to the operator's own
+//     device through the host's file facility, and offers no way to edit or erase a fact that was placed.
+Check("the document's own evidence panel is part of the settlement workbench",
+    settlementHtml.Contains("data-qts-region=\"document-evidence\"", StringComparison.Ordinal)
+        && settlementHtml.Contains("Evidence held for this invoice", StringComparison.Ordinal));
+Check("the panel states the private-directory rule and the aggregate rule in its own words",
+    settlementHtml.Contains("private directory of this instance", StringComparison.Ordinal)
+        && settlementHtml.Contains("recognised from", StringComparison.Ordinal));
+Check("a static render says nothing has been read yet, rather than claiming an empty history",
+    settlementHtml.Contains("data-qts-state=\"loading\"", StringComparison.Ordinal)
+        && settlementHtml.Contains("Nothing has been read yet", StringComparison.Ordinal)
+        && !settlementHtml.Contains("Nothing is held for this invoice yet", StringComparison.Ordinal));
+Check("the panel reaches the operator's device through the host's file facility, never a protected link",
+    settlementHtml.Contains("private directory of this instance", StringComparison.Ordinal)
+        && !settlementHtml.Contains("/api/v1/documents", StringComparison.Ordinal)
+        && !settlementHtml.Contains("http://", StringComparison.Ordinal));
+Check("the panel offers no edit, no delete and no clear of anything already placed",
+    !settlementHtml.Contains("Delete evidence", StringComparison.Ordinal)
+        && !settlementHtml.Contains("Edit version", StringComparison.Ordinal));
+Check("a prerender of the workbench neither reads the evidence nor writes anything",
+    evidenceStub!.Reads == 0 && evidenceStub.Writes == 0,
+    $"reads {evidenceStub.Reads}, writes {evidenceStub.Writes}");
+
+var evidenceDenied = await RenderInvoiceEditor(settledId, [Permissions.InvoicesIssue, Permissions.AccountingPost, Permissions.SalesPost]);
+Check("a role that may not manage the document is not offered a place to change its evidence",
+    !evidenceDenied.Contains("Keep it here", StringComparison.Ordinal)
+        && evidenceDenied.Contains("belongs to one document", StringComparison.Ordinal));
 
 var noPostHtml = await RenderInvoiceEditor(settledId, [Permissions.InvoicesManage, Permissions.InvoicesIssue]);
 Check("a role that may not post to the ledger is told what is missing instead of being handed the buttons",

@@ -26,6 +26,7 @@ using QtsWebApp.Features.Audit;
 using QtsWebApp.Features.Catalog;
 using QtsWebApp.Features.Customers;
 using QtsWebApp.Features.Devices;
+using QtsWebApp.Features.Documents;
 using QtsWebApp.Features.Health;
 using QtsWebApp.Features.Inventory;
 using QtsWebApp.Features.Invoices;
@@ -340,6 +341,11 @@ builder.Services.AddHttpClient<QtsBilling.Contracts.Reports.IReportApiClient, Qt
 builder.Services.AddHttpClient<QtsBilling.Contracts.Diagnostics.IOperationsApiClient, QtsBilling.Contracts.Diagnostics.OperationsApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
 
+// Local document evidence, read and written over the same authenticated server-side channel as every other write
+// (specification task 39). No URL carrying a token and no remote storage is involved.
+builder.Services.AddHttpClient<QtsBilling.Contracts.Documents.IDocumentApiClient, QtsBilling.Contracts.Documents.DocumentApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
+    .AddHttpMessageHandler<LocalApiHandler>();
+
 // The supplier half of the party workbench (specification task 15) over the routes purchasing already publishes.
 builder.Services.AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>(client => client.BaseAddress = new Uri("http://qts.internal"))
     .AddHttpMessageHandler<LocalApiHandler>();
@@ -508,6 +514,10 @@ app.MapHealthEndpoints();
 // The operator's own diagnostics and the locally generated support bundle (specification task 34). The anonymous
 // liveness route above stays minimal; everything dependency-shaped lives behind the audit authority.
 app.MapDiagnosticsEndpoints();
+
+// Local document evidence for the documents this instance already authorises: bytes kept on this machine, in a
+// private directory, with their own version history (specification task 39).
+app.MapDocumentEndpoints();
 
 app.MapRazorComponents<App>()
     .AddInteractiveServerRenderMode()

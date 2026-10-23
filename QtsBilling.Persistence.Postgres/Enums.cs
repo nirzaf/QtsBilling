@@ -277,3 +277,17 @@ public enum BankReconciliationAction
     Finalised,
     Reopened,
 }
+
+/// <summary>
+/// Where a piece of local document evidence is in its life on this machine (specification task 39). Bytes are staged
+/// in the private directory first and only become <see cref="Linked"/> once their hash and size are verified and the
+/// metadata row commits; a replacement leaves the version it replaced <see cref="Superseded"/> rather than erasing
+/// it, and a file whose metadata never committed is <see cref="Orphaned"/> until the bounded local cleanup removes it.
+/// </summary>
+public enum DocumentEvidenceStatus
+{
+    Staged,
+    Linked,
+    Superseded,
+    Orphaned,
+}

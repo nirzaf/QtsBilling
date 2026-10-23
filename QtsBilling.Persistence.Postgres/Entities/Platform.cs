@@ -128,3 +128,60 @@ public sealed class LegacyIdentifierMap : Entity
 
     public DateTimeOffset MigratedAtUtc { get; set; }
 }
+
+/// <summary>
+/// Local evidence for one allowed aggregate - an invoice, an expense, a purchase order or a purchase receipt
+/// (specification task 39). The row is the metadata for bytes this instance keeps itself in a private directory
+/// outside webroot: a random storage key and a digest, never a path, URL or file name supplied by a client. Replacing
+/// evidence links a new version and leaves the version it replaced readable, so the evidence a posted document was
+/// issued with survives under the retention rule.
+/// </summary>
+public sealed class DocumentEvidence : Entity, ITenantScoped
+{
+    public Guid BusinessId { get; set; }
+
+    /// <summary>The branch the evidence belongs to, taken from its aggregate. An expense may be booked without one.</summary>
+    public Guid? LocationId { get; set; }
+
+    /// <summary>The aggregate the evidence belongs to: <c>invoice</c>, <c>expense</c>, <c>purchase_order</c> or <c>purchase_receipt</c>.</summary>
+    public string AggregateType { get; set; } = string.Empty;
+
+    public Guid AggregateId { get; set; }
+
+    /// <summary>What the operator calls it. Displayed only - it never reaches the filesystem as supplied.</summary>
+    public string Title { get; set; } = string.Empty;
+
+    /// <summary>The type the bytes were negotiated to be, from their own leading bytes, not from the client's claim.</summary>
+    public string ContentType { get; set; } = string.Empty;
+
+    /// <summary>The extension that negotiated type implies, chosen by this instance from a fixed table.</summary>
+    public string FileExtension { get; set; } = string.Empty;
+
+    public long SizeBytes { get; set; }
+
+    /// <summary>Lower-case hex SHA-256 of the stored bytes, recomputed from what was written.</summary>
+    public string Sha256 { get; set; } = string.Empty;
+
+    /// <summary>Opaque random key naming the staged file. It is not a path and carries no operator text.</summary>
+    public string StorageKey { get; set; } = string.Empty;
+
+    /// <summary>One-based version within the aggregate; a replacement adds a version rather than overwriting one.</summary>
+    public int VersionNumber { get; set; }
+
+    /// <summary>The version this one replaced, when it replaced one.</summary>
+    public Guid? ReplacesId { get; set; }
+
+    /// <summary>The version that replaced this one, set when this version stops being current.</summary>
+    public Guid? ReplacedById { get; set; }
+
+    public DocumentEvidenceStatus Status { get; set; }
+
+    public DateTimeOffset UploadedAtUtc { get; set; }
+
+    public Guid UploadedByUserId { get; set; }
+
+    public string? Note { get; set; }
+
+    /// <summary>How long this instance undertakes to keep the evidence. The expiry is the rule, not a deletion job.</summary>
+    public DateTimeOffset? RetainUntilUtc { get; set; }
+}

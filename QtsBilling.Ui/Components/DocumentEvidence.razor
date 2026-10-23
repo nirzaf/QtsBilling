@@ -1,0 +1,125 @@
+@namespace QtsBilling.Ui.Components
+@using QtsBilling.Contracts.Documents
+@using QtsBilling.Contracts.Abstractions
+
+@* Local document evidence for one document (specification task 39, recipe step 4). The panel lists the versions this
+   instance holds, offers a file from the operator's own disk, and hands a held file back to the same disk. Nothing is
+   fetched from a remote location, nothing is uploaded to one, and no file is ever opened inline. *@
+
+<MudPaper Outlined="true" Class="pa-4 mt-4" data-qts-region="document-evidence">
+    <MudStack Row="true" AlignItems="AlignItems.Center" Justify="Justify.SpaceBetween" Wrap="Wrap.Wrap" Class="mb-2">
+        <div>
+            <MudText Typo="Typo.h6">Evidence held for this @AggregateWords</MudText>
+            <MudText Typo="Typo.caption" Color="Color.Secondary">
+                @DocumentEvidenceRules.StorageRule
+            </MudText>
+        </div>
+        <MudButton Size="Size.Small" Variant="Variant.Text" StartIcon="@Icons.Material.Filled.Refresh"
+                   OnClick="LoadAsync" Disabled="@_busy" data-qts-action="reload-evidence">Read it again</MudButton>
+    </MudStack>
+
+    @if (!string.IsNullOrWhiteSpace(_error))
+    {
+        <MudAlert Severity="Severity.Error" Variant="Variant.Outlined" Class="mb-3" role="alert" data-qts-state="refused">
+            <MudText Typo="Typo.body2">@_error</MudText>
+            <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="LoadAsync" Disabled="@_busy"
+                       data-qts-action="retry-evidence">Try again</MudButton>
+        </MudAlert>
+    }
+
+    @if (!string.IsNullOrWhiteSpace(_notice))
+    {
+        <MudAlert Severity="Severity.Info" Variant="Variant.Outlined" Class="mb-3" data-qts-state="notice">
+            <MudText Typo="Typo.body2">@_notice</MudText>
+        </MudAlert>
+    }
+
+    @if (MayManage)
+    {
+        <MudGrid Class="mb-3">
+            <MudItem xs="12" sm="6" md="4">
+                <MudTextField T="string" @bind-Value="_title" Label="What it is" Margin="Margin.Dense"
+                              Placeholder="supplier delivery note" HelperText="@DocumentEvidenceRules.TypeRule" />
+            </MudItem>
+            <MudItem xs="12" sm="4" md="3">
+                <InputFile OnChange="AttachAsync" Accept=".pdf,.jpg,.jpeg,.png" class="mud-button-root"
+                           data-qts-action="choose-evidence" />
+            </MudItem>
+            <MudItem xs="12" sm="2" md="5">
+                @if (!CanAttach)
+                {
+                    <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2">
+                        @AttachBlock
+                    </MudText>
+                }
+                else if (_pending is { } pending)
+                {
+                    <MudStack Row="true" Spacing="2" Class="mt-1">
+                        <MudText Typo="Typo.body2" Class="mt-1">@pending.Name (@BytesWords(pending.Bytes))</MudText>
+                        <MudButton Size="Size.Small" Variant="Variant.Filled" Color="Color.Primary"
+                                   OnClick="ConfirmAttachAsync" Disabled="@_busy" data-qts-action="attach-evidence">
+                            Keep it here
+                        </MudButton>
+                        <MudButton Size="Size.Small" Variant="Variant.Text" OnClick="DiscardPending" Disabled="@_busy">
+                            Not this one
+                        </MudButton>
+                    </MudStack>
+                }
+            </MudItem>
+        </MudGrid>
+    }
+    else
+    {
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mb-3" data-qts-state="read-only">
+            @DocumentEvidenceRules.AggregateRule
+        </MudText>
+    }
+
+    @if (!_loaded)
+    {
+        <MudText Typo="Typo.body2" Class="pa-2" Color="Color.Secondary" data-qts-state="loading">
+            Nothing has been read yet. The versions this instance holds appear here once the document is open.
+        </MudText>
+    }
+    else if (_rows.Count == 0)
+    {
+        <MudText Typo="Typo.body2" Class="pa-2" data-qts-state="empty">
+            Nothing is held for this @AggregateWords yet.
+        </MudText>
+    }
+    else
+    {
+        <MudTable Items="_rows" Dense="true" ReadOnly="true" Hover="true" data-qts-region="evidence-versions">
+            <HeaderContent>
+                <MudTh>Version</MudTh>
+                <MudTh>What it is</MudTh>
+                <MudTh>Type</MudTh>
+                <MudTh>Size</MudTh>
+                <MudTh>Digest</MudTh>
+                <MudTh>Placed here</MudTh>
+                <MudTh>Its place in the history</MudTh>
+                <MudTh></MudTh>
+            </HeaderContent>
+            <RowTemplate>
+                <MudTd DataLabel="Version">@context.Version</MudTd>
+                <MudTd DataLabel="What it is">@context.Title</MudTd>
+                <MudTd DataLabel="Type">@context.ContentType</MudTd>
+                <MudTd DataLabel="Size">@BytesWords(context.SizeBytes)</MudTd>
+                <MudTd DataLabel="Digest">@($"{context.Sha256[..Math.Min(12, context.Sha256.Length)]}…")</MudTd>
+                <MudTd DataLabel="Placed here">@context.UploadedAtUtc.ToUniversalTime().ToString("yyyy-MM-dd HH:mm")</MudTd>
+                <MudTd DataLabel="History">@DocumentEvidenceRules.VersionWords(context)</MudTd>
+                <MudTd>
+                    <MudButton Size="Size.Small" Variant="Variant.Outlined" StartIcon="@Icons.Material.Filled.Download"
+                               OnClick="@(() => KeepAsync(context))" Disabled="@(_busy || !Files.CanSaveFiles)"
+                               data-qts-action="keep-evidence">
+                        Keep a copy
+                    </MudButton>
+                </MudTd>
+            </RowTemplate>
+        </MudTable>
+
+        <MudText Typo="Typo.caption" Color="Color.Secondary" Class="d-block mt-2" data-qts-state="retention">
+            @DocumentEvidenceRules.HistoryRule @DocumentEvidenceRules.BackupRule
+        </MudText>
+    }
+</MudPaper>

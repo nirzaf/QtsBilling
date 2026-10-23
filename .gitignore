@@ -409,3 +409,7 @@ appsettings.*.local.json
 # Runtime diagnostics artefacts (task 34): a support bundle is written on the instance's own disk, on an operator's
 # request, and holds that business's audit trail - redacted or not, it is never committed and never uploaded.
 **/support-bundles/
+
+# Local document evidence (task 39): the bytes an instance holds for its own documents, in a private directory
+# outside webroot. They are this business's files on this machine, so they are never committed and never uploaded.
+**/document-evidence/

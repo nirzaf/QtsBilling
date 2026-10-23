@@ -228,6 +228,16 @@ public static class MauiProgram
             })
             .AddHttpMessageHandler<SessionAuthHandler>();
 
+        // Local document evidence on the terminal as well (specification task 39): the same typed contract, the same
+        // bearer channel, and a longer timeout because a picture of a delivery note is a real file over a real link.
+        builder.Services
+            .AddHttpClient<QtsBilling.Contracts.Documents.IDocumentApiClient, QtsBilling.Contracts.Documents.DocumentApiClient>((services, client) =>
+            {
+                client.BaseAddress = services.GetRequiredService<IServerSettings>().ServerBaseUrl;
+                client.Timeout = TimeSpan.FromSeconds(120);
+            })
+            .AddHttpMessageHandler<SessionAuthHandler>();
+
         builder.Services
             .AddHttpClient<QtsBilling.Contracts.Purchasing.ISupplierApiClient, QtsBilling.Contracts.Purchasing.SupplierApiClient>((services, client) =>
             {

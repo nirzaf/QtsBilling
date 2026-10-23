@@ -42,9 +42,11 @@ public sealed record StoredFile
             throw new ArgumentException("A saved report carries a bare file name, never a path or a parent segment.", nameof(fileName));
         }
 
-        if (!trimmed.EndsWith(".csv", StringComparison.OrdinalIgnoreCase))
+        if (!HasAllowedExtension(trimmed))
         {
-            throw new ArgumentException("Only the CSV report export is offered as a local file.", nameof(fileName));
+            throw new ArgumentException(
+                "Only a report export (CSV) and a held piece of evidence (PDF, JPEG, PNG) are offered as a local file.",
+                nameof(fileName));
         }
 
         if (content.Length == 0)
@@ -68,6 +70,20 @@ public sealed record StoredFile
     public byte[] Content { get; }
 
     public int Bytes => Content.Length;
+
+    /// <summary>
+    /// The extensions a local file may carry: the report export and the evidence types this instance is willing to
+    /// hold at all (specification tasks 33 and 39). An active type is absent on purpose - a saved file is a thing to
+    /// open in an application of the operator's choosing, not a thing the browser was made to run.
+    /// </summary>
+    private static readonly IReadOnlyList<string> AllowedExtensions = [".csv", ".pdf", ".jpg", ".jpeg", ".png"];
+
+    public static bool HasAllowedExtension(string fileName)
+    {
+        var dot = fileName.LastIndexOf('.');
+
+        return dot > 0 && AllowedExtensions.Contains(fileName[dot..].ToLowerInvariant(), StringComparer.Ordinal);
+    }
 }
 
 /// <summary>

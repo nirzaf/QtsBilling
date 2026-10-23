@@ -76,6 +76,12 @@ public static class ApiErrorCodes
     public const string OptimisticConcurrencyFailure = "CONCURRENCY_CONFLICT";
     public const string StoreUnavailable = "STORE_UNAVAILABLE";
 
+    /// <summary>
+    /// A payload or a stored object is bigger than the bound this instance publishes for it. Local evidence has a
+    /// size limit on purpose - a self-hosted disk is the whole of the storage plan (specification task 39).
+    /// </summary>
+    public const string PayloadTooLarge = "PAYLOAD_TOO_LARGE";
+
     /// <summary>The stock carries no value, so its cost cannot be determined (specification D06).</summary>
     public const string ValuationRequired = "VALUATION_REQUIRED";
 

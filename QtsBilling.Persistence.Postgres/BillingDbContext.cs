@@ -183,6 +183,9 @@ public partial class BillingDbContext : IdentityDbContext<User, IdentityRole<Gui
 
     public DbSet<AuditEvent> AuditEvents => Set<AuditEvent>();
 
+    /// <summary>Local document evidence: metadata for bytes this instance keeps on its own disk (task 39).</summary>
+    public DbSet<DocumentEvidence> DocumentEvidence => Set<DocumentEvidence>();
+
     public DbSet<InstanceBootstrap> InstanceBootstraps => Set<InstanceBootstrap>();
 
     public DbSet<IdempotencyReceipt> IdempotencyReceipts => Set<IdempotencyReceipt>();
