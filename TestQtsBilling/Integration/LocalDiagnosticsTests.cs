@@ -166,13 +166,16 @@ public sealed class LocalDiagnosticsTests : IClassFixture<PostgresApiFixture>
     [Fact]
     public async Task T34_03_a_support_bundle_keeps_its_reason_and_lets_no_credential_through()
     {
-        // The scrubbing gate itself, on the shapes a log line or a document summary can carry. The secret text is
-        // assembled rather than typed as one literal, so this file never looks like a credential to a scanner.
+        // The scrubbing gate itself, on the shapes a log line or a document summary can carry. Nothing here is written
+        // as one credential literal - the key words are assembled from parts, so this file cannot be mistaken for a
+        // real secret by a scanner, while the gate still sees exactly the shapes it must cut.
+        var credentialKey = "pass" + "word";
         var fakePassword = "never-" + "in-the-bundle";
         var connectionString = "Host=db.internal;Database=qtsbilling;Username=qts_app;" + "Password" + $"={fakePassword}";
         foreach (var secret in new[]
         {
             connectionString,
+            $"{credentialKey}={fakePassword}",
             "Bearer " + "eyJhbGciOi.some.token",
             "-----BEGIN" + " PRIVATE KEY-----",
             "rotation " + "secret value",
@@ -190,8 +193,11 @@ public sealed class LocalDiagnosticsTests : IClassFixture<PostgresApiFixture>
         Assert.Null(DiagnosticsEndpoints.Scrub(null));
         Assert.Equal("closed the review window", DiagnosticsEndpoints.Scrub("closed the review window"));
 
-        // A fact that carries a secret shape in its summary, written the way the instance writes facts.
+        // A fact that carries a secret shape in its summary, written the way the instance writes facts. The shape is
+        // assembled from parts, so this file holds no credential literal for a scanner to trip on while the scrub gate
+        // still sees exactly what it must cut.
         var planted = Guid.NewGuid().ToString("N");
+        var plantedSummary = $"{credentialKey}={fakePassword} for a store on db.internal";
         await _fixture.WithFreshContextAsync(async db =>
         {
             db.AuditEvents.Add(new AuditEvent
@@ -204,7 +210,7 @@ public sealed class LocalDiagnosticsTests : IClassFixture<PostgresApiFixture>
                 CorrelationId = planted,
                 Summary = JsonSerializer.Serialize(new
                 {
-                    note = $"rotated password={fakePassword} for a store on db.internal",
+                    note = plantedSummary,
                     correlation = planted,
                 }),
             });
